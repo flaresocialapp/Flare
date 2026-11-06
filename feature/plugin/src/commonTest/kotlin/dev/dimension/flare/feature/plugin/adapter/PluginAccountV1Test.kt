@@ -218,6 +218,32 @@ class PluginAccountV1Test {
     }
 
     @Test
+    fun searchLoginCanNegotiateASubsetWhileExistingAccountsAdoptNewOperations() {
+        val search = PluginAbiV1.Capabilities.SEARCH
+        val plugin = plugin(setOf("posts", "profiles"), capability = search)
+        val account = credential(plugin, previous = setOf("posts"), negotiated = setOf("posts"), capability = search)
+        val success =
+            LoginSuccessV1(
+                accountId = account.snapshot.accountId,
+                origin = account.snapshot.origin,
+                profile = account.snapshot.profile,
+                credential = account.credential,
+                capabilities = mapOf(search to setOf("posts")),
+            )
+
+        assertEquals(success, plugin.requireLoginSuccess(success, account.snapshot.origin, null))
+        assertEquals(setOf("posts"), plugin.accountCredential(success).effectiveCapabilities(plugin).getValue(search))
+        assertEquals(setOf("posts", "profiles"), account.effectiveCapabilities(plugin).getValue(search))
+        assertFailsWith<IllegalArgumentException> {
+            plugin.requireLoginSuccess(
+                success.copy(capabilities = mapOf(search to setOf("posts", "discoverPosts"))),
+                account.snapshot.origin,
+                null,
+            )
+        }
+    }
+
+    @Test
     fun newManifestOperationIsAvailableWithoutRequiringRelogin() {
         val plugin = plugin(setOf("detail", "context"))
         val account = credential(plugin, previous = setOf("detail"), negotiated = setOf("detail"))
@@ -471,6 +497,7 @@ class PluginAccountV1Test {
         plugin: RunningPluginV1,
         previous: Set<String>,
         negotiated: Set<String>,
+        capability: String = PluginAbiV1.Capabilities.POST,
     ): PluginAccountCredentialV1 =
         PluginAccountCredentialV1(
             snapshot =
@@ -487,8 +514,8 @@ class PluginAccountV1Test {
                             "me",
                             "Me",
                         ),
-                    manifestCapabilities = mapOf(PluginAbiV1.Capabilities.POST to previous),
-                    negotiatedCapabilities = mapOf(PluginAbiV1.Capabilities.POST to negotiated),
+                    manifestCapabilities = mapOf(capability to previous),
+                    negotiatedCapabilities = mapOf(capability to negotiated),
                     credentialSchemaVersion = plugin.installed.manifest.platform.credentialSchemaVersion,
                 ),
             credential = JsonObject(emptyMap()),
@@ -498,6 +525,7 @@ class PluginAccountV1Test {
         operations: Set<String>,
         credentialSchemaVersion: Int = 1,
         apiVersion: Int = 1,
+        capability: String = PluginAbiV1.Capabilities.POST,
     ): RunningPluginV1 {
         val manifest =
             PluginManifestV1(
@@ -512,7 +540,7 @@ class PluginAccountV1Test {
                         credentialSchemaVersion = credentialSchemaVersion,
                         capabilities =
                             mapOf(
-                                PluginAbiV1.Capabilities.POST to
+                                capability to
                                     CapabilityManifestV1(
                                         operations.associateWith { CapabilityOperationManifestV1() },
                                     ),
