@@ -3,7 +3,15 @@ import XCTest
 
 final class MediaViewerInteractionTests: XCTestCase {
     @MainActor
-    private func openMedia(video: Bool = false, withoutPost: Bool = false, indicator: Bool = false, hidePostActions: Bool = false, translation: Bool = false, translationError: Bool = false) -> XCUIApplication {
+    private func openMedia(
+        video: Bool = false,
+        withoutPost: Bool = false,
+        indicator: Bool = false,
+        hidePostActions: Bool = false,
+        translation: Bool = false,
+        translationError: Bool = false,
+        zeroHeightSummary: Bool = false
+    ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--media-viewer-test", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         if video { app.launchArguments.append("--video") }
@@ -12,6 +20,7 @@ final class MediaViewerInteractionTests: XCTestCase {
         if withoutPost { app.launchArguments.append("--without-post") }
         if indicator { app.launchArguments.append("--indicator") }
         if hidePostActions { app.launchArguments.append("--hide-post-actions") }
+        if zeroHeightSummary { app.launchArguments.append("--zero-height-media-summary") }
         app.launch()
         let open = app.buttons["media-fixture-open"]
         XCTAssertTrue(open.waitForExistence(timeout: 15))
@@ -506,6 +515,18 @@ final class MediaViewerInteractionTests: XCTestCase {
     @MainActor
     func testVideoSummaryLayout() {
         checkSummaryLayout(video: true)
+    }
+
+    @MainActor
+    func testVideoSummaryControlsStayBelowGrabberWithZeroHeightProposal() {
+        let app = openMedia(video: true, zeroHeightSummary: true)
+        defer { app.terminate() }
+
+        let grabber = app.buttons["Sheet Grabber"]
+        let slider = app.sliders["Playback position"]
+        XCTAssertTrue(slider.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(slider.frame.minY, grabber.frame.maxY, "The playback slider should be below the sheet grabber")
+        XCTAssertTrue(slider.isHittable)
     }
 
     @MainActor

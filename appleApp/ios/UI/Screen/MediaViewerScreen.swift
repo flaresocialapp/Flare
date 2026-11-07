@@ -525,7 +525,7 @@ struct MediaViewerScreen: View {
                             guard size.width > 1 else { return }
                             applyMeasuredPostSummaryHeight(size.height)
                         }
-                    Spacer(minLength: 0)
+                        .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                 }
             }
 
@@ -536,6 +536,9 @@ struct MediaViewerScreen: View {
                     content.presentationBackground(postDetent == .large ? .regularMaterial : .ultraThinMaterial)
                 }
             }
+            #if DEBUG
+            .mediaViewerTestSheetLayout(isCompact: postDetent != .large)
+            #endif
             .presentationDetents([.height(postSummary.height), .large], selection: $postDetent)
             .presentationCompactAdaptation(.none)
             .presentationDragIndicator(.visible)

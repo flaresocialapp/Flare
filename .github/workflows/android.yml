@@ -311,12 +311,13 @@ jobs:
             -only-testing:iOSTests/StateViewTests \
             -only-testing:iOSTests/TimelineCollectionViewTests/testRefreshCollapseAppliesAPendingPrependBookmarkBeforeAnimating \
             -parallel-testing-enabled NO -collect-test-diagnostics never
-      - name: Run timeline media scroll regressions
+      - name: Run media UI regressions
         working-directory: ./appleApp
         run: |
           xcodebuild test-without-building -project Flare.xcodeproj -scheme CI-iOS \
             -derivedDataPath build/DerivedData -destination "platform=iOS Simulator,id=$FLARE_TEST_SIMULATOR" \
             -only-testing:MediaViewerInteractionTests/TimelineMediaScrollTests \
+            -only-testing:MediaViewerInteractionTests/MediaViewerInteractionTests/testVideoSummaryControlsStayBelowGrabberWithZeroHeightProposal \
             -parallel-testing-enabled NO -collect-test-diagnostics never
       - name: Run image translation error UI regressions
         working-directory: ./appleApp

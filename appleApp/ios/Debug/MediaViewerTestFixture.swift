@@ -186,4 +186,19 @@ struct MediaViewerTestFixture: View {
         return UiTimelineV2.Post(platformId: "mastodon", images: medias, sensitive: false, contentWarning: nil, user: profile, platformIcon: IconType.Material(icon: .world), sourceLanguages: [], translationDisplayState: .hidden, content: UiTranslatableText(original: richText(String(repeating: "Post details for the native media sheet. ", count: 40)), translation: nil), actions: [action], poll: nil, statusKey: MicroBlogKey(id: "media-fixture", host: "example.invalid"), card: nil, createdAt: KotlinInstant.companion.fromEpochMilliseconds(epochMilliseconds: 0).toUi(), emojiReactions: [], sourceChannel: nil, visibility: nil, replyToHandle: nil, references: [], clickEvent: ClickEventNoop.shared, mediaClickPolicy: .openStatusMedia, accountType: AccountType.Guest.shared, itemKey: "media-fixture", pluginId: nil, authorSubtitleInternal: nil)
     }
 }
+
+extension View {
+    @ViewBuilder
+    func mediaViewerTestSheetLayout(isCompact: Bool) -> some View {
+        if isCompact,
+           ProcessInfo.processInfo.arguments.contains("--media-viewer-test"),
+           ProcessInfo.processInfo.arguments.contains("--zero-height-media-summary") {
+            // Simulate a zero-height layout proposal while keeping the native sheet at its measured detent.
+            frame(height: 0)
+                .frame(maxHeight: .infinity, alignment: .top)
+        } else {
+            self
+        }
+    }
+}
 #endif
