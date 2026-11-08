@@ -501,6 +501,16 @@ jobs:
       - *setup-java
       - name: Run Tests
         run: ./gradlew jvmTest :desktopApp:test
+      - name: Build diagnostic distribution
+        if: github.event_name == 'workflow_dispatch'
+        run: ./gradlew :desktopApp:createReleaseDistributable --stacktrace
+      - name: Upload Windows diagnostic ZIP
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v7
+        with:
+          name: Windows-diagnostics
+          path: desktopApp/build/compose/binaries/main-release/app/Flare/
+          if-no-files-found: error
       - name: Build and package Windows
         run: ./gradlew :desktopApp:check :desktopApp:build :desktopApp:packageReleaseAppx -x ktlintCheck --stacktrace
       - name: Build appxbundle with same version as appx

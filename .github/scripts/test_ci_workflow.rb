@@ -53,6 +53,16 @@ end
 check(groups.uniq.size == builds.size, 'Independent platforms must not cancel each other')
 check(jobs.fetch('upload').fetch('needs').to_set == (builds + ['lint']).to_set, 'Publishing must wait for every validation job')
 check(jobs.fetch('upload').fetch('if') == "startsWith(github.ref, 'refs/tags/')", 'Publishing must remain tag-only')
+
+windows_steps = jobs.fetch('build-windows').fetch('steps')
+diagnostic_build = windows_steps.find { |step| step.fetch('run', '').include?(':desktopApp:createReleaseDistributable') }
+diagnostic_upload = windows_steps.find { |step| step.dig('with', 'name') == 'Windows-diagnostics' }
+check(diagnostic_build && diagnostic_upload, 'Manual Windows builds must produce a downloadable diagnostic distribution')
+check([diagnostic_build, diagnostic_upload].all? { |step| step['if'] == "github.event_name == 'workflow_dispatch'" }, 'Diagnostic packaging must remain manual-only')
+check(windows_steps.index(diagnostic_build) < windows_steps.index(diagnostic_upload), 'Build the diagnostic distribution before uploading it')
+check(diagnostic_upload.fetch('uses').start_with?('actions/upload-artifact@') && diagnostic_upload.dig('with', 'path') == 'desktopApp/build/compose/binaries/main-release/app/Flare/', 'Upload the complete Windows application directory, including its runtime')
+check(diagnostic_upload.dig('with', 'if-no-files-found') == 'error', 'Missing diagnostic output must fail instead of silently skipping the upload')
+
 publishers = jobs.select { |_, job| job.fetch('steps').any? { |step| step.fetch('uses', '').start_with?('r0adkll/upload-google-play@') } }
 check(publishers.keys.to_set == %w[upload publish-google-play].to_set, 'Only tag releases and the explicit manual target may publish to Google Play')
 
