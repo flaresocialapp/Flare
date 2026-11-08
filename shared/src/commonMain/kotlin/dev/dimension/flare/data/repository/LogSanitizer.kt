@@ -51,6 +51,7 @@ internal object LogSanitizer {
             "ssig",
             "sig",
             "signature",
+            "i",
             "mail",
             "email",
             "mail_address",

@@ -143,8 +143,10 @@ import dev.dimension.flare.ui.model.onError
 import dev.dimension.flare.ui.model.onSuccess
 import dev.dimension.flare.ui.model.takeSuccess
 import dev.dimension.flare.ui.model.toUiImage
+import dev.dimension.flare.ui.presenter.compose.ComposeDiagnosticTrace
 import dev.dimension.flare.ui.presenter.compose.ComposePresenter
 import dev.dimension.flare.ui.presenter.compose.ComposeStatus
+import dev.dimension.flare.ui.presenter.compose.logComposeDiagnostic
 import dev.dimension.flare.ui.presenter.invoke
 import dev.dimension.flare.ui.theme.LocalComposeWindow
 import dev.dimension.flare.ui.theme.screenHorizontalPadding
@@ -512,6 +514,7 @@ fun ComposeDialog(
                                         !it.isShiftPressed &&
                                         it.key == Key.Enter
                                     ) {
+                                        logComposeDiagnostic("ui.shortcut canSend=${state.canSend}")
                                         if (state.canSend) {
                                             state.send {
                                                 onBack?.invoke()
@@ -1256,6 +1259,15 @@ private fun composePresenter(
             (mediaState is UiState.Success && mediaState.data.canAddMedia) &&
                 !(pollState is UiState.Success && pollState.data.enabled)
         }
+    val mediaCount = mediaState.takeSuccess()?.medias?.size ?: 0
+    val selectedProfiles = state.selectedUsers.takeSuccess()?.size ?: 0
+    LaunchedEffect(state.canSend, mediaCount, selectedProfiles, state.composeConfig::class.simpleName) {
+        logComposeDiagnostic(
+            "ui.gate canSend=${state.canSend} characters=${textFieldState.text.length} " +
+                "media=$mediaCount selectedProfiles=$selectedProfiles remaining=${state.remainingLength} " +
+                "config=${state.composeConfig::class.simpleName}",
+        )
+    }
     object {
         val remainingLength =
             remainingLength.map {
@@ -1316,8 +1328,19 @@ private fun composePresenter(
             )
 
         fun send(onDispatched: () -> Unit = {}) {
-            val data = buildComposeData()
-            state.send(data) { dispatched ->
+            val diagnostics = ComposeDiagnosticTrace()
+            diagnostics.log("ui.send canSend=${state.canSend}")
+            diagnostics.log("data.build.start")
+            val data =
+                try {
+                    buildComposeData()
+                } catch (error: Throwable) {
+                    diagnostics.log("data.build.failed", error)
+                    throw error
+                }
+            diagnostics.log("data.build.ready characters=${data.content.length} media=${data.medias.size}")
+            state.send(data, diagnostics) { dispatched ->
+                diagnostics.log("ui.dispatched value=$dispatched")
                 if (dispatched) {
                     // cleanup
                     textFieldState.edit {

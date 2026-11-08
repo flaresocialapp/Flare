@@ -27,6 +27,7 @@ import dev.dimension.flare.data.repository.LoginExpiredException
 import dev.dimension.flare.login_expired_relogin
 import dev.dimension.flare.notification_login_expired
 import dev.dimension.flare.plugin_operation_failed
+import dev.dimension.flare.ui.presenter.compose.logComposeDiagnostic
 import dev.dimension.flare.ui.presenter.login.ReloginTarget
 import io.github.composefluent.component.Button
 import io.github.composefluent.component.InfoBar
@@ -70,10 +71,12 @@ internal class ComposeInAppNotification : InAppNotification {
         progress: Int,
         total: Int,
     ) {
+        logComposeDiagnostic("notification.received kind=progress current=$progress total=$total")
         _source.value = Event(Notification.Progress(progress, total))
     }
 
     override fun onSuccess(message: Message) {
+        logComposeDiagnostic("notification.received kind=success")
         _source.value = Event(Notification.StringNotification(message.successTitle, success = true))
     }
 
@@ -81,6 +84,7 @@ internal class ComposeInAppNotification : InAppNotification {
         message: Message,
         throwable: Throwable,
     ) {
+        logComposeDiagnostic("notification.received kind=error type=${throwable::class.simpleName}")
         _source.value =
             Event(
                 Notification.StringNotification(
@@ -139,6 +143,9 @@ internal fun InAppNotificationComponent(
 ) {
     val source by notification.source.collectAsState()
     val content = remember(source) { source.getContentIfNotHandled() }
+    LaunchedEffect(source) {
+        logComposeDiagnostic("notification.ui kind=${content?.let { it::class.simpleName }}")
+    }
 
     content?.let {
         when (it) {

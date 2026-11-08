@@ -26,6 +26,7 @@ import dev.dimension.flare.data.datastore.AppDataStore
 import dev.dimension.flare.data.io.FileStorage
 import dev.dimension.flare.data.io.OkioFileStorage
 import dev.dimension.flare.data.repository.ComposeDraftBundle
+import dev.dimension.flare.data.repository.DebugRepository
 import dev.dimension.flare.data.repository.DraftMediaStore
 import dev.dimension.flare.data.repository.DraftRepository
 import dev.dimension.flare.data.repository.SaveDraftInput
@@ -63,9 +64,11 @@ import okio.Path
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNotNull
 import kotlin.test.assertNotSame
@@ -1214,6 +1217,7 @@ class SendDraftUseCaseTest : RobolectricTest() {
     @Test
     fun nativePreparationFailureReportsErrorAndReleasesSendAndSaveCallbacks() =
         runTest {
+            DebugRepository.clear()
             Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
             try {
                 val failingStore =
@@ -1268,6 +1272,11 @@ class SendDraftUseCaseTest : RobolectricTest() {
                 notified.await()
                 assertEquals(0, prepared)
                 assertEquals(1, failed)
+                val exported = DebugRepository.printToString()
+                assertContains(exported, "progress.emit current=0 max=1")
+                assertContains(exported, "draft.prepare.start")
+                assertContains(exported, "send.failed prepared=false")
+                assertContains(exported, "Cannot copy imported file")
                 notified = CompletableDeferred()
                 useCase.saveDraft(accounts, data, "failed-save", onSaved = { prepared++ }, onFailure = { failed++ })
                 notified.await()
@@ -1276,6 +1285,54 @@ class SendDraftUseCaseTest : RobolectricTest() {
             } finally {
                 Dispatchers.resetMain()
             }
+        }
+
+    @Test
+    fun cancelledBackgroundScopeIsDiagnosedBeforeAnyProgressOrPublish() =
+        runTest {
+            DebugRepository.clear()
+            val scope = CoroutineScope(coroutineContext + Job()).apply { cancel() }
+            val notification =
+                object : InAppNotification {
+                    override fun onProgress(
+                        message: Message,
+                        progress: Int,
+                        total: Int,
+                    ) = error("Must not notify")
+
+                    override fun onSuccess(message: Message) = error("Must not notify")
+
+                    override fun onError(
+                        message: Message,
+                        throwable: Throwable,
+                    ) = error("Must not notify")
+                }
+            val sent = mutableListOf<SentCompose>()
+            val useCase =
+                ComposeUseCase(
+                    scope = scope,
+                    inAppNotification = notification,
+                    appDataStore = AppDataStore(fileStorage),
+                    saveDraftUseCase = SaveDraftUseCase(repository, mediaStore),
+                    sendDraftUseCase = testUseCase(sent = sent),
+                )
+            val progress = mutableListOf<ComposeProgressState>()
+            useCase(
+                accounts = listOf(mastodonAccount("alice", "example.com")),
+                data = ComposeData(content = "private post body"),
+                groupId = "cancelled-diagnostics",
+                progress = { progress += it },
+            )
+            advanceUntilIdle()
+
+            val exported = DebugRepository.printToString()
+            assertContains(exported, "send.launch scopeActive=false accounts=1 media=0")
+            assertContains(exported, "send.completed cancelled=true")
+            assertFalse(exported.contains("send.enter"))
+            assertFalse(exported.contains("private post body"))
+            assertTrue(progress.isEmpty())
+            assertTrue(sent.isEmpty())
+            DebugRepository.clear()
         }
 
     @Test
@@ -1316,12 +1373,14 @@ class SendDraftUseCaseTest : RobolectricTest() {
             Dispatchers.setMain(UnconfinedTestDispatcher(testScheduler))
             try {
                 for (accounts in listOf(emptyList(), listOf(mastodonAccount("alice", "example.com")))) {
+                    DebugRepository.clear()
                     val composerScope = CoroutineScope(coroutineContext + Job())
                     val results = mutableListOf<Boolean>()
                     var dispatches = 0
                     composerScope.launchComposeWithAccounts(
                         accounts = flowOf(accounts),
                         onDispatched = { results += it },
+                        diagnostics = ComposeDiagnosticTrace(),
                         dispatch = { dispatches++ },
                     )
                     advanceUntilIdle()
@@ -1329,6 +1388,9 @@ class SendDraftUseCaseTest : RobolectricTest() {
                     advanceUntilIdle()
                     assertEquals(if (accounts.isEmpty()) 0 else 1, dispatches)
                     assertEquals(if (accounts.isEmpty()) listOf(false) else emptyList(), results)
+                    val exported = DebugRepository.printToString()
+                    assertContains(exported, "accounts.resolved count=${accounts.size}")
+                    assertContains(exported, if (accounts.isEmpty()) "accounts.notDispatched" else "accounts.handedOff")
                 }
             } finally {
                 Dispatchers.resetMain()

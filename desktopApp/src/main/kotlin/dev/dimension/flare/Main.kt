@@ -28,6 +28,7 @@ import dev.dimension.flare.ui.component.PlatformTitleBar
 import dev.dimension.flare.ui.component.PlatformWindow
 import dev.dimension.flare.ui.component.proxyImageFetcherFactory
 import dev.dimension.flare.ui.component.status.ProvideDesktopTimelineMediaActions
+import dev.dimension.flare.ui.presenter.compose.logComposeDiagnostic
 import dev.dimension.flare.ui.theme.FlareTheme
 import dev.dimension.flare.ui.theme.ProvideComposeWindow
 import dev.dimension.flare.ui.theme.ProvideThemeSettings
@@ -83,6 +84,10 @@ fun main(args: Array<String>) {
     if (!isFirstInstance) {
         return
     }
+    logComposeDiagnostic(
+        "desktop.start version=${BuildConfig.versionName} java=${System.getProperty("java.version")} " +
+            "os=${System.getProperty("os.name")} osVersion=${System.getProperty("os.version")}",
+    )
     startKoin<DesktopKoinApplication>()
     application {
         setSingletonImageLoaderFactory { context ->

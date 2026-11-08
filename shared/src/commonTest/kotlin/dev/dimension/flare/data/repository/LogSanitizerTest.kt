@@ -7,6 +7,15 @@ import kotlin.test.assertFalse
 
 class LogSanitizerTest {
     @Test
+    fun sanitizeRedactsMisskeyCredentials() {
+        val sanitized = LogSanitizer.sanitize("""{"userId":"public-user","i":"private-credential"}""")
+
+        assertContains(sanitized, "\"i\":\"[REDACTED]\"")
+        assertContains(sanitized, "\"userId\":\"public-user\"")
+        assertFalse(sanitized.contains("private-credential"))
+    }
+
+    @Test
     fun sanitizeRedactsOAuthFormBody() {
         val log =
             "client_id=pixiv-client&client_secret=pixiv-secret&grant_type=authorization_code&" +

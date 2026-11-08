@@ -68,12 +68,14 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlin.io.encoding.Base64
 import kotlin.io.encoding.ExperimentalEncodingApi
+import kotlin.native.HiddenFromObjC
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @WebPresenter("compose")
@@ -620,7 +622,15 @@ public class ComposePresenter(
                 data: ComposeData,
                 onDispatched: (Boolean) -> Unit,
             ) {
-                scope.launchComposeWithAccounts(selectedAccountsFlow, onDispatched) { selectedAccounts ->
+                send(data, ComposeDiagnosticTrace(), onDispatched)
+            }
+
+            override fun send(
+                data: ComposeData,
+                diagnostics: ComposeDiagnosticTrace,
+                onDispatched: (Boolean) -> Unit,
+            ) {
+                scope.launchComposeWithAccounts(selectedAccountsFlow, onDispatched, diagnostics) { selectedAccounts ->
                     composeUseCase.invoke(
                         accounts = selectedAccounts,
                         data = data,
@@ -633,6 +643,7 @@ public class ComposePresenter(
                         onPreparationFailed = {
                             withContext(Dispatchers.Main) { onDispatched(false) }
                         },
+                        diagnostics = diagnostics,
                     )
                 }
             }
@@ -878,22 +889,32 @@ internal fun observeSelectedComposeAccountKeys(
 internal fun CoroutineScope.launchComposeWithAccounts(
     accounts: Flow<List<UiAccount>>,
     onDispatched: (Boolean) -> Unit,
+    diagnostics: ComposeDiagnosticTrace? = null,
     dispatch: (List<UiAccount>) -> Unit,
 ) {
+    diagnostics?.log("accounts.launch scopeActive=$isActive")
     // Install cleanup before the composer's scope can be cancelled.
-    launch(start = CoroutineStart.UNDISPATCHED) {
-        var handedOff = false
-        try {
-            val selectedAccounts = accounts.firstOrNull().orEmpty()
-            if (selectedAccounts.isNotEmpty()) {
-                dispatch(selectedAccounts)
-                handedOff = true
-            }
-        } finally {
-            if (!handedOff) {
-                withContext(NonCancellable + Dispatchers.Main) { onDispatched(false) }
+    val job =
+        launch(start = CoroutineStart.UNDISPATCHED) {
+            var handedOff = false
+            try {
+                diagnostics?.log("accounts.lookup.start")
+                val selectedAccounts = accounts.firstOrNull().orEmpty()
+                diagnostics?.log("accounts.resolved count=${selectedAccounts.size}")
+                if (selectedAccounts.isNotEmpty()) {
+                    dispatch(selectedAccounts)
+                    handedOff = true
+                    diagnostics?.log("accounts.handedOff")
+                }
+            } finally {
+                if (!handedOff) {
+                    diagnostics?.log("accounts.notDispatched")
+                    withContext(NonCancellable + Dispatchers.Main) { onDispatched(false) }
+                }
             }
         }
+    job.invokeOnCompletion { cause ->
+        diagnostics?.log("accounts.completed cancelled=${job.isCancelled}", cause)
     }
 }
 
@@ -1084,6 +1105,16 @@ public abstract class ComposeState(
         data: ComposeData,
         onDispatched: (Boolean) -> Unit,
     )
+
+    @HiddenFromObjC
+    @WebIgnore
+    public open fun send(
+        data: ComposeData,
+        diagnostics: ComposeDiagnosticTrace,
+        onDispatched: (Boolean) -> Unit,
+    ) {
+        send(data, onDispatched)
+    }
 
     public abstract fun sendDirect(
         content: String,

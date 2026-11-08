@@ -13,6 +13,7 @@ import dev.dimension.flare.ui.model.UiAccount
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.core.annotation.Provided
@@ -32,6 +33,7 @@ internal class ComposeUseCase(
         groupId: String,
         onPrepared: suspend () -> Unit = {},
         onPreparationFailed: suspend () -> Unit = {},
+        diagnostics: ComposeDiagnosticTrace = ComposeDiagnosticTrace(),
     ) {
         invoke(
             accounts = accounts,
@@ -39,10 +41,12 @@ internal class ComposeUseCase(
             groupId = groupId,
             onPrepared = onPrepared,
             onPreparationFailed = onPreparationFailed,
+            diagnostics = diagnostics,
         ) {
             if (it is ComposeProgressState.Error) {
                 DebugRepository.error(it.throwable)
             }
+            diagnostics.log("notification.dispatch state=${it::class.simpleName}")
             withContext(Dispatchers.Main) {
                 when (it) {
                     is ComposeProgressState.Error -> {
@@ -58,6 +62,7 @@ internal class ComposeUseCase(
                     }
                 }
             }
+            diagnostics.log("notification.dispatched state=${it::class.simpleName}")
         }
     }
 
@@ -67,36 +72,52 @@ internal class ComposeUseCase(
         groupId: String,
         onPrepared: suspend () -> Unit = {},
         onPreparationFailed: suspend () -> Unit = {},
+        diagnostics: ComposeDiagnosticTrace = ComposeDiagnosticTrace(),
         progress: suspend (ComposeProgressState) -> Unit,
     ) {
-        scope.launch {
-            var prepared = false
-            tryRun {
-                progress.invoke(ComposeProgressState.Progress(0, 1))
-                appDataStore.composeConfigData.updateData {
-                    it.copy(
-                        visibility = data.visibility,
-                        lastAccounts =
-                            if (data.referenceStatus == null) {
-                                accounts.map { account -> account.accountKey }
-                            } else {
-                                it.lastAccounts
-                            },
+        diagnostics.log("send.launch scopeActive=${scope.isActive} accounts=${accounts.size} media=${data.medias.size}")
+        val job =
+            scope.launch {
+                diagnostics.log("send.enter")
+                var prepared = false
+                tryRun {
+                    diagnostics.log("progress.emit current=0 max=1")
+                    progress.invoke(ComposeProgressState.Progress(0, 1))
+                    diagnostics.log("settings.start")
+                    appDataStore.composeConfigData.updateData {
+                        it.copy(
+                            visibility = data.visibility,
+                            lastAccounts =
+                                if (data.referenceStatus == null) {
+                                    accounts.map { account -> account.accountKey }
+                                } else {
+                                    it.lastAccounts
+                                },
+                        )
+                    }
+                    diagnostics.log("settings.ready")
+                    diagnostics.log("draft.prepare.start")
+                    sendDraftUseCase(
+                        bundle = data.toComposeDraftBundle(accounts = accounts, groupId = groupId),
+                        onPrepared = {
+                            prepared = true
+                            diagnostics.log("draft.prepared")
+                            onPrepared()
+                        },
+                        progress = { state ->
+                            diagnostics.log("send.progress state=${state::class.simpleName}")
+                            progress(state)
+                        },
                     )
+                }.onFailure { error ->
+                    diagnostics.log("send.failed prepared=$prepared", error)
+                    if (!prepared) onPreparationFailed()
+                    if (error is CancellationException) throw error
+                    progress(ComposeProgressState.Error(error))
                 }
-                sendDraftUseCase(
-                    bundle = data.toComposeDraftBundle(accounts = accounts, groupId = groupId),
-                    onPrepared = {
-                        prepared = true
-                        onPrepared()
-                    },
-                    progress = progress,
-                )
-            }.onFailure { error ->
-                if (!prepared) onPreparationFailed()
-                if (error is CancellationException) throw error
-                progress(ComposeProgressState.Error(error))
             }
+        job.invokeOnCompletion { cause ->
+            diagnostics.log("send.completed cancelled=${job.isCancelled}", cause)
         }
     }
 

@@ -4,9 +4,11 @@ import dev.dimension.flare.common.PlatformDispatchers
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.native.HiddenFromObjC
+import kotlin.time.Clock
 
 @PublishedApi
 internal object DebugRepository {
@@ -24,7 +26,7 @@ internal object DebugRepository {
     internal fun setEnabled(enabled: Boolean) {
         _enabled.value = enabled
         if (!enabled) {
-            _messages.value = _messages.value.takeLast(MAX_MESSAGES)
+            _messages.update { it.takeLast(MAX_MESSAGES) }
         }
     }
 
@@ -34,9 +36,30 @@ internal object DebugRepository {
     internal fun log(message: String) {
         if (_enabled.value) {
             scope.launch {
-                _messages.value = (_messages.value + LogSanitizer.sanitize(message)).takeLast(messageLimit)
+                append(message)
             }
         }
+    }
+
+    internal fun diagnostic(
+        message: String,
+        throwable: Throwable? = null,
+    ) {
+        // Record startup and cancelled-scope diagnostics without relying on another coroutine.
+        append(
+            buildString {
+                append("[DEBUG-compose] ${Clock.System.now()} $message")
+                throwable?.let {
+                    appendLine()
+                    append(it.stackTraceToString())
+                }
+            },
+        )
+    }
+
+    private fun append(message: String) {
+        val sanitized = LogSanitizer.sanitize(message)
+        _messages.update { (it + sanitized).takeLast(messageLimit) }
     }
 
     public fun error(exception: Throwable) {
@@ -52,14 +75,12 @@ internal object DebugRepository {
                     appendLine("Stacktrace:")
                     append(exception.stackTraceToString())
                 }
-            _messages.value = (_messages.value + LogSanitizer.sanitize(message)).takeLast(messageLimit)
+            append(message)
         }
     }
 
     internal fun clear() {
-        scope.launch {
-            _messages.value = emptyList()
-        }
+        _messages.value = emptyList()
     }
 
     internal fun printToString(): String = LogSanitizer.sanitize(_messages.value.joinToString(separator = "\n"))
