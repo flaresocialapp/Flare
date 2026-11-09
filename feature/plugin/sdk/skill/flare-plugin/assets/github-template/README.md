@@ -10,7 +10,7 @@ fixture HTTP responses through the real QuickJS runtime.
 
 If you created this project with `npx flare-plugin-sdk@next init my-plugin`, work
 inside `my-plugin` and keep its generated plugin/platform IDs. If you copied the
-template manually, first copy its contents to your repository root and replace
+template manually, first copy its contents to your plugin directory and replace
 the example `manifest.id`, `platform.id`, and names. Keep IDs stable for updates.
 For manual copies, also rename `_gitignore` to `.gitignore`; `init` does this for you.
 
@@ -88,7 +88,8 @@ for reload restrictions, credential changes, and platform acceptance checks.
 
 ## 3. Publish and install through GitHub (recommended)
 
-Create a public GitHub repository with these ready-to-run files at its root:
+Create a public GitHub repository with these ready-to-run files in the selected
+plugin directory (the repository root by default):
 
 ```text
 manifest.json
@@ -119,15 +120,15 @@ git push -u origin main
 ```
 
 Use the existing Git setup if the project is already a repository. The generated
-`manifest.version` is `0.1.0`. After pushing the matching commit, publish its stable tag:
+`manifest.version` is `0.1.0`. After pushing the built files, publish a stable repository snapshot tag:
 
 ```sh
 git tag v0.1.0
 git push origin refs/tags/v0.1.0
 ```
 
-If you changed the manifest version, commit/push it and use that exact version
-after the optional lowercase `v`. npm SDK versions and plugin versions are
+Commit/push each changed plugin's manifest version and built files before tagging.
+The repository snapshot tag, each plugin's version, and the npm SDK version are
 independent. Flare ignores prerelease plugin tags; a branch alone is insufficient.
 A GitHub Release and uploaded `.fpp` asset are unnecessary.
 
@@ -136,9 +137,16 @@ Stop development, then in **Settings → Plugins → Add → Install from GitHub
 and permissions, and confirm. Installation takes effect immediately. Select the
 plugin platform, HTTPS API origin, and real access token to verify it on each target
 device. For later updates, increment `manifest.version`, commit/push, and publish
-a new matching stable tag while preserving IDs. Check for updates in Flare and
+a newer stable repository snapshot tag while preserving IDs and directory. Check for updates in Flare and
 review/confirm the new version. See the
 [publication and update rules](https://github.com/DimensionDev/Flare/blob/feature/plugin/feature/plugin/sdk/skill/flare-plugin/references/publishing.md).
+
+Several plugins can share one repository. Each directory must contain a complete
+plugin with unique plugin/platform IDs. Install a subdirectory using
+`https://github.com/OWNER/REPO?path=/plugins/example`; omit `path` for root.
+The latest stable tag selects the repository snapshot, while each plugin keeps
+its own manifest version. Unchanged runtime files do not offer updates.
+Downloads over 20 MiB ask for confirmation; see the publishing guide for limits.
 
 ## Alternative: package a local file
 

@@ -76,6 +76,16 @@ public class PluginAppleFacadeV1 : PresenterBase<PluginManagementStateV1>() {
     }
 
     @Throws(Exception::class)
+    public suspend fun confirmRepositoryDownload() {
+        presenter.confirmRepositoryDownload()
+    }
+
+    @Throws(Exception::class)
+    public suspend fun cancelRepositoryDownload() {
+        presenter.cancelRepositoryDownload()
+    }
+
+    @Throws(Exception::class)
     public suspend fun checkUpdates(forceRefresh: Boolean) {
         presenter.checkUpdates(forceRefresh)
     }

@@ -100,11 +100,11 @@ See [development and testing details](https://github.com/DimensionDev/Flare/blob
 
 ## Publish and install through GitHub (recommended)
 
-1. Create a public GitHub repository. Its tagged root must contain `manifest.json`,
+1. Create a public GitHub repository. Its selected plugin directory must contain `manifest.json`,
    the ready-to-run `plugin.js`, exactly one supported `assets/icon.<extension>`,
    and optional `locales/*.json`. Update the project README with the actual website,
    login instructions, supported features, and verification results. Flare reads
-   these files directly; commit any compiled output at the root before tagging.
+   these files directly; commit compiled output in the plugin directory before tagging.
 2. Run `npm run build`, then commit both source and the resulting root `plugin.js`.
    The generated `.gitignore` excludes dependencies, temporary files and `.fpp`
    archives, while retaining `plugin.js`. Commit the `package-lock.json` created
@@ -123,8 +123,8 @@ See [development and testing details](https://github.com/DimensionDev/Flare/blob
 
    Use your existing Git setup if the project is already a repository. Keep real
    credentials, private fixtures, `node_modules`, and build caches out of Git.
-3. Set a stable `manifest.version` and push a matching tag. The generated version
-   is `0.1.0`, so the first release can use:
+3. Set the plugin's SemVer `manifest.version` and publish a stable repository
+   snapshot tag. These versions are independent; the first snapshot can use:
 
    ```sh
    git tag v0.1.0
@@ -141,10 +141,17 @@ See [development and testing details](https://github.com/DimensionDev/Flare/blob
    Installation takes effect immediately. Add/log in to the plugin account and
    verify its behavior on that device.
 5. For updates, increment `manifest.version`, commit and push, then publish a new
-   matching stable tag. Keep plugin/platform IDs unchanged. In Flare, check for
+   stable repository snapshot tag. Keep plugin/platform IDs and directory unchanged. In Flare, check for
    updates and review/confirm the offered version; app restart is unnecessary.
 
-See [GitHub publication and update rules](https://github.com/DimensionDev/Flare/blob/feature/plugin/feature/plugin/sdk/skill/flare-plugin/references/publishing.md).
+Several plugins can share one repository. Each directory must contain a complete
+plugin with unique plugin/platform IDs. Install a subdirectory using
+`https://github.com/OWNER/REPO?path=/plugins/example`; omit `path` for root.
+The latest stable tag selects the repository snapshot, while each plugin keeps
+its own manifest version. Unchanged runtime files do not offer updates.
+Downloads over 20 MiB ask for confirmation; see the publishing guide for limits.
+
+See [GitHub publication and update rules](https://github.com/flaresocialapp/Flare/blob/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin/references/publishing.md).
 
 ## Optional: package and install a local file
 

@@ -60,6 +60,8 @@ class PluginGitHubInstallTest {
             assertEquals(source, installed.source)
             assertTrue(store.running.plugins.isEmpty())
 
+            val oldIndex = fileSystem.read(store.paths.index) { readUtf8() }.replace(",\"path\":\"\"", "")
+            fileSystem.write(store.paths.index) { writeUtf8(oldIndex) }
             val restarted = PluginStateStore.open(fileSystem, root / "store")
             assertEquals(
                 installed,
@@ -143,12 +145,14 @@ class PluginGitHubInstallTest {
         }
 
     @Test
-    fun mismatchedVersionsAndPluginIdentityCannotReplaceAnInstalledPlugin() =
+    fun repositorySnapshotAndPluginVersionsAreIndependentButPluginIdentityIsPreserved() =
         runTest {
             val archive = root / "source.zip"
             TestFppFactory.write(archive, TestFppFactory.validEntries().map { (name, bytes) -> "repo-root/$name" to bytes })
             val installed = installer.commit(installer.inspect(archive, source()), true, activate = store::install)
-            assertFails { installer.inspect(archive, source(tag = "v2.0.0")) }
+            val nextSnapshot = installer.inspect(archive, source(tag = "v2.0.0"))
+            assertEquals("1.0.0", nextSnapshot.version)
+            installer.discard(nextSnapshot)
             assertFails { installer.inspect(archive, source(), expectedPluginId = "different.plugin") }
             assertEquals(
                 installed,
@@ -178,7 +182,7 @@ class PluginGitHubInstallTest {
         }
 
     @Test
-    fun ignoredRepositoryFilesAreStillSubjectToUncompressedSizeLimits() =
+    fun ignoredRepositoryFilesUseTheRepositoryLimitInsteadOfThePluginLimit() =
         runTest {
             val archive = root / "source.zip"
             TestFppFactory.write(
@@ -186,11 +190,78 @@ class PluginGitHubInstallTest {
                 TestFppFactory.validEntries().map { (name, bytes) -> "repo-root/$name" to bytes } +
                     ("repo-root/ignored.txt" to ByteArray(FppLimits.MAX_UNCOMPRESSED_BYTES.toInt())),
             )
-            assertFails { installer.inspect(archive, source()) }
+            val preview = installer.inspect(archive, source())
+            assertTrue(preview.packageSize < FppLimits.MAX_PACKAGE_BYTES)
+            installer.discard(preview)
             assertTrue(
                 store.desired.value.plugins
                     .isEmpty(),
             )
+        }
+
+    @Test
+    fun subdirectoryInstallsPersistTheirPathAndDoNotMixSiblingFiles() =
+        runTest {
+            val archive = root / "source.zip"
+            val entries = TestFppFactory.validEntries()
+            TestFppFactory.write(
+                archive,
+                entries.map { (name, bytes) -> "repo-root/plugins/first/$name" to bytes } +
+                    entries.map { (name, bytes) -> "repo-root/plugins/first-other/$name" to bytes } +
+                    entries.map { (name, bytes) -> "repo-root/$name" to bytes },
+            )
+            val source = source(tag = "v9.0.0").copy(path = "plugins/first")
+            val preview = installer.inspect(archive, source)
+            val installed = installer.commit(preview, true, activate = store::install)
+            assertEquals("1.0.0", installed.version)
+            val reopened = PluginStateStore.open(fileSystem, root / "store")
+            assertEquals(
+                source,
+                reopened.running.plugins
+                    .getValue(installed.pluginId)
+                    .installed.source,
+            )
+            assertEquals(entries.size, FppArchiveReader(fileSystem).read(store.paths.packagePath(installed.packageHash)).files.size)
+
+            assertFails { installer.inspect(archive, source.copy(path = "plugins/fir")) }
+            assertFails { installer.inspect(archive, source.copy(path = "../first")) }
+            assertFails { installer.inspect(archive, source.copy(path = "plugins/first-other"), expectedPluginId = installed.pluginId) }
+            val moved = installer.inspect(archive, source.copy(path = "plugins/first-other"))
+            assertTrue(moved.warnings.any { it.type == PluginInstallWarningTypeV1.SourceChanged })
+            installer.discard(moved)
+            assertEquals(
+                installed,
+                reopened.running.plugins
+                    .getValue(installed.pluginId)
+                    .installed,
+            )
+        }
+
+    @Test
+    fun repositoryExpansionLimitCannotBeBypassedByIgnoredFiles() =
+        runTest {
+            val archive = root / "source.zip"
+            TestFppFactory.write(archive, listOf("repo-root/ignored.bin" to byteArrayOf(1)))
+            TestFppFactory.patchLittleEndian(archive, 0x04034b50, 22, FppLimits.MAX_REPOSITORY_UNCOMPRESSED_BYTES + 1, 4)
+            TestFppFactory.patchLittleEndian(archive, 0x02014b50, 24, FppLimits.MAX_REPOSITORY_UNCOMPRESSED_BYTES + 1, 4)
+            val error = assertFails { installer.inspect(archive, source()) }
+            assertTrue(error.message.orEmpty().contains("Repository exceeds"))
+        }
+
+    @Test
+    fun cleanupProtectsAnActiveDownloadAndFailureRemovesIt() =
+        runTest {
+            var download: Path? = null
+            assertFails {
+                installer.withRepositoryDownload { path ->
+                    download = path
+                    fileSystem.write(path) { writeUtf8("partial download") }
+                    installer.cleanup(emptyList())
+                    assertTrue(fileSystem.exists(path))
+                    error("download cancelled")
+                }
+            }
+            assertFalse(fileSystem.exists(requireNotNull(download)))
         }
 
     @Test

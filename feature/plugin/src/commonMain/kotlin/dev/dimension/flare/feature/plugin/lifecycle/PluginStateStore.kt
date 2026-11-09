@@ -3,6 +3,7 @@ package dev.dimension.flare.feature.plugin.lifecycle
 import dev.dimension.flare.feature.plugin.abi.PluginAbiV1
 import dev.dimension.flare.feature.plugin.abi.PluginJsonV1
 import dev.dimension.flare.feature.plugin.github.COMMIT_SHA
+import dev.dimension.flare.feature.plugin.github.normalizePluginRepositoryPath
 import dev.dimension.flare.feature.plugin.github.stableGitHubVersion
 import dev.dimension.flare.feature.plugin.installer.FppLimits
 import dev.dimension.flare.feature.plugin.installer.FppPaths
@@ -307,7 +308,8 @@ private fun validateIndex(index: PluginStateIndexV1) {
         (plugin.source as? PluginInstallSourceV1.GitHub)?.let { source ->
             source.repository.requireValid()
             require(
-                stableGitHubVersion(source.tag) == plugin.version && COMMIT_SHA.matches(source.commitSha),
+                stableGitHubVersion(source.tag) != null && COMMIT_SHA.matches(source.commitSha) &&
+                    normalizePluginRepositoryPath(source.path) == source.path,
             ) { "Invalid GitHub installation source" }
         }
         require(HASH.matches(plugin.packageHash)) { "Invalid package hash" }

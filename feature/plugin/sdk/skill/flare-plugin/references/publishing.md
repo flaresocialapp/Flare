@@ -1,8 +1,9 @@
 # GitHub publication and upgrades
 
 GitHub is the recommended distribution path. Flare installs from a public
-`https://github.com/OWNER/REPOSITORY` URL (optional `.git` suffix), with one plugin
-at the repository root:
+`https://github.com/OWNER/REPOSITORY` URL (optional `.git` suffix). Add
+`?path=/plugins/example` to select a plugin directory. Omit the path for the
+repository root. Each selected directory contains a complete plugin:
 
 ```text
 manifest.json
@@ -19,9 +20,18 @@ supported. PNG remains the default in the templates.
 
 Development files may coexist in the repository. Flare selects the plugin files;
 it does not run a package manager, build script, or client-side bundler. Commit
-the already-built classic script, including all runtime dependencies. A Flare
-monorepo URL pointing to an example subdirectory is not a valid installation URL:
-copy that example's contents into a repository you own first.
+the already-built classic script, including all runtime dependencies. Several
+plugins can share a repository, with separate directories and unique
+plugin/platform IDs. Files and resources are relative to the selected plugin
+directory; runtime files cannot depend on siblings. For example:
+
+```text
+https://github.com/OWNER/REPOSITORY?path=/plugins/first
+https://github.com/OWNER/REPOSITORY?path=/plugins/second
+```
+
+Directory installation and independent plugin versions require a Flare release
+with this support; older Hosts only install root plugins with matching tags.
 
 ## Prepare and publish
 
@@ -30,17 +40,21 @@ copy that example's contents into a repository you own first.
    copies, replace the example plugin/platform IDs; keep the unique IDs generated
    by `npx flare-plugin-sdk@next init my-plugin` stable.
    Keep real tokens, Cookies, passwords, and private fixtures out of Git history.
-2. Put the required files at root and check that a clean checkout contains them.
+2. Put the required files in the selected plugin directory and check that a clean
+   checkout contains them.
    For the TS starter, run `npm run build` and commit `src/`, the build files,
-   `package-lock.json`, and the newly built root `plugin.js`. Keep `plugin.js`
+   `package-lock.json`, and the newly built `plugin.js` in that directory. Keep `plugin.js`
    tracked; the generated `.gitignore` excludes dependencies and local artifacts.
    Include README instructions for supported website/instances, token acquisition
    if relevant, features, permissions, and tests actually performed.
-3. Set a stable SemVer manifest version, for example `0.1.0`. Publish a tag
-   `0.1.0` or `v0.1.0` on the commit with those files. Removing the optional
-   **lowercase** `v` must exactly match manifest.version. Follow the same rule for
-   any permitted build metadata; plain major.minor.patch is the simplest choice.
-4. Share the repository URL. A GitHub Release page and uploaded `.fpp` asset are
+3. Set each plugin's own SemVer `manifest.version`. Publish a repository snapshot
+   tag such as `0.1.0` or `v0.1.0`; the optional prefix is **lowercase** `v`.
+   Flare selects the highest stable SemVer tag. The tag selects a repository
+   snapshot and does not need to equal any plugin's manifest version. Plugins in
+   the same repository can have independent versions. Increment the repository
+   tag whenever publishing a new snapshot.
+4. Share the repository URL, including `?path=/...` for a subdirectory. A GitHub
+   Release page and uploaded `.fpp` asset are
    not required. Creating/pushing the repository or tag follows the user's
    authorization; a generated project alone is not permission to publish it.
 5. The user enters the repository URL in Flare plugin management and clicks
@@ -60,20 +74,33 @@ version tag has no installable version, even if its default branch has valid fil
 
 Flare resolves the latest stable tag to a commit SHA and downloads that source ZIP.
 Archive checks also inspect ignored development files for unsafe paths/symlinks,
-duplicates, multiple roots, and size limits. Do not commit node_modules, build
-caches, or unrelated large assets. See [limits](troubleshooting.md#limits).
+duplicates, multiple roots, and size limits. Downloads above 20 MiB ask for
+confirmation, including when their final size is initially unknown. Confirmed
+downloads are limited to 200 MiB, 512 MiB declared uncompressed content, and
+50,000 ZIP entries. Single-plugin limits remain separate. Cancellation removes
+temporary downloads. Do not commit node_modules or build caches. See
+[limits](troubleshooting.md#limits).
 
 ## Updates and compatibility
 
-Increment manifest.version and publish a new stable tag. Preserve plugin ID,
-platform ID, and the GitHub repository identity for an in-place update. Flare
-records repository ID, owner/name, tag, and SHA. A moved tag/source change or new
+Increment the changed plugin's manifest.version and publish a newer repository
+snapshot tag. Preserve plugin ID, platform ID, repository identity, and directory
+for an in-place update. Flare records repository ID, owner/name, directory, tag,
+and SHA. A directory move is a source change requiring an explicit new install
+review; update checks do not switch directories or fall back to older tags when
+the latest snapshot is invalid. A moved tag/source change or new
 permission is surfaced in review; prefer a new tag over rewriting a published
 one. Failure/cancellation leaves the installed package intact.
 
 Opening management checks for updates using a five-minute metadata cache;
-manual checking bypasses it. Discovery only offers an update; download/review/
-confirmation are separate steps. GitHub metadata uses global proxy routing and
+manual checking bypasses it. Discovery compares the selected runtime files using
+Git blob hashes without
+downloading the repository ZIP. Unchanged plugin files do not offer an update
+even when the repository tag/SHA changes. The downloaded canonical package hash
+is checked again before review. Manifest, script, icon, and locale changes all
+count; README files and ZIP metadata do not. Download/review/confirmation remain
+separate steps. Failed checks are shown as plugin issues. GitHub metadata uses
+global proxy routing and
 rate-limit handling, not plugin account credentials. Excessive tag lists produce
 an error rather than an incomplete “latest version” answer.
 

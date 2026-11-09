@@ -4,6 +4,8 @@ import dev.dimension.flare.data.model.PluginPermission
 import dev.dimension.flare.data.model.PluginPermissionType
 import dev.dimension.flare.feature.plugin.abi.PluginAbiV1
 import dev.dimension.flare.feature.plugin.github.COMMIT_SHA
+import dev.dimension.flare.feature.plugin.github.gitBlobHash
+import dev.dimension.flare.feature.plugin.github.normalizePluginRepositoryPath
 import dev.dimension.flare.feature.plugin.github.stableGitHubVersion
 import dev.dimension.flare.feature.plugin.lifecycle.InstalledPluginV1
 import dev.dimension.flare.feature.plugin.lifecycle.PluginCleanupResultV1
@@ -28,6 +30,7 @@ import okio.Source
 import okio.buffer
 import okio.use
 import kotlin.native.HiddenFromObjC
+import kotlin.random.Random
 
 @HiddenFromObjC
 public class PluginInstaller(
@@ -39,6 +42,25 @@ public class PluginInstaller(
     private val preparationMutex = Mutex()
     private var preparing = false
     private var activePreview: PreparedPluginInstallV1? = null
+    private val activeDownloads = mutableSetOf<Path>()
+
+    internal suspend fun withRepositoryDownload(block: suspend (Path) -> Unit) {
+        val path = stateStore.paths.staging / "${Random.nextBytes(16).toByteString().hex()}.github"
+        mutex.withLock {
+            ensureDirectories()
+            activeDownloads += path
+        }
+        try {
+            block(path)
+        } finally {
+            withContext(NonCancellable) {
+                mutex.withLock {
+                    activeDownloads -= path
+                    fileSystem.delete(path, mustExist = false)
+                }
+            }
+        }
+    }
 
     /** Authored plugins already have an immutable, reviewed candidate; do not consume a file-import preview. */
     internal suspend fun persistAuthored(
@@ -93,12 +115,25 @@ public class PluginInstaller(
                 preparing = true
             }
             try {
-                val stagedHash = stage(source)
+                val stagedHash =
+                    stage(
+                        source,
+                        if (installSource is PluginInstallSourceV1.GitHub) FppLimits.MAX_REPOSITORY_BYTES else FppLimits.MAX_PACKAGE_BYTES,
+                    )
                 val hash =
                     if (installSource is PluginInstallSourceV1.GitHub) {
                         installSource.repository.requireValid()
                         require(COMMIT_SHA.matches(installSource.commitSha)) { "Invalid GitHub tag commit" }
-                        val files = FppArchiveReader(fileSystem).read(stateStore.paths.incoming, repositoryArchive = true).files
+                        require(
+                            normalizePluginRepositoryPath(installSource.path) == installSource.path,
+                        ) { "Invalid plugin repository path" }
+                        val files =
+                            FppArchiveReader(fileSystem)
+                                .read(
+                                    stateStore.paths.incoming,
+                                    repositoryArchive = true,
+                                    repositoryPath = installSource.path,
+                                ).files
                         fileSystem.write(stateStore.paths.incoming) { write(encodePluginArchive(files)) }
                         hash(stateStore.paths.incoming)
                     } else {
@@ -108,8 +143,8 @@ public class PluginInstaller(
                 require(expectedPluginId == null || validated.manifest.id == expectedPluginId) { "GitHub update changed the plugin ID" }
                 if (installSource is PluginInstallSourceV1.GitHub) {
                     require(
-                        stableGitHubVersion(installSource.tag) == validated.manifest.version,
-                    ) { "GitHub tag does not match manifest.version" }
+                        stableGitHubVersion(installSource.tag) != null,
+                    ) { "Invalid stable GitHub tag" }
                 }
                 val packageSize = requireNotNull(fileSystem.metadata(stateStore.paths.incoming).size)
                 val existing = stateStore.desired.value.plugins[validated.manifest.id]
@@ -117,7 +152,10 @@ public class PluginInstaller(
                     "Plugin platform ID cannot change during an update"
                 }
                 if (expectedPluginId != null && installSource is PluginInstallSourceV1.GitHub) {
-                    require((existing?.source as? PluginInstallSourceV1.GitHub)?.repository?.id == installSource.repository.id) {
+                    val previous = existing?.source as? PluginInstallSourceV1.GitHub
+                    require(
+                        previous != null && previous.repository.id == installSource.repository.id && previous.path == installSource.path,
+                    ) {
                         "GitHub update changed the installation source"
                     }
                 }
@@ -191,7 +229,10 @@ public class PluginInstaller(
         activePlugins: Collection<dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1>,
     ): PluginCleanupResultV1 =
         mutex.withLock {
-            stateStore.cleanup(setOfNotNull(stateStore.paths.incoming.takeIf { preparing || activePreview != null }), activePlugins)
+            stateStore.cleanup(
+                activeDownloads + setOfNotNull(stateStore.paths.incoming.takeIf { preparing || activePreview != null }),
+                activePlugins,
+            )
         }
 
     /** Explicit recovery for a corrupt index. It never runs during startup. */
@@ -234,7 +275,15 @@ public class PluginInstaller(
             PluginIndexRebuildResultV1(restored = recovered.size, skipped = skipped)
         }
 
-    private fun stage(source: Source): String {
+    internal fun packageFingerprint(plugin: InstalledPluginV1): Map<String, String> =
+        FppArchiveReader(fileSystem).read(stateStore.paths.packagePath(plugin.packageHash)).files.mapValues { (_, bytes) ->
+            gitBlobHash(bytes)
+        }
+
+    private fun stage(
+        source: Source,
+        limit: Long,
+    ): String {
         val hashingSink = HashingSink.sha256(fileSystem.sink(stateStore.paths.incoming))
         try {
             hashingSink.buffer().use { sink ->
@@ -244,7 +293,7 @@ public class PluginInstaller(
                     val read = source.read(buffer, COPY_BUFFER_BYTES)
                     if (read == -1L) break
                     total += read
-                    require(total <= FppLimits.MAX_PACKAGE_BYTES) { "Package exceeds the compressed size limit" }
+                    require(total <= limit) { "Package exceeds the compressed size limit" }
                     sink.write(buffer, read)
                 }
             }
@@ -390,8 +439,14 @@ private fun buildWarnings(
         if (existing != null) {
             val sourceChanged =
                 when (val previous = existing.source) {
-                    PluginInstallSourceV1.Local -> source != PluginInstallSourceV1.Local
-                    is PluginInstallSourceV1.GitHub -> (source as? PluginInstallSourceV1.GitHub)?.repository?.id != previous.repository.id
+                    PluginInstallSourceV1.Local -> {
+                        source != PluginInstallSourceV1.Local
+                    }
+
+                    is PluginInstallSourceV1.GitHub -> {
+                        source !is PluginInstallSourceV1.GitHub || source.repository.id != previous.repository.id ||
+                            source.path != previous.path
+                    }
                 }
             if (sourceChanged) add(PluginInstallWarningV1(PluginInstallWarningTypeV1.SourceChanged))
             val previousGitHub = existing.source as? PluginInstallSourceV1.GitHub

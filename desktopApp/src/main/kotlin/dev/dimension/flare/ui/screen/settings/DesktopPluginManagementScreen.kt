@@ -77,8 +77,10 @@ import dev.dimension.flare.plugin_capabilities
 import dev.dimension.flare.plugin_check_updates
 import dev.dimension.flare.plugin_cleanup
 import dev.dimension.flare.plugin_confirm_install
+import dev.dimension.flare.plugin_continue_download
 import dev.dimension.flare.plugin_development
 import dev.dimension.flare.plugin_empty
+import dev.dimension.flare.plugin_github_path_hint
 import dev.dimension.flare.plugin_github_repository
 import dev.dimension.flare.plugin_install
 import dev.dimension.flare.plugin_install_github
@@ -87,6 +89,8 @@ import dev.dimension.flare.plugin_issue_index_corrupt
 import dev.dimension.flare.plugin_issue_platform_conflict
 import dev.dimension.flare.plugin_issue_platform_invalid
 import dev.dimension.flare.plugin_issues
+import dev.dimension.flare.plugin_large_repository_message
+import dev.dimension.flare.plugin_large_repository_title
 import dev.dimension.flare.plugin_operation_failed
 import dev.dimension.flare.plugin_permission_account_origin
 import dev.dimension.flare.plugin_permission_account_origin_label
@@ -181,11 +185,25 @@ internal fun DesktopPluginManagementScreen(
             state = state,
             onInstall = { url -> scope.launchPresenterAction { presenter.inspectGitHub(url) } },
             onConfirm = { scope.launchPresenterAction { presenter.confirmInstall() } },
+            onConfirmDownload = { scope.launchPresenterAction { presenter.confirmRepositoryDownload() } },
+            onCancelDownload = { scope.launchPresenterAction { presenter.cancelRepositoryDownload() } },
             onUrlChanged = presenter::clearGitHubInstallError,
             onDismiss = { scope.launchPresenterAction { presenter.cancelInstall() } },
         )
     }
 
+    ContentDialog(
+        title = stringResource(Res.string.plugin_large_repository_title),
+        visible = state.needsRepositoryDownloadConfirmation && state.gitHubInstall == null,
+        content = { Text(stringResource(Res.string.plugin_large_repository_message)) },
+        primaryButtonText = stringResource(Res.string.plugin_continue_download),
+        closeButtonText = stringResource(Res.string.cancel),
+        onButtonClick = { button ->
+            scope.launchPresenterAction {
+                if (button == ContentDialogButton.Primary) presenter.confirmRepositoryDownload() else presenter.cancelRepositoryDownload()
+            }
+        },
+    )
     state.pendingInstall?.takeIf { state.gitHubInstall == null }?.let { review ->
         PluginInstallReviewDialog(
             review = review,
@@ -478,6 +496,8 @@ internal fun GitHubInstallDialog(
     state: PluginManagementStateV1,
     onInstall: (String) -> Unit,
     onConfirm: () -> Unit,
+    onConfirmDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onUrlChanged: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -487,12 +507,14 @@ internal fun GitHubInstallDialog(
     }
     val install = state.gitHubInstall ?: return
     val review = state.pendingInstall
+    val largeRepository = state.needsRepositoryDownloadConfirmation
+    val dismiss = if (largeRepository) onCancelDownload else onDismiss
     FluentDialog(visible = true) {
         Column(
             modifier =
                 Modifier.fillMaxWidth().padding(24.dp).onKeyEvent {
                     if (it.key == Key.Escape && it.type == KeyEventType.KeyUp && !install.busy) {
-                        onDismiss()
+                        dismiss()
                         true
                     } else {
                         false
@@ -501,14 +523,20 @@ internal fun GitHubInstallDialog(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Text(
-                review?.let { "${it.name} ${it.version}" } ?: stringResource(Res.string.plugin_install_github),
+                if (largeRepository) {
+                    stringResource(Res.string.plugin_large_repository_title)
+                } else {
+                    review?.let { "${it.name} ${it.version}" } ?: stringResource(Res.string.plugin_install_github)
+                },
                 style = FluentTheme.typography.subtitle,
             )
             Column(
                 modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (review == null) {
+                if (largeRepository) {
+                    Text(stringResource(Res.string.plugin_large_repository_message))
+                } else if (review == null) {
                     TextField(
                         url,
                         modifier = Modifier.fillMaxWidth(),
@@ -517,6 +545,7 @@ internal fun GitHubInstallDialog(
                         lineLimits = TextFieldLineLimits.SingleLine,
                         enabled = !install.busy,
                     )
+                    Text(stringResource(Res.string.plugin_github_path_hint))
                 } else {
                     PluginInstallReviewContent(review)
                 }
@@ -525,13 +554,21 @@ internal fun GitHubInstallDialog(
             if (install.busy) ProgressRing(modifier = Modifier.align(Alignment.CenterHorizontally))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 AccentButton(
-                    onClick = { if (review == null) onInstall(url.text.toString()) else onConfirm() },
-                    disabled = install.busy || (review == null && url.text.isBlank()),
+                    onClick = {
+                        if (largeRepository) {
+                            onConfirmDownload()
+                        } else if (review == null) {
+                            onInstall(url.text.toString())
+                        } else {
+                            onConfirm()
+                        }
+                    },
+                    disabled = install.busy || (!largeRepository && review == null && url.text.isBlank()),
                     modifier = Modifier.weight(1f),
                 ) {
-                    Text(stringResource(Res.string.plugin_confirm_install))
+                    Text(stringResource(if (largeRepository) Res.string.plugin_continue_download else Res.string.plugin_confirm_install))
                 }
-                Button(onClick = onDismiss, disabled = install.busy, modifier = Modifier.weight(1f)) {
+                Button(onClick = dismiss, disabled = install.busy, modifier = Modifier.weight(1f)) {
                     Text(stringResource(Res.string.cancel))
                 }
             }
@@ -601,7 +638,15 @@ internal fun PluginManagementList(
             }
             state.issues.forEach { issue ->
                 item(key = "issue:${issue.code}:${issue.pluginId}") {
-                    ErrorInfoBar(pluginIssueMessage(issue.code))
+                    ErrorInfoBar(
+                        if (issue.code ==
+                            "update.failed"
+                        ) {
+                            "${issue.pluginId}: ${issue.message.take(512)}"
+                        } else {
+                            pluginIssueMessage(issue.code)
+                        },
+                    )
                 }
             }
             state.runtimeIssues.forEach { issue ->

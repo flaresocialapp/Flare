@@ -64,7 +64,7 @@ public struct PluginManagementView: View {
             if !presenter.state.issues.isEmpty || !presenter.state.runtimeIssues.isEmpty {
                 Section("plugin_issues") {
                     ForEach(Array(presenter.state.issues.enumerated()), id: \.offset) { _, issue in
-                        Text(issueText(issue.code))
+                        Text(issue.code == "update.failed" ? "\(issue.pluginId ?? ""): \(issue.message.prefix(512))" : issueText(issue.code))
                             .foregroundStyle(.red)
                     }
                     ForEach(presenter.state.runtimeIssues, id: \.pluginId) { issue in
@@ -148,6 +148,22 @@ public struct PluginManagementView: View {
             }
         )) {
             gitHubInstallSheet
+        }
+        .alert(
+            "plugin_large_repository_title",
+            isPresented: Binding(
+                get: { presenter.state.needsRepositoryDownloadConfirmation && !showsGitHubInstall },
+                set: { _ in }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                Task { try? await facade.cancelRepositoryDownload() }
+            }
+            Button("plugin_continue_download") {
+                Task { try? await facade.confirmRepositoryDownload() }
+            }
+        } message: {
+            Text("plugin_large_repository_message")
         }
         .alert(
             presenter.state.pendingInstall.map { "\($0.name) \($0.version)" } ?? "",
@@ -499,11 +515,19 @@ public struct PluginManagementView: View {
                         Text(verbatim: "\(review.name) \(review.version)")
                     }
                 } footer: {
-                    if let error = presenter.state.gitHubInstall?.error {
-                        Text(String(error.prefix(512))).foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 8) {
+                        if presenter.state.pendingInstall == nil {
+                            Text("plugin_github_path_hint")
+                        }
+                        if let error = presenter.state.gitHubInstall?.error {
+                            Text(String(error.prefix(512))).foregroundStyle(.red)
+                        }
                     }
                 }
             }
+            #if os(macOS)
+            .formStyle(.grouped)
+            #endif
             .disabled(busy)
             .navigationTitle("plugin_install_github")
             .toolbar {
@@ -554,6 +578,22 @@ public struct PluginManagementView: View {
             .overlay { if busy { ProgressView() } }
         }
         .interactiveDismissDisabled(busy || presenter.state.pendingInstall != nil)
+        .alert(
+            "plugin_large_repository_title",
+            isPresented: Binding(
+                get: { presenter.state.needsRepositoryDownloadConfirmation },
+                set: { _ in }
+            )
+        ) {
+            Button("Cancel", role: .cancel) {
+                Task { try? await facade.cancelRepositoryDownload() }
+            }
+            Button("plugin_continue_download") {
+                Task { try? await facade.confirmRepositoryDownload() }
+            }
+        } message: {
+            Text("plugin_large_repository_message")
+        }
         #if os(macOS)
         .frame(minWidth: 440, minHeight: 280)
         #endif

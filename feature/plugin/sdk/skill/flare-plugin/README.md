@@ -186,8 +186,8 @@ cases matter. It should identify gaps rather than invent website endpoints.
    **Reload plugin** after automatic validation. Follow the syntax, behavior and
    platform checks. Stop development before installing/updating the same plugin.
 5. Prefer GitHub distribution: run `npm run build`, commit the TS source, build
-   configuration, lockfile and root `plugin.js`, then push a stable tag matching
-   `manifest.version`. In Flare's plugin
+   configuration, lockfile and built `plugin.js`, then push a stable repository
+   snapshot tag. Each plugin's `manifest.version` is independent. In Flare's plugin
    management, enter `https://github.com/OWNER/REPO` and click **Install**. Review
    source and permissions, then confirm to use the plugin immediately. Follow the
    plugin's README to select the platform, origin, and login method.
@@ -196,8 +196,8 @@ The generated [project README](assets/github-template/README.md) contains the fu
 adaptation, local debugging, Git setup/tagging, GitHub installation and update path.
 See [publishing](references/publishing.md) for exact tag rules, updates, and
 [optional local `.fpp` installation](references/publishing.md#optional-local-installation).
-Flare reads the tagged repository root; a subdirectory in the Flare repository itself
-is not a plugin installation URL. A GitHub Release or `.fpp` upload is unnecessary.
+Flare reads the selected directory in the latest stable repository snapshot. Add
+`?path=/plugins/example` for a subdirectory; omit it for the repository root. A GitHub Release or `.fpp` upload is unnecessary.
 
 ## Reference and example index
 

@@ -29,31 +29,33 @@ using only Node's standard library.
 ## GitHub installation and updates
 
 Flare can install from a public `https://github.com/<owner>/<repository>` URL
-(an optional `.git` suffix is accepted). Each repository contains one plugin at
-its root: `manifest.json`, the self-contained, already-built `plugin.js`,
-one supported `assets/icon.<extension>`, and optional `locales/*.json`. Other development files are
-ignored. Flare does not run package managers, build scripts, or repository code
-outside the existing plugin sandbox.
+(optional `.git` suffix). Use `?path=/plugins/example` for a plugin directory;
+omitting it selects the repository root. Every selected directory contains
+`manifest.json`, the self-contained, already-built `plugin.js`, one supported
+`assets/icon.<extension>`, and optional `locales/*.json`. Multiple plugins can
+share a repository using unique plugin/platform IDs. Resources stay within the
+selected directory. Other development files are ignored.
 
-Publish a stable SemVer tag such as `1.2.3` or `v1.2.3`; removing the optional
-lowercase `v` must exactly match `manifest.version`. Pre-release and arbitrary
-tags are excluded from the version picker and update checks. A GitHub Release
-or uploaded `.fpp` asset is not required.
+Publish stable SemVer repository snapshot tags such as `1.2.3` or `v1.2.3`.
+Flare selects the highest stable tag and pins its commit SHA. Each plugin's
+`manifest.version` is independent of that repository tag. Prerelease tags and
+branch/SHA URL fragments are unsupported. A GitHub Release or `.fpp` asset is
+not required; Flare installs committed build output without running build tools.
 
-The Host lists tags, compares semantic versions, resolves the selected commit,
-and downloads its source ZIP by commit SHA. It imports the plugin files into a
-canonical `.fpp` and applies the same package, registration, compatibility, and
-permission checks as local installation. The repository archive is limited to
-20 MiB compressed, 50 MiB uncompressed, and 4,096 entries; existing per-file and
-plugin package limits still apply. Traversal paths, symlinks, duplicate paths,
-and multiple archive roots are rejected, including in ignored files.
+The Host compares selected runtime-file Git blob hashes before offering updates,
+then downloads the snapshot ZIP to temporary storage and imports only the
+selected directory into a canonical `.fpp`. It rechecks the package hash before
+review. Unchanged plugin files do not offer an update. Downloads exceeding 20 MiB
+require confirmation; hard repository limits are 200 MiB compressed, 512 MiB
+uncompressed, and 50,000 entries. Existing per-file and single-plugin limits
+still apply. Traversal paths, symlinks, duplicate paths, and multiple archive
+roots are rejected, including in ignored files.
 
-GitHub installation records the repository ID, canonical owner/name, tag, and
-commit SHA. Updates must retain that repository ID, plugin ID, and platform ID.
-Checks only offer updates; downloading and confirming the existing install
-review remain separate user actions, and changes take effect immediately.
-New permissions, source changes, and a tag pointing to a different commit are
-shown in the review. Cancellation or failure leaves the installed plugin intact.
+GitHub installation records repository ID, canonical owner/name, directory,
+tag, and commit SHA. Updates retain repository ID, directory, plugin ID, and
+platform ID. Source/permission review and confirmation remain required. Directory
+moves use an explicit new install review. Cancellation or failure preserves the
+installed plugin and removes temporary downloads. Changes take effect immediately.
 
 Opening plugin management checks for updates using a five-minute metadata cache;
 manual checks bypass it. Checks include all tag pages up to 1,000 tags and report

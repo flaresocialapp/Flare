@@ -1257,6 +1257,70 @@
       }
     }
   },
+  "plugin_large_repository_title": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Download large repository?"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "下载较大的仓库？"
+        }
+      }
+    }
+  },
+  "plugin_large_repository_message": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "This repository download exceeds 20 MiB and will use more data and storage. Continue downloading?"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "此仓库下载超过 20 MiB，会使用更多流量和存储空间。是否继续下载？"
+        }
+      }
+    }
+  },
+  "plugin_continue_download": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Continue download"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "继续下载"
+        }
+      }
+    }
+  },
+  "plugin_github_path_hint": {
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "For a plugin in a subdirectory, add ?path=/plugins/example to the URL."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "安装子目录中的插件时，在链接末尾添加 ?path=/plugins/example。"
+        }
+      }
+    }
+  },
   "plugin_github_repository": {
     "localizations": {
       "en": {

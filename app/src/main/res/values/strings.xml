@@ -1023,4 +1023,8 @@
     <string name="empty_languages">No matching languages</string>
     <string name="empty_search_history">Search for posts or users to get started.</string>
     <string name="empty_media">No media available</string>
+    <string name="plugin_large_repository_title">Download large repository?</string>
+    <string name="plugin_large_repository_message">This repository download exceeds 20 MiB and will use more data and storage. Continue downloading?</string>
+    <string name="plugin_continue_download">Continue download</string>
+    <string name="plugin_github_path_hint">For a plugin in a subdirectory, add ?path=/plugins/example to the URL.</string>
 </resources>

@@ -39,6 +39,8 @@ class GitHubInstallDialogTest {
     private val requests = mutableListOf<String>()
     private var confirmations = 0
     private var cancellations = 0
+    private var downloadConfirmations = 0
+    private var downloadCancellations = 0
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private val install = context.getString(R.string.plugin_confirm_install)
     private val cancel = context.getString(android.R.string.cancel)
@@ -129,6 +131,28 @@ class GitHubInstallDialogTest {
         compose.runOnIdle { assertEquals(null, state.error) }
     }
 
+    @Test
+    fun largeRepositoryApprovalPreservesTheUrlAndDoesNotGrantInstallation() {
+        show()
+        compose.onNode(hasSetTextAction()).performTextInput(url)
+        compose.runOnIdle { state = state.copy(needsRepositoryDownloadConfirmation = true) }
+        compose.onNodeWithText(context.getString(R.string.plugin_large_repository_title)).assertIsDisplayed()
+        compose.onNode(hasSetTextAction()).assertDoesNotExist()
+        compose.onNodeWithText(cancel).performClick()
+        compose.onNode(hasSetTextAction()).assertTextContains(url)
+        compose.runOnIdle {
+            assertEquals(1, downloadCancellations)
+            assertEquals(0, cancellations)
+            state = state.copy(needsRepositoryDownloadConfirmation = true)
+        }
+        compose.onNodeWithText(context.getString(R.string.plugin_continue_download)).performClick()
+        compose.runOnIdle {
+            assertEquals(1, downloadConfirmations)
+            assertEquals(0, confirmations)
+            assertEquals(emptyList<String>(), requests)
+        }
+    }
+
     private fun show() {
         compose.setContent {
             MaterialTheme {
@@ -144,6 +168,14 @@ class GitHubInstallDialogTest {
                         state = state,
                         onInstall = { requests += it },
                         onConfirm = { confirmations++ },
+                        onConfirmDownload = {
+                            downloadConfirmations++
+                            state = state.copy(needsRepositoryDownloadConfirmation = false)
+                        },
+                        onCancelDownload = {
+                            downloadCancellations++
+                            state = state.copy(needsRepositoryDownloadConfirmation = false)
+                        },
                         onUrlChanged = { state = state.copy(gitHubInstall = state.gitHubInstall?.copy(error = null)) },
                         onDismiss = {
                             cancellations++
