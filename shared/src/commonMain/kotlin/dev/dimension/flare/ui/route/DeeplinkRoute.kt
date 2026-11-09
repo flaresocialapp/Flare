@@ -3,6 +3,7 @@ package dev.dimension.flare.ui.route
 import dev.dimension.flare.data.model.ProxyRef
 import dev.dimension.flare.model.AccountType
 import dev.dimension.flare.model.MicroBlogKey
+import dev.dimension.flare.ui.model.UiText
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -30,6 +31,17 @@ public sealed class DeeplinkRoute {
 
     @Serializable
     public sealed class Timeline : DeeplinkRoute() {
+        @Serializable
+        public data class Page(
+            val accountType: AccountType,
+            val pluginId: String,
+            val platformId: String,
+            val packageHash: String,
+            val pageId: String,
+            val title: UiText,
+            val parameters: Map<String, String> = emptyMap(),
+        ) : Timeline()
+
         @Serializable
         public data class Source(
             val loaderKey: String,

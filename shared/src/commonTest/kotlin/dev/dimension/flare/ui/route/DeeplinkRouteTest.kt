@@ -2,12 +2,28 @@ package dev.dimension.flare.ui.route
 
 import dev.dimension.flare.model.AccountType
 import dev.dimension.flare.model.MicroBlogKey
+import dev.dimension.flare.ui.model.UiText
 import kotlinx.collections.immutable.persistentMapOf
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 
 class DeeplinkRouteTest {
+    @Test
+    fun temporaryTimelinePageRoundTripsWithItsBoundAccountAndParameters() {
+        val route =
+            DeeplinkRoute.Timeline.Page(
+                accountType = AccountType.Specific(MicroBlogKey("me", "example.com")),
+                pluginId = "dev.example.plugin",
+                platformId = "ExamplePlugin",
+                packageHash = "package-hash",
+                pageId = "replies",
+                title = UiText.Raw("回复"),
+                parameters = mapOf("parentId" to "comment:123", "sort" to "oldest"),
+            )
+        assertEquals(route, DeeplinkRoute.parse(route.toUri()))
+    }
+
     @Test
     fun timelineSourceRoundTrips() {
         val route = DeeplinkRoute.Timeline.Source(loaderKey = "timeline-loader-key")

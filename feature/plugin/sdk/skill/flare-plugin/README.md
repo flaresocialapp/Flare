@@ -208,7 +208,8 @@ Flare reads the selected directory in the latest stable repository snapshot. Add
 | Exact JavaScript signatures and field comments | [flare-plugin.d.ts](flare-plugin.d.ts) |
 | Manifest fields, defaults, enums, and validation | [Manifest](references/manifest.md) |
 | JSON editor completion and static manifest checks | [JSON Schema](manifest.schema.json), [editor setup](references/manifest.md#json-schema-and-editor-support) |
-| All twelve capabilities, minimum methods, and UI requirements | [Capabilities](references/capabilities.md) |
+| Capabilities, minimum methods, and UI requirements | [Capabilities](references/capabilities.md) |
+| API v2 post/quote navigation and temporary reply lists | [Page contract](references/capabilities.md#api-v2-temporary-timeline-pages), [recipe](references/recipes.md#temporary-timeline-pages-api-v2), [offline showcase](examples/timeline-showcase/README.md) |
 | Platform engines, async completion, HTTP, permissions, credentials, and state | [Runtime and HTTP](references/runtime-http.md) |
 | Detection and all five login methods | [Authentication](references/authentication.md) |
 | DTO mapping, pagination, media, and opaque tokens | [Wire data](references/wire-data.md) |

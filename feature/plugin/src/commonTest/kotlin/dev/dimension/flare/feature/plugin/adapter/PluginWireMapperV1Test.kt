@@ -26,6 +26,8 @@ import dev.dimension.flare.feature.plugin.wire.RichTextV1
 import dev.dimension.flare.feature.plugin.wire.SemanticActionV1
 import dev.dimension.flare.feature.plugin.wire.TimelineItemV1
 import dev.dimension.flare.feature.plugin.wire.VisibilityV1
+import dev.dimension.flare.feature.plugin.wire.WireTextV1
+import dev.dimension.flare.feature.plugin.wire.requireValid
 import dev.dimension.flare.model.AccountType
 import dev.dimension.flare.model.MicroBlogKey
 import dev.dimension.flare.ui.model.ClickEvent
@@ -59,6 +61,59 @@ class PluginWireMapperV1Test {
             createdAt = "2026-10-27T00:00:00Z",
             content = RichTextV1(value = "Preview"),
         )
+
+    @Test
+    fun postAndQuoteTargetsOverrideNavigationWithoutChangingMediaOrEntityIdentity() {
+        val pageTarget = NavigationTargetV1.TimelinePage("replies", WireTextV1(value = "Replies"), mapOf("parentId" to "123"))
+        val quote = post.copy(key = EntityKeyV1("quote", post.key.host), target = pageTarget)
+        val main = post.copy(target = NavigationTargetV1.Link("https://remote.example/topic"))
+        val mapped =
+            assertIs<UiTimelineV2.TimelinePostItem>(
+                mapper.timelineItem(TimelineItemV1.Post(main, PostPresentationV1(quotes = listOf(quote)))),
+            )
+        assertEquals(mapper.post(post).post.mediaClickPolicy, mapped.post.mediaClickPolicy)
+        assertEquals(MicroBlogKey(post.key.id, post.key.host), mapped.post.statusKey)
+        assertEquals(ClickEvent.Deeplink(DeeplinkRoute.OpenLinkDirectly("https://remote.example/topic")), mapped.post.clickEvent)
+        val route =
+            assertIs<DeeplinkRoute.Timeline.Page>(
+                DeeplinkRoute.parse(
+                    assertIs<ClickEvent.Deeplink>(
+                        mapped.presentation.quotes
+                            .single()
+                            .clickEvent,
+                    ).url,
+                ),
+            )
+        assertEquals("test.plugin", route.pluginId)
+        assertEquals(AccountType.Specific(MicroBlogKey("me", "local.example")), route.accountType)
+        assertEquals("replies", route.pageId)
+        assertEquals(mapOf("parentId" to "123"), route.parameters)
+        assertEquals(
+            mapped.presentation.quotes
+                .single()
+                .clickEvent,
+            mapper.post(quote.copy(favouritesCount = 1)).post.clickEvent,
+        )
+        val cover = mapper.post(quote.copy(detailType = PostDetailTypeV1.Article)).post
+        assertEquals(UiTimelineV2.Post.MediaClickPolicy.OpenPostClickEvent, cover.mediaClickPolicy)
+        assertEquals(
+            mapped.presentation.quotes
+                .single()
+                .clickEvent,
+            cover.clickEvent,
+        )
+    }
+
+    @Test
+    fun explicitUnknownPostTargetNeverFallsBackAndTargetParametersAreValidated() {
+        assertEquals(ClickEvent.Noop, mapper.post(post.copy(target = NavigationTargetV1.Unknown)).post.clickEvent)
+        assertEquals(mapper.post(post).post.clickEvent, mapper.post(post.copy(target = null)).post.clickEvent)
+        val valid = NavigationTargetV1.TimelinePage("replies", WireTextV1(value = "Replies"))
+        valid.requireValid()
+        assertFailsWith<IllegalArgumentException> { post.copy(target = valid.copy(pageId = "../bad")).requireValid() }
+        assertFailsWith<IllegalArgumentException> { valid.copy(parameters = mapOf("parentId" to "x".repeat(4097))).requireValid() }
+        assertFailsWith<IllegalArgumentException> { valid.copy(title = WireTextV1()).requireValid() }
+    }
 
     @Test
     fun quoteUsesTheComposeRouteWithoutRepostMutationAndHonoursSupportedModes() {

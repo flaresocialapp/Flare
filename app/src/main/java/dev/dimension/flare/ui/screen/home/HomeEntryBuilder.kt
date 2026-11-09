@@ -42,6 +42,9 @@ internal fun EntryProviderScope<NavKey>.homeEntryBuilder(
             uriHandler = uriHandler,
         )
     }
+    entry<Route.TimelinePage> { args ->
+        TimelinePageScreen(args.page, onBack)
+    }
     entry<Route.Timeline> { args ->
         TimelineScreen(
             tabItem = args.tabItem,

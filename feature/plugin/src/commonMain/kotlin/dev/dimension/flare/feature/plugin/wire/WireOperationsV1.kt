@@ -14,6 +14,12 @@ public data class TimelinePageRequestV1(
 )
 
 @Serializable
+public data class TimelinePageLoadRequestV2(
+    val pageId: String,
+    val page: PageRequestV1,
+)
+
+@Serializable
 public data class SearchRequestV1(
     val query: String,
     val page: PageRequestV1,

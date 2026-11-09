@@ -33,6 +33,10 @@ internal sealed interface Route : NavKey {
         val url: String
     }
 
+    data class TimelinePage(
+        val page: DeeplinkRoute.Timeline.Page,
+    ) : ScreenRoute
+
     data class Timeline(
         val tabItem: UiTimelineTabItem,
     ) : ScreenRoute
@@ -352,6 +356,10 @@ internal sealed interface Route : NavKey {
 
         public fun from(deeplinkRoute: DeeplinkRoute): Route? {
             return when (deeplinkRoute) {
+                is DeeplinkRoute.Timeline.Page -> {
+                    TimelinePage(deeplinkRoute)
+                }
+
                 is DeeplinkRoute.Timeline.Source -> {
                     TimelineDeepLinkRouteResolver.resolve(deeplinkRoute)?.let(Route::Timeline)
                 }

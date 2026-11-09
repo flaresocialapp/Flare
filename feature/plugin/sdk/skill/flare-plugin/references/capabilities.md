@@ -7,6 +7,7 @@ in the manifest and negotiated login result. JavaScript methods live under
 
 | ID middle | Service | Required operations | Additional operations | Host surface / dependency |
 | --- | --- | --- | --- | --- |
+| `timeline-page` | `timelinePage` | `load` | None | API v2 temporary native lists; no home timeline or tabCatalog required |
 | `timeline` | `timeline` | `page` | None | Static timelines, including at least one default |
 | `search` | `search` | At least one search operation | `posts`, `profiles`, `discoverPosts`, `discoverProfiles`, `discoverHashtags` | Each supported operation enables its own section |
 | `profile` | `profile` | `byId`, `byHandle` | `timeline`, `following`, `followers` | Profile lookup; tabs additionally require `timeline` and profileTabs |
@@ -91,3 +92,45 @@ lookup methods. Use this for a minimal read-only feed such as the template.
 
 See [recipes](recipes.md) for every service's inputs, result shape, and adaptation
 points, and [the type declarations](../flare-plugin.d.ts) for full signatures.
+
+## API v2 temporary timeline pages
+
+Declare `flare.datasource.timeline-page/v1` with operation `load` and negotiate
+it at login, then implement `capabilities.timelinePage.load({ pageId, page }, context)`.
+This is a plugin API v2 feature; the capability itself starts at version v1.
+It does not require `timeline`, `tabCatalog`, a static/default timeline or a page catalog.
+The plugin must still have a normal displayable capability as its account entry point.
+
+Posts and quote posts may set:
+
+```js
+target: {
+  type: "timelinePage", pageId: "replies", title: { value: "Replies" },
+  parameters: { parentId: "comment:123", sort: "oldest" }
+}
+```
+
+`PostV1.target` accepts all existing navigation targets as well. An omitted/null
+target retains `detailType` navigation. Explicit unsupported targets are inert,
+never silently replaced with the post's default detail. Existing card, quote,
+media, avatar, link and action hit handling remains unchanged.
+
+The Host binds the originating plugin, package version and account, copies target
+parameters into `page.parameters` on every call, and supplies the normal paging
+direction, limit and cursor. Return `PageV1<TimelineItemV1>`; an empty page may
+advance its cursor. Unknown page IDs and remote failures must use the existing
+plugin error protocol rather than a successful empty list.
+
+The native page is a single column with a title, back navigation, refresh and
+pagination. It preserves supplied order without collapsing reply chains. Parent
+context, when useful, can be an ordinary returned row. There are no home tabs,
+page-level compose controls, sort controls or persistent page configuration.
+
+For one account, keep the same key's target type, destination and parameters
+consistent across timelines, quotes, `post.detail`, `updatedPost` and publish
+results; these are full entities sharing the existing cache. Do not change an
+entity key just to give one occurrence a different target. Navigation parameters
+do not become Compose context: comment keys must also work with `post.detail`
+and the existing reply reference. Like/reply/delete controls remain subject to
+their ordinary capabilities. Successful publish/delete invalidates this account's
+temporary lists; hidden lists refresh when shown again.

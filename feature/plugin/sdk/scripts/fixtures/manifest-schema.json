@@ -1612,6 +1612,64 @@
       },
       "schemaValid": false,
       "hostValid": false
+    },
+    {
+      "name": "API v2 transient pages need no home timeline or catalog",
+      "patch": {
+        "platform": {
+          "capabilities": {
+            "flare.datasource.timeline-page/v1": {
+              "operations": {
+                "load": {
+                  "directions": [
+                    "refresh",
+                    "older"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "apiVersion": 2
+      },
+      "schemaValid": true,
+      "hostValid": true
+    },
+    {
+      "name": "Transient page capability requires API v2",
+      "patch": {
+        "platform": {
+          "capabilities": {
+            "flare.datasource.timeline-page/v1": {
+              "operations": {
+                "load": {
+                  "directions": [
+                    "refresh",
+                    "older"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "Transient page load must be declared",
+      "patch": {
+        "apiVersion": 2,
+        "platform": {
+          "capabilities": {
+            "flare.datasource.timeline-page/v1": {
+              "operations": {}
+            }
+          }
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
     }
   ]
 }

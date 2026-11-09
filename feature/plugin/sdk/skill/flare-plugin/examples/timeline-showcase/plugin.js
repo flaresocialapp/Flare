@@ -6,6 +6,7 @@ let requestPending = true;
 let revision = 0;
 const createdAt = "2026-10-30T00:00:00Z";
 const negotiated = {
+  "flare.datasource.timeline-page/v1": ["load"],
   "flare.datasource.timeline/v1": ["page"],
   "flare.datasource.post/v1": ["detail", "mutate"],
   "flare.datasource.profile/v1": ["byId", "byHandle"],
@@ -23,6 +24,9 @@ function post(id, context) {
     key: key(id, context), author: profile("alice", context), createdAt,
     content: { value: id === "poll" ? "Which timeline item do you prefer?" : "A related post" },
     url: context.origin + "/posts/" + id, visibility: "public", sourceLanguages: ["en"],
+    ...(id === "quote" || id.startsWith("reply-") ? {
+      target: { type: "timelinePage", pageId: "replies", title: { value: "Replies" }, parameters: { parentId: id } }
+    } : {}),
     ...(id === "poll" ? {
       card: { title: "Flare", description: "Existing native UI, supplied by a plugin", url: "https://github.com/DimensionDev/Flare" },
       poll: { id: "demo-poll", options: [{ title: "Posts", votesCount: 2 + (ownVotes.includes(0) ? 1 : 0) },
@@ -66,6 +70,18 @@ defineFlareSocialPlugin({
       profile: { ...profile("demo", context), displayName: request.values.name?.trim() || "Demo account" }, capabilities: negotiated } };
   } } },
   capabilities: {
+    timelinePage: { load(request, context) {
+      if (request.pageId !== "replies" || !request.page.parameters.parentId) {
+        throw flare.error({ code: "NotFound", message: { value: "Unknown replies page" } });
+      }
+      const parent = request.page.parameters.parentId;
+      if (request.page.cursor === "empty") return { items: [], olderCursor: "next" };
+      const suffix = request.page.cursor === "next" ? "second" : "first";
+      const child = post("reply-" + parent + "-" + suffix, context);
+      child.replyTo = key(parent, context);
+      return { items: [{ type: "post", post: child }],
+        ...(suffix === "first" ? { olderCursor: "empty" } : { endReached: true }) };
+    } },
     timeline: { page(request, context) { return page(context); } },
     profile: {
       byId(request, context) { return profile(request.key.id, context); },

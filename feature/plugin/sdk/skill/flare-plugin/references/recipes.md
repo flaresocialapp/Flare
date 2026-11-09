@@ -2,11 +2,11 @@
 
 Use the [capability matrix](capabilities.md) for required operation sets and
 [type declarations](../flare-plugin.d.ts) for full signatures. Every method also
-receives `context`. Tables below describe all twelve services. Code fragments
+receives `context`. Sections below describe the available services. Code fragments
 use site-specific helpers such as `api`, `mapPost`, and `mapProfile`; implement
 them from the website contract and [HTTP rules](runtime-http.md), then place
 the service in the single `defineFlareSocialPlugin` registration. These are adaptation
-recipes, not seventeen separate installable plugins.
+recipes, not separate installable plugins.
 
 ## Timeline
 
@@ -23,6 +23,47 @@ load the default timeline. Dynamic IDs come from [tab catalog](#tab-catalog).
 Test refresh, a second page, an empty continued page, and genuine exhaustion.
 For automatic tab selection, platform names/icons and manual-add labels, follow
 the [tab presentation rules](manifest.md#default-and-manually-added-tabs).
+
+## Temporary timeline pages (API v2)
+
+Use this for a comment's child replies or a forum floor's sublist. Declare
+`apiVersion: 2`, the `flare.datasource.timeline-page/v1` capability with `load`,
+and the supported paging directions. Negotiate it at login and register the
+handler under `capabilities.timelinePage`:
+
+```js
+const timelinePageServiceFragment = {
+  async load({ pageId, page }, context) {
+    if (pageId !== "comment_replies") {
+      throw flare.error({ code: "NotFound", message: { value: "Unknown replies page" } });
+    }
+    const remote = await loadWebsiteReplies({
+      parentId: page.parameters.parentId,
+      sort: page.parameters.sort,
+      direction: page.direction,
+      cursor: page.cursor,
+      limit: page.limit,
+    }, context);
+    return {
+      items: remote.items.map(item => ({ type: "post", post: mapComment(item, context) })),
+      olderCursor: remote.nextCursor,
+      endReached: remote.finished,
+    };
+  },
+};
+```
+
+Implement `loadWebsiteReplies` and `mapComment` from verified website responses.
+Give the entry post or quote a [timelinePage target](capabilities.md#api-v2-temporary-timeline-pages)
+with the same pageId and its parent/sort parameters; read those only from
+`page.parameters`. No home timeline or tabCatalog registration is needed.
+
+Map actual parent/reply relationships and preserve opaque cursors, including a
+cursor after an empty page. For native Reply, implement comment `post.detail`
+and compose/v2 reference handling from stable comment keys; page parameters do
+not become Compose context. Follow the page contract for stable targets in
+detail/mutation results. The [offline showcase](../examples/timeline-showcase/README.md)
+contains a complete registration, quote entry, nested pages and empty-page continuation.
 
 ## Search
 

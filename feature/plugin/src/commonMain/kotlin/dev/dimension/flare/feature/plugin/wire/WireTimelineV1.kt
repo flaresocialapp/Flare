@@ -81,6 +81,14 @@ public sealed interface NavigationTargetV1 {
     ) : NavigationTargetV1
 
     @Serializable
+    @SerialName("timelinePage")
+    public data class TimelinePage(
+        val pageId: String,
+        val title: WireTextV1,
+        val parameters: Map<String, String> = emptyMap(),
+    ) : NavigationTargetV1
+
+    @Serializable
     @SerialName("link")
     public data class Link(
         val url: String,

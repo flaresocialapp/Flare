@@ -16,6 +16,7 @@ enum Route: Hashable, Identifiable {
     case agentChat(String, String?)
     case localHistoryAgent(String, String?, String)
     case timeline(UiTimelineTabItem, isHome: Bool = false)
+    case timelinePage(DeeplinkRoute.TimelinePage)
     case composeNew
     case composeCrossPost(MacComposePrefill)
     case composeDraft(String)
@@ -165,6 +166,8 @@ enum Route: Hashable, Identifiable {
                 target: target,
                 onNavigate: onNavigate
             )
+        case .timelinePage(let page):
+            TimelinePageScreen(page: page)
         case .timeline(let item, let isHome):
             TimelineScreen(tabItem: item, allowGalleryMode: true, isHomeTimeline: isHome)
                 .navigationTitle(item.title.text)
@@ -537,6 +540,8 @@ extension Route {
 
     private static func fromTimeline(_ timeline: DeeplinkRoute.Timeline) -> Route? {
         switch onEnum(of: timeline) {
+        case .page(let data):
+            .timelinePage(data)
         case .source(let data):
             if let tabItem = TimelineDeepLinkRouteResolver.shared.resolve(route: data) {
                 .timeline(tabItem)

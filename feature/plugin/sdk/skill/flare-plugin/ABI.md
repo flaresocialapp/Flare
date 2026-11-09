@@ -427,6 +427,17 @@ After a verified success, local save retries reuse that result until the flow
 expires or closes rather than repeating a remote exchange. V1 Cookie checks
 keep their original selection and completion behavior.
 
+## API v2 temporary timeline pages
+
+`flare.datasource.timeline-page/v1` registers `capabilities.timelinePage.load`.
+It accepts `{ pageId, page: PageRequestV1 }` and returns `PageV1<TimelineItemV1>`.
+`PostV1.target` and quote posts can select the new `timelinePage` navigation target
+with `pageId`, a required `WireTextV1` title and optional string parameters.
+The Host binds plugin/package/account identity; target parameters live only in
+`page.parameters`. This capability does not register any home tab or catalog.
+Existing `detailType` hit handling, paging limits and validation still apply.
+See [the complete page contract](references/capabilities.md#api-v2-temporary-timeline-pages).
+
 ## Lifecycle and trust
 
 Install, update, and uninstall take effect immediately. Installed plugins are always enabled. Local packages are always unverified. Repository trust is
