@@ -2,9 +2,17 @@
 
 Use this directory as the `flare-plugin` skill to build a website adapter with an
 AI coding agent, or read the same references directly. All material describes
-Social Plugin API v1/v2 in the accompanying Flare source. Use a Flare build that
+Flare Plugin API v1/v2 in the accompanying Flare source. Use a Flare build that
 includes this subsystem; this directory does not promise a minimum public app
 release. The module targets Android, JVM Desktop, iOS, and native macOS, not Web.
+
+For text translation, generic storage or offline settings, use the
+[v2 contract](references/storage-and-settings.md) and
+[complete offline example](examples/translation-settings/README.md) with matching
+Host/SDK source revisions. Host API v2 is unreleased; these source documents do
+not promise a published SDK/app version. Settings pages support iOS, Android and
+native macOS. The CLI starter and social-adapter walkthrough below remain useful
+for the social branch; a settings-only plugin needs no social platform or login.
 
 ## Install the skill
 
@@ -210,6 +218,7 @@ Flare reads the selected directory in the latest stable repository snapshot. Add
 | JSON editor completion and static manifest checks | [JSON Schema](manifest.schema.json), [editor setup](references/manifest.md#json-schema-and-editor-support) |
 | All twelve capabilities, minimum methods, and UI requirements | [Capabilities](references/capabilities.md) |
 | Platform engines, async completion, HTTP, permissions, credentials, and state | [Runtime and HTTP](references/runtime-http.md) |
+| Text translation, plugin storage revisions and offline settings SDK | [Storage, translation and settings](references/storage-and-settings.md) |
 | Detection and all five login methods | [Authentication](references/authentication.md) |
 | DTO mapping, pagination, media, and opaque tokens | [Wire data](references/wire-data.md) |
 | Capability implementations, guest, localization, and Deep Links | [Recipes](references/recipes.md) |
@@ -217,8 +226,7 @@ Flare reads the selected directory in the latest stable repository snapshot. Add
 | Author checks, Host tests, and acceptance evidence | [Testing](references/testing.md) |
 | GitHub publication, upgrades, and optional local installation | [Publishing](references/publishing.md) |
 | Complete website adapter | [Pixelfed](examples/pixelfed/README.md) |
+| Complete offline translation/settings interface example | [Translation/settings demo](examples/translation-settings/README.md) |
 
 Rules have one canonical reference; the skill links to it when needed. Recipe
 fragments explain adaptation points and are not separate installable plugins.
-
-For generic storage, text translation and offline settings pages, see [the API v2 contract](references/storage-and-settings.md) and [the complete example](examples/translation-settings/README.md).

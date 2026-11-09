@@ -7,9 +7,10 @@ repository root. Each selected directory contains a complete plugin:
 
 ```text
 manifest.json
-plugin.js
+plugin.js             # required for platform or translation declarations
 assets/icon.png
 locales/en.json       # optional; other BCP-47 catalogs as needed
+settings/             # optional offline page and all its dependencies
 README.md            # author/user instructions, ignored by the importer
 ```
 
@@ -18,9 +19,14 @@ The package must contain exactly one `assets/icon.<extension>`: `png`, `jpg`,
 The icon is kept unchanged, limited to 2 MiB and 1024×1024 pixels. SVG is not
 supported. PNG remains the default in the templates.
 
+Translation and settings use the unreleased Host API v2 with a matching SDK.
+A settings-only package can omit the background script, social platform and
+login methods. See [storage, translation and settings](storage-and-settings.md)
+for the feature declarations and minimal package.
+
 Development files may coexist in the repository. Flare selects the plugin files;
 it does not run a package manager, build script, or client-side bundler. Commit
-the already-built classic script, including all runtime dependencies. Several
+the already-built classic script when needed and all packaged page dependencies. Several
 plugins can share a repository, with separate directories and unique
 plugin/platform IDs. Files and resources are relative to the selected plugin
 directory; runtime files cannot depend on siblings. For example, repository
@@ -43,7 +49,7 @@ Existing root installations keep using the repository root.
 
 ## Prepare and publish
 
-1. Adapt the website endpoints and verify the advertised features. Replace the
+1. Verify the advertised features, using verified endpoints for network features. Replace the
    name, description, and placeholder icon before publication. For manual template
    copies, replace the example plugin/platform IDs; keep the unique IDs generated
    by `npx flare-plugin-sdk@next init my-plugin` stable.
@@ -52,7 +58,9 @@ Existing root installations keep using the repository root.
    checkout contains them.
    For the TS starter, run `npm run build` and commit `src/`, the build files,
    `package-lock.json`, and the newly built `plugin.js` in that directory. Keep `plugin.js`
-   tracked; the generated `.gitignore` excludes dependencies and local artifacts.
+   tracked when background code is declared. Build and commit all settings page
+   resources as well; Flare does not bundle them on the device. The generated
+   `.gitignore` excludes dependencies and local artifacts.
    Include README instructions for supported website/instances, token acquisition
    if relevant, features, permissions, and tests actually performed.
 3. Set each plugin's own SemVer `manifest.version`. Publish a repository snapshot
@@ -96,7 +104,7 @@ removes temporary downloads. Keep node_modules and build caches out of Git. See
 ## Updates and compatibility
 
 Increment the changed plugin's manifest.version and publish a newer repository
-snapshot tag. Preserve plugin ID, platform ID, repository identity, and directory
+snapshot tag. Preserve plugin ID, any previously owned platform ID, repository identity, and directory
 for an in-place update. Flare records repository ID, owner/name, directory, tag,
 and SHA. A directory move is a source change requiring an explicit new install
 review; update checks do not switch directories or fall back to older tags when
@@ -109,7 +117,7 @@ manual checking bypasses it. Discovery compares the selected runtime files using
 Git blob hashes without
 downloading the repository ZIP. Unchanged plugin files do not offer an update
 even when the repository tag/SHA changes. The downloaded canonical package hash
-is checked again before review. Manifest, script, icon, and locale changes all
+is checked again before review. Manifest, script, icon, locale and settings resource changes all
 count; README files and ZIP metadata do not. Download/review/confirmation remain
 separate steps. Failed checks are shown as plugin issues. GitHub metadata uses
 global proxy routing and
@@ -133,10 +141,21 @@ separately from management after deletion completes.
 Publishing controls follow the current account capabilities after replacement or
 relogin, without requiring the account list to change.
 
+Plugin storage survives updates; the plugin owns schema changes and downgrade
+compatibility. Uninstall removes it. Removing the social declaration keeps the
+installation's historical platform ownership for account cleanup and prevents
+another plugin from claiming that ID. Re-adding that same platform is allowed;
+changing an already owned platform ID is not. A plugin that has never owned one
+may add its first platform. Settings-only plugins do not need a synthetic platform.
+
 | Change | Author consequence |
 | --- | --- |
 | Adopt compose/v2 | Replace the retired compose/v1 capability, declare supportedTypes and handle typed reference instead of replyTo; old compose accounts need a new login. No compatibility adapter is provided |
 | Adopt v2 header/session features | Set apiVersion to 2; older Hosts reject the package. Existing v1 accounts need one relogin; installation review explains application response-header access |
+| Add storage, text translation or offline settings | Use Host API v2 and matching SDK types/resources; feature declarations can be combined or used without a social platform |
+| Change plugin data/configuration | Manage the JSON schema and migrations inside the plugin; storage writes update revisions, and declared translation dependencies invalidate cached/in-progress results |
+| Remove or restore the social platform | Retain its owned ID for account cleanup; restore that same ID, or add a first ID only if none has ever been owned |
+| Update a package with an open settings page | Reopen the page; the old document's Host session is revoked |
 | Credential payload format becomes incompatible | Increment credentialSchemaVersion; existing accounts require relogin, with no plugin migration hook |
 | Timeline IDs/parameters change incompatibly | Consider timelineSchemaVersion; it changes timeline identities and retires old specs. Explain that existing selections may need reconfiguration |
 | Capabilities removed | Running capabilities are filtered by the new manifest |
@@ -169,8 +188,9 @@ temporary directory and invokes the SDK packer. The result is `plugin.fpp` at
 project root; temporary staging is cleaned up. GitHub remains the recommended
 distribution path and this file has no GitHub update tracking.
 
-For other project layouts, create a new, empty `dist` directory. Copy only `manifest.json`, `plugin.js`,
-one supported `assets/icon.<extension>`, and optional `locales/*.json` into it,
+For other project layouts, create a new, empty `dist` directory. Copy `manifest.json`,
+one supported icon, the background script when needed, optional locale catalogs,
+and all packaged `settings/` resources into it,
 preserving those paths. From the project root:
 
 ```sh

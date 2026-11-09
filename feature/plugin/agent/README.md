@@ -16,9 +16,12 @@ to the requested work instead of loading every document into the conversation.
 3. For a new plugin, call `create_plugin` with a unique requestKey; reuse it only
    when retrying that creation. Preserve the returned plugin ID and platformId in
    the manifest when providing a social platform. Opening a conversation does not create a plugin.
-4. Read the [manifest](references/manifest.md), [capabilities](references/capabilities.md),
-   [runtime/HTTP](references/runtime-http.md), [ABI](ABI.md), and relevant
-   [type declarations](flare-plugin.d.ts). For login use [authentication](references/authentication.md);
+4. Read the [manifest](references/manifest.md), [ABI](ABI.md) and relevant
+   [type declarations](flare-plugin.d.ts). For translation, storage or offline
+   settings, read [their v2 contract](references/storage-and-settings.md) and the
+   bundled `settings-sdk.mjs` / `settings-sdk.d.ts`. For social/background code,
+   read [capabilities](references/capabilities.md) and [runtime/HTTP](references/runtime-http.md).
+   For login use [authentication](references/authentication.md);
    for results use [Wire data](references/wire-data.md) and [recipes](references/recipes.md).
 5. Submit `manifest.json`, a complete classic `plugin.js` for background capabilities, and any `locales/*.json` or packaged settings text files
    through `write_plugin_files`, with `expectedRevision` from the latest read. Submit the
@@ -33,7 +36,9 @@ account UI; a login implementation must verify credentials against the website.
 
 ## Website icons
 
-Read the website homepage with `read_plugin_documentation`. HTML responses include
+For a website adapter or a user-supplied website, read its homepage with
+`read_plugin_documentation`. Settings-only plugins can use the default icon.
+HTML responses include
 icon candidates from the head with absolute URLs, rel, type, sizes and media.
 Choose a recognizable PNG, JPEG, WebP, GIF or ICO from `rel="icon"`, `shortcut icon`
 or `apple-touch-icon`; prefer a suitable static icon (32–512 pixels) over animation.
@@ -64,7 +69,7 @@ not to a conversation. Publishing availability follows the running plugin's
 capabilities after an update or new login.
 
 `delete_plugin` immediately removes local source, installation, accounts,
-credentials and account data. First request its confirmation button, then wait
+credentials, plugin-owned storage and account data. First request its confirmation button, then wait
 for the user to select it before calling with `confirmed=true`. The host binds
 that single-use approval to the plugin and revision and supplies the deletion
 warning; neither a model-supplied flag nor a text reply grants approval. A changed
@@ -90,11 +95,8 @@ website operations before using it for a real adapter.
 Report what validation passed and what still needs a website/account/UI check.
 Local package validation cannot prove that the target website integration works.
 
-For text translation, generic storage or offline settings, read
-[storage, translation and settings](references/storage-and-settings.md) and the
-bundled `settings-sdk.mjs` / `settings-sdk.d.ts`. Use API v2; `platform`,
-`translation` and `settings` are independent declarations. Settings-only plugins
-can omit `plugin.js`. Keep the host-assigned plugin ID, and keep its platform ID
-when a platform is declared. Submit all settings HTML/JS/CSS/JSON files with the
-complete source set. The Host supplies an icon. The page SDK and its dependencies
-must be included under `settings/`; API calls use the restricted HTTP channel.
+For offline pages, include the SDK and all page dependencies under `settings/`
+in the complete submitted text-file set; remote calls use SDK HTTP.
+Enter service keys in the plugin's page rather than a conversation or source.
+Use system fonts or packaged text resources with these text-only tools. The
+[v2 contract](references/storage-and-settings.md) defines storage and cache dependencies.

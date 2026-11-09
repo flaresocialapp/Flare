@@ -1,10 +1,18 @@
 # Flare Plugin SDK
 
 `flare-plugin-sdk` contains a project initializer, editor types, a local package command,
-templates, examples, and a portable AI authoring skill for Social Plugin API v1/v2.
+templates, examples, and a portable AI authoring skill for Flare Plugin API v1/v2.
 Flare provides the plugin runtime. Supported targets are Android, JVM Desktop,
 iOS, and native macOS, not Web. Use a Flare build that includes Plugins in Settings;
 this SDK does not promise a minimum public app release.
+
+Host API v2 also supports text translation, plugin-owned storage and offline
+settings pages. These additions require matching Host/SDK source revisions;
+the unreleased v2 contract does not imply availability in a published npm/app
+version. Start with the [v2 contract](skill/flare-plugin/references/storage-and-settings.md)
+and [offline example](skill/flare-plugin/examples/translation-settings/README.md).
+Settings pages run on iOS, Android and native macOS; Compose Desktop has no
+settings page integration. The CLI workflow below creates a social-adapter starter.
 
 ## Create a plugin
 
@@ -72,14 +80,18 @@ for authentication, Host APIs, capabilities, and Wire data mapping.
    `check` uses the SDK's ambient types with strict TypeScript checking. `build`
    checks types and bundles local TS modules into one ES2020 IIFE at root.
    Actual execution and manifest/registration validation happen in Flare, which
-   provides `defineFlareSocialPlugin` and `flare`.
+   provides `defineFlarePlugin`, its `defineFlareSocialPlugin` alias, and `flare`
+   for background code.
 2. In Compose Desktop or native macOS, open **Settings → Plugins → More → Plugin
    development**. Choose the `my-plugin` directory, click **Start development**,
    and confirm the access review.
-3. Add an account in Flare. Select your plugin platform explicitly, enter the
+3. For social adapters, add an account in Flare. Select your plugin platform explicitly, enter the
    website's HTTPS API origin, and import a real access token using the starter's
    login form. Adapt this step if you change the login method. Test login,
    timeline refresh, older pages, end-of-list behavior, and website link clicks.
+   For a v2 translation plugin, select it in translation settings on iOS, Android
+   or native macOS and test text translation. Open its packaged settings page from plugin management on iOS,
+   Android or native macOS; no social account is needed for those features.
 4. Run `npm run dev` in a terminal, then edit `src/plugin.ts` or its local modules.
    Watch mode rebuilds `plugin.js`; syntax/build errors preserve the previous
    script. It transpiles without type checking, so use editor diagnostics or run
@@ -101,8 +113,9 @@ See [development and testing details](https://github.com/flaresocialapp/Flare/bl
 ## Publish and install through GitHub (recommended)
 
 1. Create a public GitHub repository. Its selected plugin directory must contain `manifest.json`,
-   the ready-to-run `plugin.js`, exactly one supported `assets/icon.<extension>`,
-   and optional `locales/*.json`. Update the project README with the actual website,
+   exactly one supported `assets/icon.<extension>`, ready-to-run `plugin.js` when
+   background capabilities are declared, all settings resources, and optional
+   `locales/*.json`. Update the project README with the actual website,
    login instructions, supported features, and verification results. Flare reads
    these files directly; commit compiled output in the plugin directory before tagging.
 2. Run `npm run build`, then commit both source and `plugin.js` in the plugin directory.
@@ -114,7 +127,7 @@ See [development and testing details](https://github.com/flaresocialapp/Flare/bl
    ```sh
    git init
    git add manifest.json plugin.js assets src package.json package-lock.json tsconfig.json build.mjs .gitignore README.md
-   # If used, also stage translations with: git add locales
+   # If used, also stage locale catalogs and built pages: git add locales settings
    git commit -m "Add Flare plugin"
    git branch -M main
    git remote add origin https://github.com/OWNER/REPO.git
@@ -165,7 +178,7 @@ needed. From the generated project root:
 npm run package
 ```
 
-This checks types, rebuilds `plugin.js`, stages only manifest/script/icon/locale
+This checks types, rebuilds `plugin.js`, stages manifest/script/icon/locale and built settings
 files in a temporary directory, reuses the SDK packer, and writes `plugin.fpp` in
 the project root. Temporary staging is cleaned up. Source and development files
 are excluded. The standalone `flare-plugin-pack` command still requires a clean
@@ -181,8 +194,8 @@ registration, permissions, and behavior. File installs have no GitHub update tra
 The generated `tsconfig.json` already sets `types: ["flare-plugin-sdk"]`, strict
 checking, and an ES2020 library without browser or Node globals.
 `defineFlareSocialPlugin` contextually types its handlers; `TimelineItemV1`, `PostV1`, `ProfileV1`,
-and other SDK types are available directly. The SDK is a development dependency,
-not a runtime import.
+and other SDK types are available directly. The SDK root provides background
+ambient declarations as a development dependency.
 Local TS imports are bundled into `plugin.js`; imported code must also work
 without Node/browser APIs. `build` and `package` stop on type errors.
 
@@ -212,9 +225,11 @@ Add the package to your TypeScript project's compiler options:
 ```
 
 Append it to any existing `types` list. For JavaScript, enable `checkJs` as well.
-The declarations provide ambient `defineFlareSocialPlugin`, `flare`, and wire
-types. Do not import the SDK at runtime: Flare supplies those globals, and plugin
-scripts must bundle their own runtime dependencies without Node or browser APIs.
+The root declarations provide ambient `defineFlarePlugin`, its social alias,
+`flare`, and Wire types for background code; Flare supplies those globals.
+Settings pages instead use the `flare-plugin-sdk/settings` module with its own
+browser types/build. Bundle that module into the packaged page; see the
+[page SDK contract](skill/flare-plugin/references/storage-and-settings.md#offline-settings-page).
 
 ## Use the AI authoring skill
 

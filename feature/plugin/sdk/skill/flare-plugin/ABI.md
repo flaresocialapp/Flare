@@ -1,19 +1,20 @@
 # Flare Plugin API v1/v2
 
-This directory is the authoring contract for Social Plugin API v1 and v2. Prefer
+This directory is the authoring contract for Flare Plugin API v1 and v2. Prefer
 [GitHub distribution](references/publishing.md); local `.fpp` installation is
 also supported. Start with the [authoring guide](README.md) or [agent skill](SKILL.md).
 The Host implementation remains authoritative when this document and code disagree.
 
 ## Package
 
-An API v1/v2 package is a ZIP with a `.fpp` extension and exactly these files:
+An API v1/v2 package is a ZIP with a `.fpp` extension containing these runtime files:
 
 ```text
 manifest.json
-plugin.js
+plugin.js             # required when platform or translation is declared
 assets/icon.png
 locales/<bcp47>.json   # optional
+settings/             # optional packaged HTML, JS, CSS, JSON, fonts and raster images
 ```
 
 The package must contain exactly one `assets/icon.<extension>`: `png`, `jpg`,
@@ -21,8 +22,14 @@ The package must contain exactly one `assets/icon.<extension>`: `png`, `jpg`,
 The icon is kept unchanged, limited to 2 MiB and 1024×1024 pixels. SVG is not
 supported. PNG remains the default in the templates.
 
-`plugin.js` is one self-contained classic script. Static modules, dynamic
+Declare at least one of `platform`, `translation` or `settings`. Translation and
+settings require the unreleased Host API v2; use a matching Host and SDK revision.
+Settings-only packages can omit `plugin.js` and all social/login declarations.
+
+When present, `plugin.js` is one self-contained classic background script. Static modules, dynamic
 imports, remote code, filesystem access, and native access are unavailable.
+Settings pages have a separate browser environment and SDK; their packaged ES
+modules are supported. See [storage, translation and settings](references/storage-and-settings.md).
 Run `node pack.mjs <directory> [output.fpp]` to produce a deterministic package
 using only Node's standard library.
 
@@ -31,9 +38,10 @@ using only Node's standard library.
 Flare can install from a public `https://github.com/<owner>/<repository>` URL
 (optional `.git` suffix). Use `?path=/plugins/example` for a plugin directory;
 omitting it selects the repository root. Every selected directory contains
-`manifest.json`, the self-contained, already-built `plugin.js`, one supported
-`assets/icon.<extension>`, and optional `locales/*.json`. Multiple plugins can
-share a repository using unique plugin/platform IDs. Resources stay within the
+`manifest.json`, one supported `assets/icon.<extension>`, the background script
+when required, and all declared settings resources and optional locale catalogs.
+Multiple plugins can share a repository using unique plugin IDs and, when
+provided, platform IDs. Resources stay within the
 selected directory. Other development files are ignored.
 
 Publish stable SemVer repository snapshot tags such as `1.2.3` or `v1.2.3`.
@@ -53,7 +61,7 @@ roots are rejected, including in ignored files.
 
 GitHub installation records repository ID, canonical owner/name, directory,
 tag, and commit SHA. Updates retain repository ID, directory, plugin ID, and
-platform ID. Source/permission review and confirmation remain required. Directory
+any previously owned platform ID. Source/permission review and confirmation remain required. Directory
 moves use an explicit new install review. Cancellation or failure preserves the
 installed plugin and removes temporary downloads. Changes take effect immediately.
 
@@ -66,8 +74,9 @@ branch tracking, client-side builds, and automatic installation are unsupported.
 
 ## Registration
 
-The social plugin script calls `defineFlareSocialPlugin` once. It registers named
-services; it does not implement a universal dispatcher:
+The background script calls `defineFlarePlugin` once; `defineFlareSocialPlugin`
+remains a supported alias. It registers named services rather than a universal
+dispatcher. The social-only example below uses the original alias:
 
 ```js
 defineFlareSocialPlugin({
@@ -120,6 +129,10 @@ optional operations and explains UI dependencies. `PluginAbiV1.kt` defines the
 Host contract. Use [flare-plugin.d.ts](flare-plugin.d.ts) for the complete
 JavaScript types and [recipes](references/recipes.md) for implementation guidance.
 
+Text translation instead registers `translation.translateDocumentJson` and
+`translation.translateBatchDocumentJson`; see the [translation contract](references/storage-and-settings.md#text-translation).
+Settings-only packages have no background registration to execute.
+
 Compose uses `flare.datasource.compose/v2`, independently of the runtime API
 version. `compose/v1` manifests and negotiated capabilities are rejected rather
 than adapted. Composer plugins must update their manifests, SDK types and
@@ -151,11 +164,12 @@ limits are described in [Runtime and HTTP](references/runtime-http.md).
 Every method receives immutable request and context values. JavaScript globals
 are disposable cache only. Plugins have no lifecycle or migration hooks.
 
-Runtime scopes are detector attempt, login flow, account, and guest origin.
+Runtime scopes are detector attempt, login flow, account, guest origin, and plugin.
+Translation uses plugin scope, without an account origin or account credentials.
 Calls in one Runtime serialize. A fatal JavaScript error, timeout, cancellation,
 out-of-memory condition, or invalid Wire result retires that Runtime.
 
-All values crossing the boundary are JSON Wire v1 DTOs. IDs use
+Social operations exchange JSON Wire v1 DTOs. IDs use
 `{ "id": "...", "host": "..." }`; page responses use `items`,
 `olderCursor`, `newerCursor`, and `endReached`. Timestamps are ISO-8601 strings.
 Rich text is `{ "format": "plain|html", "value": "..." }`; Flare sanitizes
@@ -238,8 +252,10 @@ upgraded; a newer plugin cannot retrofit compatibility into them.
 
 Declare `apiVersion: 2` for application response headers (including Set-Cookie),
 manual redirects, versioned credential updates, and WebCookie pending state and
-Cookie metadata. New Hosts keep API v1 behavior; older Hosts reject API v2.
-The manifest schema and existing capability IDs remain v1. Shared `V1` type names
+Cookie metadata. The same unreleased v2 also provides storage, translation and
+offline settings; it does not introduce a global v3. New Hosts keep API v1
+support; older Hosts reject API v2. The manifest schema remains 1, and capability
+versions are independent of the Host API version. Shared `V1` type names
 continue to describe both APIs; fields marked v2 require the v2 manifest.
 
 API v2 exposes headers only from requests the plugin explicitly makes to approved
@@ -254,6 +270,7 @@ are platform dependent; see [HTTP behavior](references/runtime-http.md#http-requ
 The frozen `flare` object exposes:
 
 - `flare.http.request`: JSON, text, form, and streaming multipart HTTP;
+- `flare.storage.open(namespace).read/write`: plugin-owned storage, API v2;
 - `flare.credential.read/replace`: the current account credential only;
 - `flare.crypto.randomHex/uuid/sha256/md5`;
 - `flare.locale.current`;
@@ -437,9 +454,10 @@ Install, update, and uninstall take effect immediately. Installed plugins are al
 Host-owned; a manifest cannot claim official status or broader runtime access.
 
 Uninstall removes the plugin's accounts, credentials, account-scoped caches,
-selections/tabs, and draft targets from this device, together with local source
+selections/tabs, plugin-owned storage, and draft targets from this device, together with local source
 and package files. Shared drafts and attachments remain while another account
-uses them. Updates preserve accounts. Loading failures or restoring accounts
+uses them. Updates preserve accounts and plugin storage; plugins manage their
+own storage schemas and migrations. Loading failures or restoring accounts
 without their plugin leave accounts unavailable; they do not delete them.
 Login, publishing, and uploads can delay or block replacement/removal. Closed
 sessions cannot recreate accounts through a late callback. Account ownership and
