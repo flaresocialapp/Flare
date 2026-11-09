@@ -6,7 +6,6 @@ import UniformTypeIdentifiers
 
 #if os(iOS)
 import UIKit
-import SwiftUIIntrospect
 #elseif os(macOS)
 import AppKit
 #endif
@@ -37,6 +36,16 @@ public struct PluginManagementView: View {
 
     public var body: some View {
         List {
+            #if os(macOS)
+            if isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .accessibilityLabel(Text("Refresh"))
+            }
+            #endif
             Section {
                 #if os(macOS)
                 GroupBox {
@@ -110,15 +119,7 @@ public struct PluginManagementView: View {
         }
         .refreshable {
             await checkUpdates()
-            do {
-                while isRefreshing { try await Task.sleep(for: .milliseconds(100)) }
-            } catch {}
         }
-        #if os(iOS)
-        .introspect(.list, on: .iOS(.v17, .v18, .v26, .v27)) { list in
-            updatePluginListRefreshControl(list, isRefreshing: isRefreshing)
-        }
-        #endif
         .navigationTitle("settings_plugins_title")
         #if os(macOS)
         // The Settings window reserves its toolbar for pane selection.
@@ -131,14 +132,7 @@ public struct PluginManagementView: View {
                     Label {
                         Text("Refresh")
                     } icon: {
-                        if isRefreshing {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                                .scaleEffect(0.5)
-                                .frame(width: 12, height: 12)
-                        } else {
-                            Image(fontAwesome: .arrowsRotate)
-                        }
+                        Image(fontAwesome: .arrowsRotate)
                     }
                 }
                 .labelStyle(.iconOnly)
