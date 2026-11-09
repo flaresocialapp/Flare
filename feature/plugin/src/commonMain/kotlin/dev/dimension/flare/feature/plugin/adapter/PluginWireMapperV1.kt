@@ -11,6 +11,7 @@ import dev.dimension.flare.data.datasource.microblog.semanticPostActionMenu
 import dev.dimension.flare.data.model.IconType
 import dev.dimension.flare.data.model.ProxyRef
 import dev.dimension.flare.feature.plugin.abi.PluginAbiV1
+import dev.dimension.flare.feature.plugin.manifest.toUiText
 import dev.dimension.flare.feature.plugin.wire.ActionDescriptorV1
 import dev.dimension.flare.feature.plugin.wire.ArticleV1
 import dev.dimension.flare.feature.plugin.wire.DirectMessageRoomV1
@@ -80,6 +81,7 @@ internal class PluginWireMapperV1(
     private val mediaNetwork: Boolean = false,
     private val platformIcon: IconType = UiIcon.World.asType(),
     private val supportedComposeTypes: Set<ComposeType> = emptySet(),
+    private val packageHash: String = "",
 ) {
     private val accountType: AccountType = accountKey?.let(AccountType::Specific) ?: AccountType.GuestHost(originHost)
     private val mediaProxy = ProxyRef.forAccountType(accountType)
@@ -322,6 +324,19 @@ internal class PluginWireMapperV1(
             when (value) {
                 NavigationTargetV1.Unknown -> {
                     null
+                }
+
+                is NavigationTargetV1.TimelinePage -> {
+                    DeeplinkRoute.Timeline
+                        .Page(
+                            accountType = accountType,
+                            pluginId = pluginId,
+                            platformId = platformId,
+                            packageHash = packageHash,
+                            pageId = value.pageId,
+                            title = value.title.toUiText(pluginId),
+                            parameters = value.parameters,
+                        ).takeIf { capabilities.canExpose(PluginAbiV1.Capabilities.TIMELINE_PAGE) }
                 }
 
                 is NavigationTargetV1.Link -> {
@@ -658,7 +673,7 @@ internal class PluginWireMapperV1(
                     } + listOfNotNull(replyTo?.let { UiTimelineV2.Post.Reference(it.toMicroBlogKey(), ReferenceType.Reply) })
                 ).distinct()
                     .toImmutableList(),
-            clickEvent = detailRoute?.let { ClickEvent.Deeplink(it) } ?: ClickEvent.Noop,
+            clickEvent = target?.let(::target) ?: detailRoute?.let { ClickEvent.Deeplink(it) } ?: ClickEvent.Noop,
             mediaClickPolicy =
                 if (detailType == PostDetailTypeV1.Post) {
                     UiTimelineV2.Post.MediaClickPolicy.OpenStatusMedia

@@ -73,6 +73,12 @@ public fun PluginManifestV1.validate(methodTable: PluginMethodTableV1? = null): 
     check(platform.capabilities.size <= 32, "capability.count", "platform.capabilities", "Too many capabilities")
     platform.capabilities.forEach { (capabilityId, declaration) ->
         val path = "platform.capabilities.$capabilityId"
+        check(
+            capabilityId != PluginAbiV1.Capabilities.TIMELINE_PAGE || apiVersion >= 2,
+            "capability.version",
+            path,
+            "Timeline pages require plugin API v2",
+        )
         check(capabilityId != PluginAbiV1.RETIRED_COMPOSE, "compose.version", path, "compose/v1 is retired; update to compose/v2")
         check(CAPABILITY_ID.matches(capabilityId), "capability.id", path, "Invalid capability ID")
         val knownOperations = PluginAbiV1.knownCapabilityOperations[capabilityId] ?: return@forEach

@@ -23,3 +23,7 @@ runtime eviction; it is deliberately not a website backend or durable storage.
 The [wire reference](../../references/wire-data.md#timeline-items-and-interactions)
 includes image reactions, Ugoira and all validation limits. Those require real
 remote media and are intentionally absent from this offline sample.
+
+The API v2 quote opens a temporary replies timeline. Each reply can open another
+level; the sample includes an empty intermediate page to demonstrate cursor
+continuation without involving home tabs or tabCatalog.

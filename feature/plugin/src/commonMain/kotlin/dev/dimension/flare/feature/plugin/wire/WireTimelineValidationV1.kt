@@ -111,6 +111,11 @@ public fun NavigationTargetV1.requireValid() {
             key.requireValid()
         }
 
+        is NavigationTargetV1.TimelinePage -> {
+            title.requireValid()
+            TimelinePageLoadRequestV2(pageId, PageRequestV1(PageDirectionV1.Refresh, 1, parameters = parameters)).requireValid()
+        }
+
         is NavigationTargetV1.Link -> {
             url.requireHttpsUrl(required = true)
         }

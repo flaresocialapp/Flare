@@ -1422,6 +1422,9 @@
         },
         "flare.datasource.tab-catalog/v1": {
           "$ref": "#/definitions/capability-tab-catalog"
+        },
+        "flare.datasource.timeline-page/v1": {
+          "$ref": "#/definitions/capability-timeline-page"
         }
       },
       "additionalProperties": {
@@ -1906,6 +1909,69 @@
         "reply",
         "quote"
       ]
+    },
+    "capability-timeline-page": {
+      "type": "object",
+      "description": "API v2 temporary timeline pages, independent of home timelines and tabCatalog.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/capability"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "operations": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "load": {
+                  "$ref": "#/definitions/operation"
+                }
+              },
+              "required": [
+                "load"
+              ]
+            },
+            "notificationFilters": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            }
+          }
+        }
+      ]
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "apiVersion": {
+            "const": 1
+          }
+        },
+        "required": [
+          "apiVersion"
+        ]
+      },
+      "then": {
+        "properties": {
+          "platform": {
+            "properties": {
+              "capabilities": {
+                "properties": {
+                  "flare.datasource.timeline-page/v1": false
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          }
+        }
+      }
+    }
+  ]
 }

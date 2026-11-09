@@ -149,6 +149,7 @@ public data class PostV1(
     val card: CardV1? = null,
     val poll: PollV1? = null,
     val emojiReactions: List<EmojiReactionV1> = emptyList(),
+    val target: NavigationTargetV1? = null,
 )
 
 @Serializable

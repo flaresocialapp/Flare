@@ -178,7 +178,13 @@ URLs represent the same feed entry. Gap rows, account identity, media proxies,
 translation state, render hashes and callbacks remain Host-owned.
 
 Navigation targets are `{ type: "post" | "profile" | "article" | "gallery", key }`
-or `{ type: "link", url }`. Internal targets require the negotiated capability;
+or `{ type: "link", url }`. API v2 also accepts
+`{ type: "timelinePage", pageId, title: WireTextV1, parameters?: Record<string, string> }`
+on posts (including quote posts), feeds and messages. A Post's optional target
+overrides navigation without changing existing detailType hit/media handling.
+Keep the target stable for an entity key and include it in full entity updates.
+See [temporary pages](capabilities.md#api-v2-temporary-timeline-pages).
+Internal targets require the negotiated capability;
 unavailable or unknown target types become inert. Feed defaults to opening its
 URL in the browser only when the target is absent; an unknown target does not
 use that fallback. The same rule prevents a message's unknown target from

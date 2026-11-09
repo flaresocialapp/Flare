@@ -25,6 +25,11 @@ public object WireLimitsV1 {
     public const val MAX_MEDIA_HEADER_BYTES: Int = 64 * 1_024
 }
 
+public fun TimelinePageLoadRequestV2.requireValid() {
+    require(pageId.isWireName()) { "Invalid timeline page ID" }
+    page.requireValid()
+}
+
 public fun PageRequestV1.requireValid() {
     require(limit in 1..WireLimitsV1.MAX_PAGE_SIZE) { "Invalid page size" }
     require(cursor == null || cursor.length <= WireLimitsV1.MAX_CURSOR_LENGTH) { "Cursor is too large" }
@@ -89,6 +94,7 @@ public fun ProfileV1.requireValid() {
 
 public fun PostV1.requireValid() {
     key.requireValid()
+    target?.requireValid()
     author?.requireValid()
     createdAt.requireTimestamp()
     content.requireValid()
