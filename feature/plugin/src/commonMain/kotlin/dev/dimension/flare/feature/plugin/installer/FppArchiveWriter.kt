@@ -1,9 +1,11 @@
 package dev.dimension.flare.feature.plugin.installer
 
+import dev.dimension.flare.feature.plugin.manifest.isPluginSettingsPath
 import okio.Buffer
 
 internal fun isPluginPath(path: String): Boolean =
     path == FppPaths.MANIFEST || path == FppPaths.ENTRY || path in FppPaths.ICONS ||
+        isPluginSettingsPath(path) ||
         (path.startsWith(FppPaths.LOCALE_PREFIX) && path.endsWith(".json"))
 
 /** Canonical stored ZIP: repository metadata and compression never affect the installed package hash. */

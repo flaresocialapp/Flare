@@ -2423,7 +2423,7 @@ internal fun SettingsScreen(
                                 )
                             }
 
-                            TranslateProviderOption.GoogleWeb -> {}
+                            TranslateProviderOption.GoogleWeb, TranslateProviderOption.Plugin -> {}
                         }
                     }
                 }
@@ -2894,6 +2894,7 @@ private fun aiConfigPresenter(agentConfig: Boolean = false) =
 @Composable
 private fun translateProviderOptionLabel(provider: TranslateProviderOption): String =
     when (provider) {
+        TranslateProviderOption.Plugin -> "Plugin"
         TranslateProviderOption.AI -> stringResource(Res.string.settings_ai_config_translate_provider_ai)
         TranslateProviderOption.GoogleWeb -> stringResource(Res.string.settings_ai_config_translate_provider_google_web)
         TranslateProviderOption.DeepL -> stringResource(Res.string.settings_ai_config_translate_provider_deepl)

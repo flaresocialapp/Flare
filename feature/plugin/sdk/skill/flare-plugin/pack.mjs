@@ -6,8 +6,8 @@ import process from "node:process";
 
 const MAX_FILES = 256;
 const MAX_TOTAL_BYTES = 50 * 1024 * 1024;
-const ALLOWED_PATH = /^(?:manifest\.json|plugin\.js|assets\/icon\.(?:png|jpe?g|webp|gif|ico)|locales\/[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*\.json)$/;
-const REQUIRED_PATHS = new Set(["manifest.json", "plugin.js"]);
+const ALLOWED_PATH = /^(?:manifest\.json|plugin\.js|assets\/icon\.(?:png|jpe?g|webp|gif|ico)|settings\/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\.(?:html|js|mjs|css|json|png|jpe?g|webp|gif|ico|woff2?|ttf)|locales\/[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*\.json)$/;
+const REQUIRED_PATHS = new Set(["manifest.json"]);
 
 async function main() {
   const [inputArgument, outputArgument] = process.argv.slice(2);
@@ -32,6 +32,8 @@ async function main() {
   }
 
   const manifest = JSON.parse((await readFile(join(input, "manifest.json"))).toString("utf8"));
+  if ((manifest.platform || manifest.translation) && !names.includes("plugin.js")) throw new Error("Background capabilities require plugin.js");
+  if (manifest.settings && !names.includes(manifest.settings.entry)) throw new Error("Settings entry is missing");
   const packageName = `${manifest.id ?? "plugin"}-${manifest.version ?? "0.0.0"}.fpp`;
   const output = resolve(outputArgument ?? packageName);
   if (!output.endsWith(".fpp")) throw new Error("Output file must use the .fpp extension");
@@ -60,7 +62,7 @@ async function collectFiles(root) {
       if (!metadata.isFile()) throw new Error(`Unsupported filesystem entry: ${entry.name}`);
       const name = relative(root, absolute).split(sep).join("/");
       if (name === "README.md") continue;
-      if (!ALLOWED_PATH.test(name)) throw new Error(`Unsupported package path: ${name}`);
+      if (name.split("/").some(part => part === "." || part === "..") || !ALLOWED_PATH.test(name)) throw new Error(`Unsupported package path: ${name}`);
       if (![...name].every((character) => character.codePointAt(0) >= 0x20 && character.codePointAt(0) <= 0x7e)) {
         throw new Error(`Package paths must be ASCII: ${name}`);
       }

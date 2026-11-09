@@ -42,25 +42,12 @@ public fun PluginManifestV1.validate(methodTable: PluginMethodTableV1? = null): 
     validateText(name, "name", errors)
     description?.let { validateText(it, "description", errors) }
 
-    check(PLATFORM_ID.matches(platform.id), "platform.id", "platform.id", "Invalid platform ID")
-    validateText(platform.name, "platform.name", errors)
-    platform.description?.let { validateText(it, "platform.description", errors) }
     check(
-        platform.credentialSchemaVersion in 1..1_000_000,
-        "platform.credentialSchema",
-        "platform.credentialSchemaVersion",
-        "Invalid credential schema version",
+        platform != null || translation != null || settings != null,
+        "manifest.empty",
+        "manifest",
+        "Plugin must provide a capability or settings page",
     )
-    check(
-        platform.timelineSchemaVersion in 1..1_000_000,
-        "platform.timelineSchema",
-        "platform.timelineSchemaVersion",
-        "Invalid timeline schema version",
-    )
-    platform.detector?.let {
-        check(it.priority in -10_000..10_000, "detector.priority", "platform.detector.priority", "Invalid detector priority")
-    }
-
     check(permissions.authOrigins.size <= 16, "permission.count", "permissions.authOrigins", "Too many auth origins")
     permissions.authOrigins.forEachIndexed { index, origin ->
         check(origin.isExactHttpsOrigin(), "permission.origin", "permissions.authOrigins[$index]", "Auth origin must be exact HTTPS origin")
@@ -70,152 +57,206 @@ public fun PluginManifestV1.validate(methodTable: PluginMethodTableV1? = null): 
         check(origin.isExactHttpsOrigin(), "permission.origin", "permissions.httpOrigins[$index]", "HTTP origin must be exact HTTPS origin")
     }
 
-    check(platform.capabilities.size <= 32, "capability.count", "platform.capabilities", "Too many capabilities")
-    platform.capabilities.forEach { (capabilityId, declaration) ->
-        val path = "platform.capabilities.$capabilityId"
-        check(capabilityId != PluginAbiV1.RETIRED_COMPOSE, "compose.version", path, "compose/v1 is retired; update to compose/v2")
-        check(CAPABILITY_ID.matches(capabilityId), "capability.id", path, "Invalid capability ID")
-        val knownOperations = PluginAbiV1.knownCapabilityOperations[capabilityId] ?: return@forEach
-        check(declaration.operations.size <= 32, "capability.operations", path, "Too many operations")
-        if (declaration.operations.isNotEmpty() && declaration.operations.keys.none { it in knownOperations }) return@forEach
-        check(declaration.operations.isNotEmpty(), "capability.empty", path, "Capability has no operations")
+    check(
+        (translation == null && settings == null) || apiVersion >= 2,
+        "manifest.features",
+        "apiVersion",
+        "Translation and settings require Host API v2",
+    )
+    translation?.let {
+        check(it.apiVersion == 1, "translation.version", "translation.apiVersion", "Unsupported translation interface")
+        val namespaces = it.cache.storageNamespaces
         check(
-            declaration.operations.keys.containsAll(PluginAbiV1.requiredCapabilityOperations.getValue(capabilityId)),
-            "capability.incomplete",
-            path,
-            "Capability is missing operations required by the Host interface",
+            namespaces == null ||
+                (
+                    namespaces.size <= 64 && namespaces.distinct().size == namespaces.size &&
+                        namespaces.all { name ->
+                            name.isNotEmpty() &&
+                                runCatching { name.encodeToByteArray(throwOnInvalidSequence = true).size <= 256 }.getOrDefault(false) &&
+                                name.none { char -> char.code < 32 }
+                        }
+                ),
+            "translation.cache",
+            "translation.cache.storageNamespaces",
+            "Invalid storage dependencies",
         )
-        declaration.operations.forEach { (operation, config) ->
-            if (operation in knownOperations) {
-                check(config.directions.size <= 3, "capability.directions", "$path.$operation.directions", "Invalid paging directions")
+    }
+    settings?.let {
+        check(it.bridgeVersion == 1, "settings.version", "settings.bridgeVersion", "Unsupported settings bridge")
+        check(
+            isPluginSettingsPath(it.entry) && it.entry.endsWith(".html"),
+            "settings.entry",
+            "settings.entry",
+            "Settings entry must be a packaged HTML file under settings/",
+        )
+    }
+    platform?.let { platform ->
+        check(PLATFORM_ID.matches(platform.id), "platform.id", "platform.id", "Invalid platform ID")
+        validateText(platform.name, "platform.name", errors)
+        platform.description?.let { validateText(it, "platform.description", errors) }
+        check(
+            platform.credentialSchemaVersion in 1..1_000_000,
+            "platform.credentialSchema",
+            "platform.credentialSchemaVersion",
+            "Invalid credential schema version",
+        )
+        check(
+            platform.timelineSchemaVersion in 1..1_000_000,
+            "platform.timelineSchema",
+            "platform.timelineSchemaVersion",
+            "Invalid timeline schema version",
+        )
+        platform.detector?.let {
+            check(it.priority in -10_000..10_000, "detector.priority", "platform.detector.priority", "Invalid detector priority")
+        }
+
+        check(platform.capabilities.size <= 32, "capability.count", "platform.capabilities", "Too many capabilities")
+        platform.capabilities.forEach { (capabilityId, declaration) ->
+            val path = "platform.capabilities.$capabilityId"
+            check(capabilityId != PluginAbiV1.RETIRED_COMPOSE, "compose.version", path, "compose/v1 is retired; update to compose/v2")
+            check(CAPABILITY_ID.matches(capabilityId), "capability.id", path, "Invalid capability ID")
+            val knownOperations = PluginAbiV1.knownCapabilityOperations[capabilityId] ?: return@forEach
+            check(declaration.operations.size <= 32, "capability.operations", path, "Too many operations")
+            if (declaration.operations.isNotEmpty() && declaration.operations.keys.none { it in knownOperations }) return@forEach
+            check(declaration.operations.isNotEmpty(), "capability.empty", path, "Capability has no operations")
+            check(
+                declaration.operations.keys.containsAll(PluginAbiV1.requiredCapabilityOperations.getValue(capabilityId)),
+                "capability.incomplete",
+                path,
+                "Capability is missing operations required by the Host interface",
+            )
+            declaration.operations.forEach { (operation, config) ->
+                if (operation in knownOperations) {
+                    check(config.directions.size <= 3, "capability.directions", "$path.$operation.directions", "Invalid paging directions")
+                }
+            }
+            when (capabilityId) {
+                PluginAbiV1.Capabilities.NOTIFICATION -> {
+                    check(
+                        "page" !in declaration.operations || declaration.notificationFilters.isNotEmpty(),
+                        "notification.filters",
+                        "$path.notificationFilters",
+                        "Notification page requires at least one static filter",
+                    )
+                    check(
+                        declaration.relationActions.isEmpty(),
+                        "capability.config",
+                        "$path.relationActions",
+                        "Relation actions are only valid for the relation capability",
+                    )
+                }
+
+                PluginAbiV1.Capabilities.RELATION -> {
+                    check(
+                        declaration.relationActions.isNotEmpty(),
+                        "relation.actions",
+                        "$path.relationActions",
+                        "Relation capability requires at least one static action",
+                    )
+                    check(
+                        declaration.notificationFilters.isEmpty(),
+                        "capability.config",
+                        "$path.notificationFilters",
+                        "Notification filters are only valid for the notification capability",
+                    )
+                }
+
+                else -> {
+                    check(
+                        declaration.notificationFilters.isEmpty() && declaration.relationActions.isEmpty(),
+                        "capability.config",
+                        path,
+                        "Capability-specific configuration is not valid here",
+                    )
+                }
             }
         }
-        when (capabilityId) {
-            PluginAbiV1.Capabilities.NOTIFICATION -> {
-                check(
-                    "page" !in declaration.operations || declaration.notificationFilters.isNotEmpty(),
-                    "notification.filters",
-                    "$path.notificationFilters",
-                    "Notification page requires at least one static filter",
-                )
-                check(
-                    declaration.relationActions.isEmpty(),
-                    "capability.config",
-                    "$path.relationActions",
-                    "Relation actions are only valid for the relation capability",
-                )
-            }
 
-            PluginAbiV1.Capabilities.RELATION -> {
-                check(
-                    declaration.relationActions.isNotEmpty(),
-                    "relation.actions",
-                    "$path.relationActions",
-                    "Relation capability requires at least one static action",
-                )
-                check(
-                    declaration.notificationFilters.isEmpty(),
-                    "capability.config",
-                    "$path.notificationFilters",
-                    "Notification filters are only valid for the notification capability",
-                )
-            }
-
-            else -> {
-                check(
-                    declaration.notificationFilters.isEmpty() && declaration.relationActions.isEmpty(),
-                    "capability.config",
-                    path,
-                    "Capability-specific configuration is not valid here",
-                )
-            }
+        validateUniqueIds(platform.timelines.map(TimelineManifestV1::id), "platform.timelines", errors)
+        platform.timelines.forEachIndexed { index, timeline ->
+            val path = "platform.timelines[$index]"
+            check(ID.matches(timeline.id), "timeline.id", "$path.id", "Invalid timeline ID")
+            validateText(timeline.title, "$path.title", errors)
+            validateParameters(timeline.parameters, "$path.parameters", errors)
         }
-    }
-
-    validateUniqueIds(platform.timelines.map(TimelineManifestV1::id), "platform.timelines", errors)
-    platform.timelines.forEachIndexed { index, timeline ->
-        val path = "platform.timelines[$index]"
-        check(ID.matches(timeline.id), "timeline.id", "$path.id", "Invalid timeline ID")
-        validateText(timeline.title, "$path.title", errors)
-        validateParameters(timeline.parameters, "$path.parameters", errors)
-    }
-    if (platform.timelines.isNotEmpty()) {
-        check(
-            platform.hasOperation(PluginAbiV1.Capabilities.TIMELINE, "page"),
-            "timeline.capability",
-            "platform.timelines",
-            "Timeline page operation is required",
-        )
-        check(
-            platform.timelines.any(TimelineManifestV1::defaultForNewAccount),
-            "timeline.default",
-            "platform.timelines",
-            "At least one timeline must be a default for new accounts",
-        )
-    } else if (platform.hasOperation(PluginAbiV1.Capabilities.TIMELINE, "page")) {
-        check(false, "timeline.missing", "platform.timelines", "Timeline capability requires a declared timeline")
-    }
-    if (platform.hasOperation(PluginAbiV1.Capabilities.TAB_CATALOG, "page")) {
-        check(
-            platform.hasOperation(PluginAbiV1.Capabilities.TIMELINE, "page"),
-            "tabCatalog.timeline",
-            "platform.capabilities.${PluginAbiV1.Capabilities.TAB_CATALOG}",
-            "Tab catalog requires the timeline page operation",
-        )
-    }
-
-    validateUniqueIds(platform.profileTabs.map(ProfileTabManifestV1::id), "platform.profileTabs", errors)
-    platform.profileTabs.forEachIndexed { index, tab ->
-        val path = "platform.profileTabs[$index]"
-        check(ID.matches(tab.id), "profileTab.id", "$path.id", "Invalid profile tab ID")
-        validateText(tab.title, "$path.title", errors)
-        validateParameters(tab.parameters, "$path.parameters", errors)
-    }
-    if (platform.profileTabs.isNotEmpty()) {
-        check(
-            platform.hasOperation(PluginAbiV1.Capabilities.PROFILE, "timeline"),
-            "profileTab.capability",
-            "platform.profileTabs",
-            "Profile timeline operation is required",
-        )
-    }
-
-    validateUniqueIds(platform.loginMethods.map(LoginMethodManifestV1::id), "platform.loginMethods", errors)
-    platform.loginMethods
-        .groupBy(LoginMethodManifestV1::interaction)
-        .filterValues { it.size > 1 }
-        .forEach { (interaction, methods) ->
-            errors +=
-                ManifestIssueV1(
-                    code = "login.interaction.duplicate",
-                    path = "platform.loginMethods",
-                    message =
-                        "Only one $interaction login method is supported; found " +
-                            methods.joinToString { it.id },
-                )
+        if (platform.timelines.isNotEmpty()) {
+            check(
+                platform.hasOperation(PluginAbiV1.Capabilities.TIMELINE, "page"),
+                "timeline.capability",
+                "platform.timelines",
+                "Timeline page operation is required",
+            )
+            check(
+                platform.timelines.any(TimelineManifestV1::defaultForNewAccount),
+                "timeline.default",
+                "platform.timelines",
+                "At least one timeline must be a default for new accounts",
+            )
+        } else if (platform.hasOperation(PluginAbiV1.Capabilities.TIMELINE, "page")) {
+            check(false, "timeline.missing", "platform.timelines", "Timeline capability requires a declared timeline")
         }
-    platform.loginMethods.forEachIndexed { index, method -> validateLogin(method, index, permissions, errors) }
-    check(platform.deepLinks.size <= 64, "deepLink.count", "platform.deepLinks", "Too many Deep Link rules")
-    val timelineIds = platform.timelines.mapTo(hashSetOf(), TimelineManifestV1::id)
-    platform.deepLinks.forEachIndexed { index, rule -> validateDeepLink(rule, index, permissions, timelineIds, errors) }
-    platform.composeDefaults?.let {
-        runCatching(it::requireValid).onFailure { error ->
-            errors += ManifestIssueV1("compose.config", "platform.composeDefaults", error.message ?: "Invalid Compose config")
+        if (platform.hasOperation(PluginAbiV1.Capabilities.TAB_CATALOG, "page")) {
+            check(
+                platform.hasOperation(PluginAbiV1.Capabilities.TIMELINE, "page"),
+                "tabCatalog.timeline",
+                "platform.capabilities.${PluginAbiV1.Capabilities.TAB_CATALOG}",
+                "Tab catalog requires the timeline page operation",
+            )
         }
-        check(
-            platform.hasOperation(PluginAbiV1.Capabilities.COMPOSE, "publish"),
-            "compose.capability",
-            "platform.composeDefaults",
-            "Compose publish operation is required",
-        )
-    }
-    if (platform.hasOperation(PluginAbiV1.Capabilities.COMPOSE, "publish")) {
-        check(
-            platform.composeDefaults != null,
-            "compose.defaults",
-            "platform.composeDefaults",
-            "Compose publish requires conservative manifest defaults",
-        )
+
+        validateUniqueIds(platform.profileTabs.map(ProfileTabManifestV1::id), "platform.profileTabs", errors)
+        platform.profileTabs.forEachIndexed { index, tab ->
+            val path = "platform.profileTabs[$index]"
+            check(ID.matches(tab.id), "profileTab.id", "$path.id", "Invalid profile tab ID")
+            validateText(tab.title, "$path.title", errors)
+            validateParameters(tab.parameters, "$path.parameters", errors)
+        }
+        if (platform.profileTabs.isNotEmpty()) {
+            check(
+                platform.hasOperation(PluginAbiV1.Capabilities.PROFILE, "timeline"),
+                "profileTab.capability",
+                "platform.profileTabs",
+                "Profile timeline operation is required",
+            )
+        }
+
+        validateUniqueIds(platform.loginMethods.map(LoginMethodManifestV1::id), "platform.loginMethods", errors)
+        platform.loginMethods
+            .groupBy(LoginMethodManifestV1::interaction)
+            .filterValues { it.size > 1 }
+            .forEach { (interaction, methods) ->
+                errors +=
+                    ManifestIssueV1(
+                        code = "login.interaction.duplicate",
+                        path = "platform.loginMethods",
+                        message =
+                            "Only one $interaction login method is supported; found " +
+                                methods.joinToString { it.id },
+                    )
+            }
+        platform.loginMethods.forEachIndexed { index, method -> validateLogin(method, index, permissions, errors) }
+        check(platform.deepLinks.size <= 64, "deepLink.count", "platform.deepLinks", "Too many Deep Link rules")
+        val timelineIds = platform.timelines.mapTo(hashSetOf(), TimelineManifestV1::id)
+        platform.deepLinks.forEachIndexed { index, rule -> validateDeepLink(rule, index, permissions, timelineIds, errors) }
+        platform.composeDefaults?.let {
+            runCatching(it::requireValid).onFailure { error ->
+                errors += ManifestIssueV1("compose.config", "platform.composeDefaults", error.message ?: "Invalid Compose config")
+            }
+            check(
+                platform.hasOperation(PluginAbiV1.Capabilities.COMPOSE, "publish"),
+                "compose.capability",
+                "platform.composeDefaults",
+                "Compose publish operation is required",
+            )
+        }
+        if (platform.hasOperation(PluginAbiV1.Capabilities.COMPOSE, "publish")) {
+            check(
+                platform.composeDefaults != null,
+                "compose.defaults",
+                "platform.composeDefaults",
+                "Compose publish requires conservative manifest defaults",
+            )
+        }
     }
 
     methodTable?.let { table ->
@@ -233,29 +274,35 @@ public fun PluginManifestV1.validate(methodTable: PluginMethodTableV1? = null): 
 
 public fun PluginManifestV1.requiredMethods(): Set<String> =
     buildSet {
-        if (platform.detector != null) add("detector.detect")
-        platform.loginMethods.forEach { method ->
-            when (method.interaction) {
-                LoginInteractionV1.OAuth -> {
-                    add("login.${method.id}.begin")
-                    add("login.${method.id}.resume")
-                }
+        platform?.let { platform ->
+            if (platform.detector != null) add("detector.detect")
+            platform.loginMethods.forEach { method ->
+                when (method.interaction) {
+                    LoginInteractionV1.OAuth -> {
+                        add("login.${method.id}.begin")
+                        add("login.${method.id}.resume")
+                    }
 
-                LoginInteractionV1.WebCookie -> {
-                    add("login.${method.id}.begin")
-                    add("login.${method.id}.check")
-                }
+                    LoginInteractionV1.WebCookie -> {
+                        add("login.${method.id}.begin")
+                        add("login.${method.id}.check")
+                    }
 
-                LoginInteractionV1.Password,
-                LoginInteractionV1.CredentialImport,
-                LoginInteractionV1.Form,
-                -> {
-                    add("login.${method.id}.begin")
+                    LoginInteractionV1.Password,
+                    LoginInteractionV1.CredentialImport,
+                    LoginInteractionV1.Form,
+                    -> {
+                        add("login.${method.id}.begin")
+                    }
                 }
             }
+            platform.capabilities.forEach { (capability, declaration) ->
+                declaration.operations.keys.mapNotNullTo(this) { operation -> PluginAbiV1.capabilityMethod(capability, operation) }
+            }
         }
-        platform.capabilities.forEach { (capability, declaration) ->
-            declaration.operations.keys.mapNotNullTo(this) { operation -> PluginAbiV1.capabilityMethod(capability, operation) }
+        if (translation != null) {
+            add("translation.translateDocumentJson")
+            add("translation.translateBatchDocumentJson")
         }
     }
 
@@ -553,3 +600,12 @@ private val SEMVER =
             "(?:-$SEMVER_IDENTIFIER(?:\\.$SEMVER_IDENTIFIER)*)?" +
             "(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?",
     )
+
+public fun isPluginSettingsPath(path: String): Boolean =
+    path.startsWith("settings/") && path.length <= 512 &&
+        path.split('/').all {
+            it.isNotEmpty() && it != "." && it != ".." &&
+                it.all { char -> (char.isLetterOrDigit() && char.code < 128) || char in "._-" }
+        } &&
+        path.substringAfterLast('.').lowercase() in
+        setOf("html", "js", "mjs", "css", "json", "png", "jpg", "jpeg", "webp", "gif", "ico", "woff", "woff2", "ttf")

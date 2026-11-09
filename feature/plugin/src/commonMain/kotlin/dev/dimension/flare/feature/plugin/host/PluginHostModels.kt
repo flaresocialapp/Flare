@@ -57,6 +57,9 @@ public enum class PluginInvocationScopeV1 {
 
     @SerialName("guest")
     Guest,
+
+    @SerialName("plugin")
+    Plugin,
 }
 
 @Serializable
@@ -80,6 +83,32 @@ public class PluginInvocationContextV1 private constructor(
     internal val proxy: ProxyRef,
 ) {
     public companion object {
+        public fun plugin(
+            pluginId: String,
+            packageHash: String,
+            httpOrigins: Set<String>,
+            locale: String,
+            platformId: String = "",
+        ): PluginInvocationContextV1 {
+            require(ID.matches(pluginId) && HASH.matches(packageHash) && isValidLocaleTag(locale)) { "Invalid plugin context" }
+            return PluginInvocationContextV1(
+                PluginInvocationMetadataV1(
+                    pluginId,
+                    platformId,
+                    packageHash,
+                    PluginInvocationScopeV1.Plugin,
+                    "",
+                    locale = locale,
+                    approvedOrigins = httpOrigins.mapTo(mutableSetOf(), PluginUrlPolicy::requireOrigin),
+                    credentialAvailable = false,
+                    assetHandles = emptySet(),
+                ),
+                credential = null,
+                assets = emptyMap(),
+                proxy = ProxyRef.Global,
+            )
+        }
+
         public fun detector(
             pluginId: String,
             platformId: String,

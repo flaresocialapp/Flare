@@ -11,6 +11,7 @@ import dev.dimension.flare.feature.plugin.host.PluginAsset
 import dev.dimension.flare.feature.plugin.host.PluginCallTimeoutV1
 import dev.dimension.flare.feature.plugin.host.PluginInvocationContextV1
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.runtime.PluginCallException
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeKeyV1
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimePool
@@ -100,7 +101,7 @@ internal class PluginAccountInvokerV1(
             } catch (error: PluginCallException) {
                 if (plugin.installed.manifest.apiVersion >= 2) invocationContext.credential?.ensureActive()
                 if (error.error.code == PluginErrorCodeV1.AuthenticationRequired && accountKey != null) {
-                    throw RequireReLoginException(accountKey, plugin.installed.manifest.platform.id)
+                    throw RequireReLoginException(accountKey, plugin.installed.manifest.socialPlatform.id)
                 }
                 throw error
             }

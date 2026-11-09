@@ -1,0 +1,19 @@
+{
+  "apiVersion": 2,
+  "id": "dev.example.translation",
+  "version": "0.1.0",
+  "name": "Translation contract demo",
+  "description": "Offline interface example; prefixes text rather than translating a language.",
+  "translation": {
+    "apiVersion": 1,
+    "cache": {
+      "storageNamespaces": [
+        "options"
+      ]
+    }
+  },
+  "settings": {
+    "entry": "settings/index.html",
+    "bridgeVersion": 1
+  }
+}

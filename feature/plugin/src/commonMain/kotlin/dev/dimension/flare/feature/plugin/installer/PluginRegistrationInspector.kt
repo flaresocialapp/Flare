@@ -50,6 +50,7 @@ private val registrationPrelude =
           registration = value;
         },
       });
+      Object.defineProperty(globalThis, "defineFlarePlugin", { value: globalThis.defineFlareSocialPlugin });
       Object.defineProperty(globalThis, "__flareReadRegistrationV1", {
         configurable: false,
         writable: false,

@@ -28,6 +28,16 @@ val generatePluginSdk by tasks.registering {
                 "references/manifest.md",
                 "references/capabilities.md",
                 "references/runtime-http.md",
+                "references/storage-and-settings.md",
+                "settings-sdk.mjs",
+                "settings-sdk.d.ts",
+                "examples/translation-settings/README.md",
+                "examples/translation-settings/manifest.json",
+                "examples/translation-settings/plugin.js",
+                "examples/translation-settings/settings/index.html",
+                "examples/translation-settings/settings/settings.mjs",
+                "examples/translation-settings/settings/style.css",
+                "examples/translation-settings/settings/sdk.mjs",
                 "references/authentication.md",
                 "references/wire-data.md",
                 "references/recipes.md",
@@ -70,7 +80,7 @@ val generatePluginSdk by tasks.registering {
                 // Keep the external SDK intact; only adapt the in-app reference set.
                 when (path) {
                     "ABI.md" -> {
-                        ("# Flare Social Plugin API v1/v2\n\n" + excerpt(text, "## Registration\n", "## Lifecycle and trust\n"))
+                        ("# Flare Plugin API v1/v2\n\n" + excerpt(text, "## Registration\n", "## Lifecycle and trust\n"))
                             .replace(
                                 "Installation review explicitly grants\n" +
                                     "media requests to any website, including CDNs and federated servers; these URLs\n" +

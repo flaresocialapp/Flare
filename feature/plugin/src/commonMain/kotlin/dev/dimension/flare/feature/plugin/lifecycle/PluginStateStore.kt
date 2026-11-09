@@ -185,7 +185,11 @@ public class PluginStateStore private constructor(
                     PluginStateIssueV1("uninstall.pending", installed.pluginId, "Plugin removal is incomplete. Retry deleting this plugin.")
                 return@forEach
             }
-            if (PluginAbiV1.RETIRED_COMPOSE in installed.manifest.platform.capabilities) {
+            if (PluginAbiV1.RETIRED_COMPOSE in
+                installed.manifest.platform
+                    ?.capabilities
+                    .orEmpty()
+            ) {
                 issues +=
                     PluginStateIssueV1("compose.retired", installed.pluginId, "compose/v1 is retired. Update this plugin to compose/v2.")
                 return@forEach
@@ -312,16 +316,26 @@ private fun validateIndex(index: PluginStateIndexV1) {
                     normalizePluginRepositoryPath(source.path) == source.path,
             ) { "Invalid GitHub installation source" }
         }
+        require(plugin.ownedPlatformId == null || plugin.ownedPlatformId.matches(Regex("[A-Za-z][A-Za-z0-9_.-]{0,63}"))) {
+            "Invalid platform ownership"
+        }
+        require(
+            plugin.manifest.platform == null || plugin.ownedPlatformId == plugin.manifest.platform.id,
+        ) { "Plugin platform ownership changed" }
         require(HASH.matches(plugin.packageHash)) { "Invalid package hash" }
         require(plugin.packageSize in 1..FppLimits.MAX_PACKAGE_BYTES) { "Invalid package size" }
         require(plugin.iconSize in 1..FppLimits.MAX_ICON_BYTES) { "Invalid icon size" }
         require("assets/icon.${plugin.iconExtension}" in FppPaths.ICONS) { "Invalid icon extension" }
         val manifest =
-            if (PluginAbiV1.RETIRED_COMPOSE in plugin.manifest.platform.capabilities) {
+            if (PluginAbiV1.RETIRED_COMPOSE in
+                plugin.manifest.platform
+                    ?.capabilities
+                    .orEmpty()
+            ) {
                 // Retain incompatible records for upgrade/uninstall without executing their handlers.
                 plugin.manifest.copy(
                     platform =
-                        plugin.manifest.platform.copy(
+                        requireNotNull(plugin.manifest.platform).copy(
                             capabilities = plugin.manifest.platform.capabilities - PluginAbiV1.RETIRED_COMPOSE,
                             composeDefaults = null,
                         ),

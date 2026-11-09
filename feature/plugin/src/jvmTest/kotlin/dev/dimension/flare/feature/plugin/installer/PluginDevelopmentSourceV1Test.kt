@@ -63,4 +63,21 @@ class PluginDevelopmentSourceV1Test {
         java.io.RandomAccessFile((root / "manifest.json").toString(), "rw").use { it.setLength(16 * 1024 * 1024) }
         assertFails { PluginDevelopmentSourceV1.read(files, root) }
     }
+
+    @Test
+    fun developmentAndArchiveLayoutsShareTheEntryCountLimit() {
+        files.createDirectories(root / "settings")
+        repeat(FppLimits.MAX_ENTRY_COUNT - TestFppFactory.validEntries().size) { index ->
+            files.write(root / "settings/resource$index.js") {}
+        }
+        val accepted = PluginDevelopmentSourceV1.read(files, root).archive
+        assertEquals(FppLimits.MAX_ENTRY_COUNT, accepted.entries.size)
+        files.write(root / "settings/extra.js") {}
+        assertFails { PluginDevelopmentSourceV1.read(files, root) }
+        assertFails {
+            FppArchiveReader(files).validateLayout(
+                accepted.entries + FppArchiveEntry("settings/extra.js", false, 0, 0, 0),
+            )
+        }
+    }
 }

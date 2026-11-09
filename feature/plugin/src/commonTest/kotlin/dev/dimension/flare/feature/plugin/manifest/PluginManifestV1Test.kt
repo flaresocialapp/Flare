@@ -2,6 +2,7 @@ package dev.dimension.flare.feature.plugin.manifest
 
 import dev.dimension.flare.feature.plugin.abi.PluginAbiV1
 import dev.dimension.flare.feature.plugin.abi.PluginJsonV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.ui.model.UiText
 import dev.dimension.flare.ui.model.UiTextArgument
 import kotlinx.serialization.SerializationException
@@ -25,9 +26,9 @@ class PluginManifestV1Test {
         val future =
             original.copy(
                 platform =
-                    original.platform.copy(
+                    original.socialPlatform.copy(
                         capabilities =
-                            original.platform.capabilities +
+                            original.socialPlatform.capabilities +
                                 (
                                     PluginAbiV1.Capabilities.NOTIFICATION to
                                         CapabilityManifestV1(
@@ -44,9 +45,9 @@ class PluginManifestV1Test {
         val empty =
             future.copy(
                 platform =
-                    future.platform.copy(
+                    future.socialPlatform.copy(
                         capabilities =
-                            future.platform.capabilities +
+                            future.socialPlatform.capabilities +
                                 (PluginAbiV1.Capabilities.NOTIFICATION to CapabilityManifestV1(emptyMap())),
                     ),
             )
@@ -125,7 +126,7 @@ class PluginManifestV1Test {
         val manifest =
             base.copy(
                 platform =
-                    base.platform.copy(
+                    base.socialPlatform.copy(
                         loginMethods =
                             listOf(
                                 LoginMethodManifestV1(
@@ -168,7 +169,7 @@ class PluginManifestV1Test {
         assertEquals(PluginTextV1.Literal("Pixelfed sample"), manifest.name)
         assertEquals(
             PluginTextV1.Localized("platform.name", "Pixelfed"),
-            manifest.platform.name,
+            manifest.socialPlatform.name,
         )
         assertTrue(manifest.validate(validMethodTable()).isValid)
     }
@@ -191,7 +192,7 @@ class PluginManifestV1Test {
 
         val result =
             manifest
-                .copy(platform = manifest.platform.copy(composeDefaults = null))
+                .copy(platform = manifest.socialPlatform.copy(composeDefaults = null))
                 .validate(validMethodTable())
 
         assertFalse(result.isValid)
@@ -204,10 +205,10 @@ class PluginManifestV1Test {
         val dynamicOnly =
             manifest.copy(
                 platform =
-                    manifest.platform.copy(
+                    manifest.socialPlatform.copy(
                         timelines = emptyList(),
                         capabilities =
-                            manifest.platform.capabilities +
+                            manifest.socialPlatform.capabilities +
                                 (
                                     PluginAbiV1.Capabilities.TAB_CATALOG to
                                         CapabilityManifestV1(
@@ -226,10 +227,10 @@ class PluginManifestV1Test {
         val invalid =
             manifest.copy(
                 platform =
-                    manifest.platform.copy(
+                    manifest.socialPlatform.copy(
                         timelines = emptyList(),
                         capabilities =
-                            manifest.platform.capabilities - PluginAbiV1.Capabilities.TIMELINE +
+                            manifest.socialPlatform.capabilities - PluginAbiV1.Capabilities.TIMELINE +
                                 (
                                     PluginAbiV1.Capabilities.TAB_CATALOG to
                                         CapabilityManifestV1(
@@ -248,9 +249,9 @@ class PluginManifestV1Test {
         val unknown =
             manifest.copy(
                 platform =
-                    manifest.platform.copy(
+                    manifest.socialPlatform.copy(
                         capabilities =
-                            manifest.platform.capabilities +
+                            manifest.socialPlatform.capabilities +
                                 (
                                     "example.datasource.future/v9" to
                                         CapabilityManifestV1(
@@ -311,7 +312,7 @@ class PluginManifestV1Test {
             )
         val result =
             manifest
-                .copy(platform = manifest.platform.copy(loginMethods = manifest.platform.loginMethods + cookieMethod))
+                .copy(platform = manifest.socialPlatform.copy(loginMethods = manifest.socialPlatform.loginMethods + cookieMethod))
                 .validate(
                     validMethodTable().copy(
                         methods = validMethodTable().methods + setOf("login.cookie.begin", "login.cookie.check"),
@@ -329,7 +330,7 @@ class PluginManifestV1Test {
             manifest
                 .copy(
                     platform =
-                        manifest.platform.copy(
+                        manifest.socialPlatform.copy(
                             deepLinks =
                                 listOf(
                                     DeepLinkManifestV1(
@@ -350,9 +351,9 @@ class PluginManifestV1Test {
         val partialProfile =
             manifest.copy(
                 platform =
-                    manifest.platform.copy(
+                    manifest.socialPlatform.copy(
                         capabilities =
-                            manifest.platform.capabilities +
+                            manifest.socialPlatform.capabilities +
                                 (
                                     PluginAbiV1.Capabilities.LIST to
                                         CapabilityManifestV1(
@@ -364,9 +365,9 @@ class PluginManifestV1Test {
         val notificationWithoutStaticFilters =
             manifest.copy(
                 platform =
-                    manifest.platform.copy(
+                    manifest.socialPlatform.copy(
                         capabilities =
-                            manifest.platform.capabilities +
+                            manifest.socialPlatform.capabilities +
                                 (
                                     PluginAbiV1.Capabilities.NOTIFICATION to
                                         CapabilityManifestV1(
@@ -386,9 +387,9 @@ class PluginManifestV1Test {
         val configured =
             manifest.copy(
                 platform =
-                    manifest.platform.copy(
+                    manifest.socialPlatform.copy(
                         capabilities =
-                            manifest.platform.capabilities +
+                            manifest.socialPlatform.capabilities +
                                 mapOf(
                                     PluginAbiV1.Capabilities.NOTIFICATION to
                                         CapabilityManifestV1(

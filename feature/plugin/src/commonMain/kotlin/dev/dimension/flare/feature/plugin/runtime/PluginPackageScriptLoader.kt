@@ -41,7 +41,7 @@ internal class PluginPackageScriptLoader(
             bytes.decodeToString(throwOnInvalidSequence = true)
         }
 
-    private fun verify(plugin: RunningPluginV1) {
+    internal fun verify(plugin: RunningPluginV1) {
         val path = plugin.packagePath.toPath()
         val metadata = fileSystem.metadataOrNull(path) ?: throw PluginPackageChangedException()
         if (!metadata.isRegularFile || metadata.size != plugin.installed.packageSize) throw PluginPackageChangedException()

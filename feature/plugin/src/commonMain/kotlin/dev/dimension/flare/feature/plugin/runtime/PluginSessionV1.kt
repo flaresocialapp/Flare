@@ -114,6 +114,8 @@ internal class PluginSessionV1 {
 
 internal class PluginSessionRetiredException : CancellationException("Plugin session was reloaded")
 
-internal class PluginSessionBusyException : IllegalStateException("Wait for login, publishing or uploads to finish before reloading")
+internal class PluginSessionBusyException :
+    IllegalStateException("Wait for login, publishing, uploads or storage writes to finish before reloading")
 
-private val WRITE_OPERATIONS = setOf("publish", "mutate", "delete", "send", "leave", "create", "update", "addMember", "removeMember")
+private val WRITE_OPERATIONS =
+    setOf("write", "publish", "mutate", "delete", "send", "leave", "create", "update", "addMember", "removeMember")

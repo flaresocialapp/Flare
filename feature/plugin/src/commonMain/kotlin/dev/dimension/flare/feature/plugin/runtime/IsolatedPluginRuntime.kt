@@ -11,6 +11,7 @@ import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.manifest.PluginCatalogBundleV1
 import dev.dimension.flare.feature.plugin.manifest.requiredMethods
 import dev.dimension.flare.feature.plugin.manifest.toUiText
+import dev.dimension.flare.feature.plugin.storage.PluginStorageAccessV1
 import dev.dimension.flare.feature.plugin.wire.PluginErrorV1
 import dev.dimension.flare.feature.plugin.wire.requireValid
 import dev.dimension.flare.ui.model.UiText
@@ -41,6 +42,7 @@ internal class IsolatedPluginRuntime(
     private val loader: PluginPackageScriptLoader,
     private val gateway: PluginHostGateway,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val storageAccess: PluginStorageAccessV1? = null,
     private val engineFactory: suspend (PluginHostCall) -> PluginJavaScriptEngine = { createPluginJavaScriptEngine(dispatcher, it) },
 ) {
     private val mutex = Mutex()
@@ -58,7 +60,12 @@ internal class IsolatedPluginRuntime(
         withContext(dispatcher) {
             mutex.withLock {
                 require(context.metadata.pluginId == plugin.installed.pluginId) { "Invocation plugin mismatch" }
-                require(context.metadata.platformId == plugin.installed.manifest.platform.id) { "Invocation platform mismatch" }
+                require(
+                    context.metadata.platformId ==
+                        plugin.installed.manifest.platform
+                            ?.id
+                            .orEmpty(),
+                ) { "Invocation platform mismatch" }
                 require(context.metadata.packageHash == plugin.installed.packageHash) { "Invocation package mismatch" }
                 require(METHOD_PATH.matches(method)) { "Invalid plugin method" }
                 require(method in plugin.installed.manifest.requiredMethods()) { "Plugin method is not declared" }
@@ -132,6 +139,7 @@ internal class IsolatedPluginRuntime(
                                 invocation.context,
                                 invocation.timeoutMillis,
                                 plugin.installed.manifest.apiVersion,
+                                storageAccess,
                             )
                         }
                     }.await()
@@ -256,6 +264,18 @@ internal val RUNTIME_PRELUDE =
       };
       const facade = {
         http: { request: request => hostCall("http.request", request) },
+        storage: { open: namespace => Object.freeze({
+          read: keys => hostCall("storage.read", { namespace, keys }),
+          write: (changes, options) => {
+            stringify(changes.set || {}, (_, value) => {
+              if (value === undefined || ["function", "symbol", "bigint"].includes(typeof value) || (typeof value === "number" && !Number.isFinite(value))) {
+                throw new TypeError("Storage values must be JSON values with finite numbers");
+              }
+              return value;
+            });
+            return hostCall("storage.write", { namespace, changes, expectedRevision: options?.expectedRevision });
+          },
+        }) },
         credential: {
           read: options => hostCall("credential.read", options ? { withRevision: options.withRevision } : {}),
           replace: (value, options) => hostCall("credential.replace", { value, expectedRevision: options?.expectedRevision }),
@@ -283,6 +303,7 @@ internal val RUNTIME_PRELUDE =
           registration = deepFreeze(value);
         },
       });
+      Object.defineProperty(globalThis, "defineFlarePlugin", { value: globalThis.defineFlareSocialPlugin });
       Object.defineProperty(globalThis, "__flareValidateRegistrationV1", {
         configurable: false,
         writable: false,
@@ -313,6 +334,12 @@ internal val RUNTIME_PRELUDE =
           } catch (error) {
             if (error?.__flarePluginErrorV1 !== undefined) {
               return stringify({ ok: false, error: error.__flarePluginErrorV1 });
+            }
+            if (typeof error?.code === "string" && error.code.startsWith("storage.")) {
+              return stringify({ ok: false, error: {
+                code: ["storage.invalid", "storage.conflict", "storage.quota"].includes(error.code) ? "Validation" : "Remote",
+                message: { value: error.message || "Storage operation failed" }, remoteCode: error.code,
+              } });
             }
             return stringify({ ok: false, fatal: String(error?.stack || error).slice(0, 4096) });
           } finally {

@@ -32,8 +32,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -114,8 +116,10 @@ internal class OnlinePreTranslationService(
             cleanupStaleInFlightTranslations()
         }
         coroutineScope.launch {
-            appDataStore.appSettingsStore.data
-                .map { it.preTranslationExecutionKey() }
+            combine(
+                appDataStore.appSettingsStore.data,
+                pluginTranslationServiceOrNull()?.providers ?: flowOf(emptyList()),
+            ) { settings, _ -> settings.preTranslationExecutionKey() }
                 .distinctUntilChanged()
                 .collect { executionKey ->
                     rotateExecutionSession(executionKey)
@@ -660,11 +664,13 @@ internal class OnlinePreTranslationService(
                         prompt,
                     ) ?: error("Pre-translation returned empty response")
                 ensureCurrentExecutionSession(session)
-                applyBatchResult(
-                    session = session,
-                    translatedJson = translatedJson,
-                    candidates = candidates,
-                )
+                settings.appSettings.withCurrentTranslationProvider(settings.providerCacheKey) {
+                    applyBatchResult(
+                        session = session,
+                        translatedJson = translatedJson,
+                        candidates = candidates,
+                    )
+                }
                 return Result.success(Unit)
             } catch (throwable: Throwable) {
                 if (throwable is CancellationException) {

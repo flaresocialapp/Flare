@@ -35,5 +35,16 @@
     "ajv": "8.20.0",
     "esbuild": "0.28.2",
     "typescript": "6.0.3"
+  },
+  "exports": {
+    ".": {
+      "types": "./skill/flare-plugin/flare-plugin.d.ts"
+    },
+    "./settings": {
+      "types": "./skill/flare-plugin/settings-sdk.d.ts",
+      "default": "./skill/flare-plugin/settings-sdk.mjs"
+    },
+    "./skill/*": "./skill/*",
+    "./package.json": "./package.json"
   }
 }

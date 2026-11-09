@@ -14,6 +14,7 @@ import dev.dimension.flare.feature.plugin.installer.PluginInstaller
 import dev.dimension.flare.feature.plugin.installer.TestFppFactory
 import dev.dimension.flare.feature.plugin.lifecycle.PluginStateStore
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimePool
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeUnavailableException
 import dev.dimension.flare.feature.plugin.wire.CookieAttributesV2
@@ -941,7 +942,7 @@ class PluginLoginCoordinatorV1Test {
         return PluginLoginMethodHandlerV1(
             plugin = plugin,
             method =
-                plugin.installed.manifest.platform.loginMethods
+                plugin.installed.manifest.socialPlatform.loginMethods
                     .single { it.id == "cookie" },
             context = LoginContext(host = "plugin.example", methodType = LoginMethodType.WebCookie, onSuccess = onSuccess),
             oauth = oauth,
@@ -962,7 +963,7 @@ class PluginLoginCoordinatorV1Test {
         PluginLoginMethodHandlerV1(
             plugin = plugin,
             method =
-                plugin.installed.manifest.platform.loginMethods
+                plugin.installed.manifest.socialPlatform.loginMethods
                     .single { it.id == "oauth" },
             context = LoginContext(host = "plugin.example", methodType = LoginMethodType.OAuth, onSuccess = onSuccess),
             oauth = oauth,

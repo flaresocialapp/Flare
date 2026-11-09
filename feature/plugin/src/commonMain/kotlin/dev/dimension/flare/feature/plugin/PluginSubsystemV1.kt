@@ -21,6 +21,7 @@ import dev.dimension.flare.feature.plugin.login.PluginOAuthLoginCoordinatorV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingStoreV1
 import dev.dimension.flare.feature.plugin.login.PluginWebCookieLoginCoordinatorV1
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimePool
+import dev.dimension.flare.feature.plugin.storage.PluginStorageV1
 import dev.dimension.flare.model.PlatformRegistry
 import dev.dimension.flare.model.PlatformSpecSource
 import dev.dimension.flare.ui.model.PluginMediaPermissions
@@ -32,7 +33,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlin.native.HiddenFromObjC
 
-/** Process-scoped plugin services. Opening this object reads only the bounded state index. */
+/** Process-scoped plugin services and bounded, plugin-owned persistent storage. */
 @HiddenFromObjC
 public class PluginSubsystemV1 internal constructor(
     internal val appFiles: AppFileStore,
@@ -53,10 +54,19 @@ public class PluginSubsystemV1 internal constructor(
             ).also { store ->
                 PluginMediaPermissions.replace(store.running.plugins.mapValues { it.value.installed.manifest.permissions.mediaNetwork })
             }
+    public val storage: PluginStorageV1 =
+        PluginStorageV1(
+            appFiles.fileSystem,
+            appFiles.directory(STORAGE_NAMESPACE) / "storage",
+        ).also { storage ->
+            stateStore.desired.value.plugins.keys
+                .forEach(storage::prepare)
+        }
     public val runtimePool: PluginRuntimePool =
         PluginRuntimePool(
             fileSystem = appFiles.fileSystem,
             transportFactory = ::createKtorPluginHttpTransport,
+            storage = storage,
         )
     public val installer: PluginInstaller = PluginInstaller(appFiles.fileSystem, stateStore)
     public val github: GitHubPluginClient by lazy { GitHubPluginClient() }
@@ -85,6 +95,7 @@ public class PluginSubsystemV1 internal constructor(
         pluginId: String,
         plugin: RunningPluginV1?,
     ) {
+        if (plugin != null) storage.prepare(pluginId)
         val plugins = mutableRunning.value.plugins.toMutableMap()
         if (plugin == null) plugins.remove(pluginId) else plugins[pluginId] = plugin
         PluginMediaPermissions.register(

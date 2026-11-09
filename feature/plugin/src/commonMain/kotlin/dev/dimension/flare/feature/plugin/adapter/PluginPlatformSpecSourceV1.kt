@@ -34,6 +34,7 @@ import dev.dimension.flare.feature.plugin.manifest.LoginInteractionV1
 import dev.dimension.flare.feature.plugin.manifest.LoginMethodManifestV1
 import dev.dimension.flare.feature.plugin.manifest.TimelineManifestV1
 import dev.dimension.flare.feature.plugin.manifest.fallbackText
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.manifest.toUiText
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeKeyV1
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimePool
@@ -120,7 +121,9 @@ public class PluginPlatformSpecSourceV1(
         return running.plugins.values
             .sortedBy { it.installed.pluginId }
             .mapNotNull { plugin ->
-                val platformId = plugin.installed.manifest.platform.id
+                val platformId =
+                    plugin.installed.manifest.platform
+                        ?.id ?: return@mapNotNull null
                 if (!occupied.add(platformId.lowercase())) {
                     onIssue(
                         PluginStateIssueV1(
@@ -169,7 +172,7 @@ private class PluginPlatformSpecV1(
     private val accountService: AccountService by koinInject()
     private val oauthCallbacks: PluginOAuthCallbackCoordinatorV1 by koinInject()
     private val manifest = plugin.installed.manifest
-    private val platform = manifest.platform
+    private val platform = manifest.socialPlatform
 
     val pluginId: String = plugin.installed.pluginId
     override val platformId: String = platform.id

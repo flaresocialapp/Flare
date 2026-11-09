@@ -1,5 +1,7 @@
 package dev.dimension.flare.feature.plugin.installer
 
+import dev.dimension.flare.feature.plugin.abi.PluginJsonV1
+import dev.dimension.flare.feature.plugin.manifest.PluginManifestV1
 import okio.Buffer
 import okio.FileSystem
 import okio.Path
@@ -21,14 +23,30 @@ internal data class PluginDevelopmentSourceV1(
             }
             directory(root)
             directory(root / "assets")
-            val names = mutableListOf(FppPaths.MANIFEST, FppPaths.ENTRY)
-            names += FppPaths.ICONS.filter { fileSystem.exists(root / it) }
+            val names = mutableListOf(FppPaths.MANIFEST)
+
+            fun addName(name: String) {
+                require(names.size < FppLimits.MAX_ENTRY_COUNT) { "Invalid package entry count" }
+                names += name
+            }
+            if (fileSystem.exists(root / FppPaths.ENTRY)) addName(FppPaths.ENTRY)
+
+            fun settings(path: Path) {
+                directory(path)
+                fileSystem.list(path).forEach { child ->
+                    val metadata = fileSystem.metadata(child)
+                    require(metadata.symlinkTarget == null) { "Settings resources cannot be symbolic links" }
+                    if (metadata.isDirectory) settings(child) else addName(child.relativeTo(root).toString())
+                }
+            }
+            if (fileSystem.exists(root / "settings")) settings(root / "settings")
+            FppPaths.ICONS.filter { fileSystem.exists(root / it) }.forEach(::addName)
             val locales = root / "locales"
             if (fileSystem.exists(locales)) {
                 directory(locales)
                 val catalogs = fileSystem.list(locales).filter { it.name.endsWith(".json") }
                 require(catalogs.size <= FppLimits.MAX_CATALOG_COUNT) { "Too many locale catalogs" }
-                catalogs.forEach { names += "locales/${it.name}" }
+                catalogs.forEach { addName("locales/${it.name}") }
             }
             val entries =
                 names.sorted().map { name ->
@@ -54,6 +72,14 @@ internal data class PluginDevelopmentSourceV1(
                         }
                     entry.path to bytes
                 }
+            val manifest =
+                PluginJsonV1
+                    .decodeFromString<PluginManifestV1>(
+                        files.getValue(FppPaths.MANIFEST).decodeToString(),
+                    )
+            require((manifest.platform == null && manifest.translation == null) || FppPaths.ENTRY in files) {
+                "Background capabilities require plugin.js"
+            }
             val digest = Buffer()
             files.forEach { (name, bytes) ->
                 digest

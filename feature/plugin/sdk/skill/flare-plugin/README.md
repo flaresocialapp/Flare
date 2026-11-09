@@ -220,3 +220,5 @@ Flare reads the selected directory in the latest stable repository snapshot. Add
 
 Rules have one canonical reference; the skill links to it when needed. Recipe
 fragments explain adaptation points and are not separate installable plugins.
+
+For generic storage, text translation and offline settings pages, see [the API v2 contract](references/storage-and-settings.md) and [the complete example](examples/translation-settings/README.md).

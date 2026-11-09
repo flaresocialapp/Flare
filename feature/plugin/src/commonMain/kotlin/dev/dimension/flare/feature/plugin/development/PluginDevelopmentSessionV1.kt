@@ -3,6 +3,7 @@ package dev.dimension.flare.feature.plugin.development
 import dev.dimension.flare.data.model.PluginPermission
 import dev.dimension.flare.data.repository.AccountService
 import dev.dimension.flare.feature.plugin.PluginSubsystemV1
+import dev.dimension.flare.feature.plugin.adapter.belongsToPlugin
 import dev.dimension.flare.feature.plugin.installer.FppPaths
 import dev.dimension.flare.feature.plugin.installer.PluginDevelopmentSourceV1
 import dev.dimension.flare.feature.plugin.installer.PluginPackageValidator
@@ -118,8 +119,10 @@ public class PluginDevelopmentSessionV1 internal constructor(
                 val previous = active ?: subsystem.running.value.plugins[prepared.validated.manifest.id]
                 val permissions = prepared.validated.manifest.sensitivePermissions()
                 val changedSchema =
-                    previous != null && previous.installed.manifest.platform.credentialSchemaVersion !=
-                        prepared.validated.manifest.platform.credentialSchemaVersion
+                    previous != null && previous.installed.manifest.platform
+                        ?.credentialSchemaVersion !=
+                        prepared.validated.manifest.platform
+                            ?.credentialSchemaVersion
                 val needsReview =
                     active == null || changedSchema ||
                         permissions.any {
@@ -141,7 +144,12 @@ public class PluginDevelopmentSessionV1 internal constructor(
                     return@withLock
                 }
                 if (active == null) baseline = previous
-                val replacement = prepared.running(nextGeneration(previous))
+                val replacement =
+                    prepared.running(
+                        nextGeneration(previous),
+                        previous?.installed?.ownedPlatformId ?: baseline?.installed?.ownedPlatformId ?: prepared.validated.manifest.platform
+                            ?.id,
+                    )
                 switcher.switch(previous, replacement, temporary = true)
                 pruneIcons(replacement)
                 mutableState.update {
@@ -219,29 +227,22 @@ public class PluginDevelopmentSessionV1 internal constructor(
         try {
             val current = active
             if (current != null) {
-                require(
-                    validated.manifest.id == current.installed.pluginId &&
-                        validated.manifest.platform.id == current.installed.manifest.platform.id,
-                ) {
-                    "Stop development before changing the plugin or platform ID"
+                require(validated.manifest.id == current.installed.pluginId) {
+                    "Stop development before changing the plugin ID"
                 }
             }
             val existing = subsystem.running.value.plugins[validated.manifest.id]
             val installed = subsystem.stateStore.desired.value.plugins[validated.manifest.id]
+            val platformId = validated.manifest.platform?.id
             require(
-                (existing == null || existing.installed.manifest.platform.id == validated.manifest.platform.id) &&
-                    (installed == null || installed.manifest.platform.id == validated.manifest.platform.id),
+                listOfNotNull(current?.installed, existing?.installed, installed).all {
+                    it.ownedPlatformId == null || platformId == null || it.ownedPlatformId == platformId
+                },
             ) {
                 "Development code must keep the installed plugin's platform ID"
             }
-            val conflict = registry.all.firstOrNull { it.platformId.equals(validated.manifest.platform.id, true) }
-            require(
-                conflict == null || existing
-                    ?.installed
-                    ?.manifest
-                    ?.platform
-                    ?.id == conflict.platformId,
-            ) {
+            val conflict = platformId?.let { id -> registry.all.firstOrNull { it.platformId.equals(id, true) } }
+            require(conflict == null || conflict.belongsToPlugin(validated.manifest.id)) {
                 "Platform ID is already registered by another plugin or a built-in platform"
             }
         } catch (error: Exception) {
@@ -287,7 +288,10 @@ public class PluginDevelopmentSessionV1 internal constructor(
         val source: PluginDevelopmentSourceV1,
         val validated: ValidatedPluginPackage,
     ) {
-        fun running(generation: Long): RunningPluginV1 {
+        fun running(
+            generation: Long,
+            ownedPlatformId: String?,
+        ): RunningPluginV1 {
             val directory = root / "icons"
             files.createDirectories(directory)
             val icon = directory / "${source.hash}.${validated.iconExtension}"
@@ -305,14 +309,17 @@ public class PluginDevelopmentSessionV1 internal constructor(
                         iconExtension = validated.iconExtension,
                         manifest = validated.manifest,
                         catalogs = validated.catalogs,
+                        ownedPlatformId = ownedPlatformId,
                     ),
                 packagePath = directory.toString(),
                 iconPath = files.persistPlatformIcon(validated.manifest.id, icon).toString(),
                 developmentSource =
                     source.archive.files
-                        .getValue(FppPaths.ENTRY)
-                        .decodeToString(throwOnInvalidSequence = true),
+                        .get(FppPaths.ENTRY)
+                        ?.decodeToString(throwOnInvalidSequence = true)
+                        .orEmpty(),
                 generation = generation,
+                developmentResources = source.archive.files.filterKeys { it.startsWith("settings/") },
             ).also { plugin ->
                 plugin.diagnostic = { current, message ->
                     mutableState.update { state ->

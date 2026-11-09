@@ -1,6 +1,7 @@
 package dev.dimension.flare.feature.plugin.installer
 
 import dev.dimension.flare.feature.plugin.github.normalizePluginRepositoryPath
+import dev.dimension.flare.feature.plugin.manifest.isPluginSettingsPath
 import okio.Buffer
 import okio.BufferedSource
 import okio.FileSystem
@@ -217,17 +218,21 @@ internal class FppArchiveReader(
         }
 
     internal fun validateLayout(entries: List<FppArchiveEntry>) {
+        require(entries.size in 1..FppLimits.MAX_ENTRY_COUNT) { "Invalid package entry count" }
         val paths = entries.map(FppArchiveEntry::path)
         require(paths.distinct().size == paths.size) { "Duplicate ZIP path" }
         require(paths.map(String::lowercase).distinct().size == paths.size) { "Case-conflicting ZIP path" }
         entries.filter(FppArchiveEntry::isDirectory).forEach { entry ->
-            require(entry.path == "assets" || entry.path == "locales") {
+            require(
+                entry.path == "assets" || entry.path == "locales" || entry.path == "settings" ||
+                    (entry.path.startsWith("settings/") && entry.path.split('/').all { it.isNotEmpty() && it != "." && it != ".." }),
+            ) {
                 "Unsupported package directory: ${entry.path}"
             }
         }
 
         val files = entries.filterNot(FppArchiveEntry::isDirectory)
-        val required = setOf(FppPaths.MANIFEST, FppPaths.ENTRY)
+        val required = setOf(FppPaths.MANIFEST)
         require(files.map(FppArchiveEntry::path).containsAll(required)) { "Package is missing a required file" }
         require(files.count { it.path in FppPaths.ICONS } == 1) { "Package must contain exactly one supported icon asset" }
         files.forEach { entry ->
@@ -238,6 +243,10 @@ internal class FppArchiveReader(
                     }
 
                     entry.path == FppPaths.ENTRY -> {
+                        FppLimits.MAX_SCRIPT_BYTES
+                    }
+
+                    isPluginSettingsPath(entry.path) -> {
                         FppLimits.MAX_SCRIPT_BYTES
                     }
 

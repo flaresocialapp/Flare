@@ -12,6 +12,7 @@ import dev.dimension.flare.feature.plugin.installer.TestFppFactory
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingStoreV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeKeyV1
 import dev.dimension.flare.feature.plugin.runtime.PluginSessionRetiredException
 import dev.dimension.flare.model.AccountType
@@ -318,6 +319,55 @@ class PluginDevelopmentSessionV1Test {
         }
 
     @Test
+    fun developmentCanRemoveAndRestoreSocialCapabilitiesWithoutLosingOwnership() =
+        runBlocking {
+            prepare(installed = true)
+            writeSource("settings", manifest = SETTINGS_ONLY_MANIFEST)
+            files.createDirectories(directory / "settings")
+            files.write(directory / "settings/index.html") { writeUtf8("<!doctype html><title>Settings</title>") }
+            session.open(directory.toString())
+            session.reload()
+            session.reload(confirmed = true)
+            assertNull(current.installed.manifest.platform)
+            assertEquals(PLATFORM, current.installed.ownedPlatformId)
+            assertFalse(registry.isRegistered(PLATFORM))
+
+            writeSource("wrong", manifest = TestFppFactory.validManifest.replace(PLATFORM, "OtherPlatform"))
+            assertFailsWith<IllegalStateException> { session.reload() }
+            assertNull(current.installed.manifest.platform)
+            writeSource("restored")
+            session.reload()
+            session.reload(confirmed = true)
+            assertEquals(PLATFORM, current.installed.manifest.socialPlatform.id)
+            assertEquals(PLATFORM, current.installed.ownedPlatformId)
+            assertTrue(registry.isRegistered(PLATFORM))
+            session.stop()
+            assertEquals("installed", page()["marker"]!!.jsonPrimitive.content)
+        }
+
+    @Test
+    fun settingsOnlyInstallationCanPreviewItsFirstSocialCapability() =
+        runBlocking {
+            prepare(
+                installed = true,
+                installedEntries =
+                    TestFppFactory.validEntries(manifest = SETTINGS_ONLY_MANIFEST) +
+                        ("settings/index.html" to "<!doctype html><title>Settings</title>".encodeToByteArray()),
+            )
+            assertNull(current.installed.ownedPlatformId)
+            writeSource("added social")
+            session.open(directory.toString())
+            session.reload()
+            session.reload(confirmed = true)
+            assertTrue(registry.isRegistered(PLATFORM))
+            assertEquals(PLATFORM, current.installed.ownedPlatformId)
+            session.stop()
+            assertNull(current.installed.manifest.platform)
+            assertNull(current.installed.ownedPlatformId)
+            assertFalse(registry.isRegistered(PLATFORM))
+        }
+
+    @Test
     fun rechecksInstalledIdentityBeforeStartingAnUnchangedCandidate() =
         runBlocking {
             prepare()
@@ -341,7 +391,7 @@ class PluginDevelopmentSessionV1Test {
                 "OtherPlatform",
                 subsystem.stateStore.desired.value.plugins
                     .getValue(ID)
-                    .manifest.platform.id,
+                    .manifest.socialPlatform.id,
             )
 
             subsystem.stateStore.uninstall(ID)
@@ -376,7 +426,10 @@ class PluginDevelopmentSessionV1Test {
             assertFalse(PluginMediaPermissions.isAllowed(ID))
         }
 
-    private suspend fun prepare(installed: Boolean = false) {
+    private suspend fun prepare(
+        installed: Boolean = false,
+        installedEntries: List<Pair<String, ByteArray>> = TestFppFactory.validEntries(script = script("installed")),
+    ) {
         fun newSubsystem() =
             PluginSubsystemV1(
                 appFiles,
@@ -391,7 +444,7 @@ class PluginDevelopmentSessionV1Test {
         subsystem = newSubsystem()
         if (installed) {
             val archive = root / "installed.fpp"
-            TestFppFactory.write(archive, TestFppFactory.validEntries(script = script("installed")))
+            TestFppFactory.write(archive, installedEntries)
             subsystem.installer.commit(subsystem.installer.inspect(archive), confirmed = true, activate = subsystem.stateStore::install)
             subsystem.runtimePool.close()
             subsystem = newSubsystem()
@@ -504,3 +557,8 @@ private class TestAccounts : AccountService {
 
 private const val ID = "dev.dimension.flare.test.plugin"
 private const val PLATFORM = "TestPlugin"
+private val SETTINGS_ONLY_MANIFEST =
+    """
+    { "apiVersion": 2, "id": "$ID", "version": "1.0.0", "name": "Settings only",
+      "settings": { "entry": "settings/index.html" } }
+    """.trimIndent()

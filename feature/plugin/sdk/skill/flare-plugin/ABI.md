@@ -1,4 +1,4 @@
-# Flare Social Plugin API v1/v2
+# Flare Plugin API v1/v2
 
 This directory is the authoring contract for Social Plugin API v1 and v2. Prefer
 [GitHub distribution](references/publishing.md); local `.fpp` installation is
@@ -426,6 +426,10 @@ optional and duplicate names are preserved; unknown fields remain absent.
 After a verified success, local save retries reuse that result until the flow
 expires or closes rather than repeating a remote exchange. V1 Cookie checks
 keep their original selection and completion behavior.
+
+## Storage, translation and settings
+
+Host API v2 adds independent `translation` and offline `settings` declarations and generic plugin-scoped storage. Read [storage, translation and settings](references/storage-and-settings.md) for the exact contract, namespace revision dependencies, page SDK and lifecycle. API v1 social plugins keep their behavior; the unreleased v2 also includes its HTTP/session extensions. Background code can use `defineFlarePlugin` as the generic registration alias.
 
 ## Lifecycle and trust
 

@@ -91,6 +91,7 @@ public data class PluginManagementItemV1(
     val sourceUrl: String?,
     val availableUpdate: GitHubPluginVersionV1?,
     val authoring: AuthoredPlugin? = null,
+    val hasSettings: Boolean = false,
 )
 
 public data class PluginInstallReviewV1(
@@ -341,7 +342,7 @@ public class PluginManagementPresenterV1(
         runMutation {
             requireNotDeveloping(pluginId)
             val installed = requireNotNull(subsystem.stateStore.desired.value.plugins[pluginId]) { "Plugin is no longer installed" }
-            switcher.uninstall(pluginId, installed.manifest.platform.id)
+            switcher.uninstall(pluginId, installed.ownedPlatformId)
             updates.update { it - pluginId }
             updateIssues.update { it - pluginId }
             subsystem.installer.cleanup(subsystem.running.value.plugins.values)
@@ -479,12 +480,13 @@ private fun InstalledPluginV1.toItem(
 ): PluginManagementItemV1 =
     PluginManagementItemV1(
         pluginId = pluginId,
-        platformId = manifest.platform.id,
+        platformId = manifest.platform?.id.orEmpty(),
         nameText = manifest.name.toUiText(pluginId),
         version = version,
         iconPath = iconPath,
         sourceUrl = (source as? PluginInstallSourceV1.GitHub)?.url,
         availableUpdate = availableUpdate,
+        hasSettings = manifest.settings != null,
     )
 
 private fun PreparedPluginInstallV1.toReview(): PluginInstallReviewV1 =

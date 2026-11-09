@@ -14,6 +14,7 @@ import dev.dimension.flare.feature.plugin.lifecycle.PluginInstallSourceV1
 import dev.dimension.flare.feature.plugin.lifecycle.PluginStateStore
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.login.PluginFormLoginCoordinatorV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.runtime.PluginCallException
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeKeyV1
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimePool
@@ -138,7 +139,7 @@ class GitHubTemplateTest {
                     .open(FileSystem.SYSTEM, root / "generated-store")
                     .running.plugins
                     .getValue(preview.pluginId)
-            assertEquals(preview.platformId, installed.installed.manifest.platform.id)
+            assertEquals(preview.platformId, installed.installed.manifest.socialPlatform.id)
 
             val directory = Paths.get(project.toString())
             val entries =

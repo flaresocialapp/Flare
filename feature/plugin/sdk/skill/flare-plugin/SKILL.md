@@ -1,22 +1,23 @@
 ---
 name: flare-plugin
-description: Create, extend, debug, and prepare GitHub distribution for Flare Social Plugin API v1/v2 plugins. Use when implementing a website adapter, editing a Flare plugin manifest or classic JavaScript entrypoint, adding login or datasource capabilities, or diagnosing Flare plugin installation and runtime errors.
+description: Create, extend, debug, and prepare GitHub distribution for Flare Social Plugin API v1/v2 plugins. Use when implementing a website adapter, editing a Flare plugin manifest or classic JavaScript entrypoint, adding text translation, plugin storage or an offline settings page, adding login or datasource capabilities, or diagnosing Flare plugin installation and runtime errors.
 ---
 
 # Flare Plugin
 
-Produce a website adapter that matches Flare's declared API contract and can be installed
+Produce a Flare plugin that matches Flare's declared API contract and can be installed
 from a public GitHub repository. Use the user's chosen website and requested
 features. This skill includes the SDK; resolve links relative to this file, not
 to the user's plugin repository.
 
 ## Establish the contract
 
-1. Inspect an existing plugin before changing it. For a new plugin, collect the
-   target HTTPS origin, requested features, login method, API documentation, and
-   representative redacted responses. Public API documentation may supply missing
-   information. Identify unresolved endpoint, authentication, identity, or paging
-   assumptions before implementing the affected feature.
+1. Inspect an existing plugin before changing it and establish its capability combination.
+   For network features, collect the target HTTPS origin, login method, API documentation
+   and representative redacted responses. Public API documentation may supply missing
+   information. For offline settings-only plugins, establish metadata, packaged resources
+   and the plugin-owned storage contract. Resolve endpoint, authentication, identity or
+   paging assumptions before implementing the affected network feature.
 2. Read [manifest](references/manifest.md), [capabilities](references/capabilities.md),
    and [runtime/HTTP](references/runtime-http.md). Map requested features to
    capability IDs, their required operations, service method paths, and UI entry
@@ -28,6 +29,12 @@ to the user's plugin repository.
    state/metadata; keep v1 manifests within their original behavior. If the target Flare build
    has a different contract, establish its version before generating code; there
    is no implied released-app minimum version in this skill.
+
+For text translation, generic storage, combined plugins or offline settings pages, read
+[storage, translation and settings](references/storage-and-settings.md). Use API v2,
+keep data schemas inside the plugin, declare translation storage dependencies, and
+bundle the page SDK and every webpage dependency under `settings/`. Settings-only
+packages omit the background entrypoint. Social-only adapters can retain v1/v2.
 
 ## Implement the requested adapter
 

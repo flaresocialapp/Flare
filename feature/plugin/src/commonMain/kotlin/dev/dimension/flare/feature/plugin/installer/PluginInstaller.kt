@@ -81,6 +81,10 @@ public class PluginInstaller(
                     manifest = validated.manifest,
                     catalogs = validated.catalogs,
                     runtimeGeneration = generation,
+                    ownedPlatformId =
+                        stateStore.desired.value.plugins[validated.manifest.id]
+                            ?.ownedPlatformId
+                            ?: validated.manifest.platform?.id,
                 )
             stateStore.validateInstall(record)
             ensureDirectories()
@@ -148,7 +152,10 @@ public class PluginInstaller(
                 }
                 val packageSize = requireNotNull(fileSystem.metadata(stateStore.paths.incoming).size)
                 val existing = stateStore.desired.value.plugins[validated.manifest.id]
-                require(existing == null || existing.manifest.platform.id == validated.manifest.platform.id) {
+                require(
+                    existing == null || existing.ownedPlatformId == null || validated.manifest.platform == null ||
+                        existing.ownedPlatformId == validated.manifest.platform.id,
+                ) {
                     "Plugin platform ID cannot change during an update"
                 }
                 if (expectedPluginId != null && installSource is PluginInstallSourceV1.GitHub) {
@@ -192,7 +199,10 @@ public class PluginInstaller(
             require(activePreview === preview) { "Install preview is no longer active" }
             require(!preview.requiresConfirmation || confirmed) { "Installation was not confirmed" }
             val existing = stateStore.desired.value.plugins[preview.pluginId]
-            require(existing == null || existing.manifest.platform.id == preview.platformId) {
+            require(
+                existing == null || existing.ownedPlatformId == null || preview.platformId.isEmpty() ||
+                    existing.ownedPlatformId == preview.platformId,
+            ) {
                 "Plugin platform ID cannot change during an update"
             }
             val packagePath = stateStore.paths.packagePath(preview.packageHash)
@@ -210,6 +220,9 @@ public class PluginInstaller(
                     source = preview.source,
                     manifest = preview.validated.manifest,
                     catalogs = preview.validated.catalogs,
+                    ownedPlatformId =
+                        existing?.ownedPlatformId ?: preview.validated.manifest.platform
+                            ?.id,
                 )
             stateStore.validateInstall(record)
             persistPackage(packagePath, preview.packageSize)
@@ -389,12 +402,27 @@ public class PreparedPluginInstallV1 internal constructor(
     internal val validated: ValidatedPluginPackage,
 ) {
     public val pluginId: String get() = validated.manifest.id
-    public val platformId: String get() = validated.manifest.platform.id
+    public val platformId: String get() =
+        validated.manifest.platform
+            ?.id
+            .orEmpty()
     public val nameFallback: String get() = validated.manifest.name.fallbackText
     public val version: String get() = validated.manifest.version
     public val capabilities: Map<String, Set<String>> =
-        validated.manifest.platform.capabilities
-            .mapValues { (_, capability) -> capability.operations.keys }
+        validated.manifest.platform
+            ?.capabilities
+            .orEmpty()
+            .mapValues { (_, capability) -> capability.operations.keys } +
+            (
+                if (validated.manifest.translation !=
+                    null
+                ) {
+                    mapOf("flare.translation/v1" to setOf("translateDocumentJson", "translateBatchDocumentJson"))
+                } else {
+                    emptyMap()
+                }
+            ) +
+            (if (validated.manifest.settings != null) mapOf("flare.settings/v1" to setOf("open")) else emptyMap())
     public val permissions: Set<PluginPermission> = validated.manifest.sensitivePermissions()
 }
 
@@ -477,7 +505,7 @@ private fun buildWarnings(
 
 internal fun PluginManifestV1.sensitivePermissions(): Set<PluginPermission> =
     buildSet {
-        add(PluginPermission(PluginPermissionType.NetworkOrigin, PluginAbiV1.ACCOUNT_ORIGIN))
+        if (platform != null) add(PluginPermission(PluginPermissionType.NetworkOrigin, PluginAbiV1.ACCOUNT_ORIGIN))
         permissions.authOrigins.forEach { origin ->
             add(PluginPermission(PluginPermissionType.NetworkOrigin, origin))
         }
@@ -487,7 +515,7 @@ internal fun PluginManifestV1.sensitivePermissions(): Set<PluginPermission> =
         if (permissions.mediaNetwork) {
             add(PluginPermission(PluginPermissionType.MediaNetwork, "*"))
         }
-        platform.loginMethods.forEach { method ->
+        platform?.loginMethods.orEmpty().forEach { method ->
             method.cookie?.probes?.forEach { probe ->
                 probe.cookies.forEach { cookie ->
                     add(

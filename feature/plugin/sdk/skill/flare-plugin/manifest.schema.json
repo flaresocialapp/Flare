@@ -60,15 +60,85 @@
       "$ref": "#/definitions/permissions"
     },
     "platform": {
-      "$ref": "#/definitions/platform"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/platform"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "translation": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "apiVersion": {
+              "type": "integer",
+              "const": 1,
+              "default": 1
+            },
+            "cache": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "storageNamespaces": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "maxItems": 64,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\u0000-\\u001f]+$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "settings": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "entry"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "type": "string",
+              "maxLength": 512,
+              "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))settings/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\\.html$"
+            },
+            "bridgeVersion": {
+              "type": "integer",
+              "const": 1,
+              "default": 1
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
     "apiVersion",
     "id",
     "version",
-    "name",
-    "platform"
+    "name"
   ],
   "definitions": {
     "identifier": {
@@ -1907,5 +1977,72 @@
         "quote"
       ]
     }
-  }
+  },
+  "anyOf": [
+    {
+      "required": [
+        "platform"
+      ],
+      "properties": {
+        "platform": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "required": [
+        "translation"
+      ],
+      "properties": {
+        "translation": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "required": [
+        "settings"
+      ],
+      "properties": {
+        "settings": {
+          "type": "object"
+        }
+      }
+    }
+  ],
+  "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          {
+            "required": [
+              "translation"
+            ],
+            "properties": {
+              "translation": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "required": [
+              "settings"
+            ],
+            "properties": {
+              "settings": {
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "apiVersion": {
+            "const": 2
+          }
+        }
+      }
+    }
+  ]
 }

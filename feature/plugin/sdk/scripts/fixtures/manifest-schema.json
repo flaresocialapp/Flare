@@ -1612,6 +1612,63 @@
       },
       "schemaValid": false,
       "hostValid": false
+    },
+    {
+      "name": "translation-only plugin",
+      "patch": {
+        "platform": null,
+        "translation": {
+          "apiVersion": 1,
+          "cache": {
+            "storageNamespaces": [
+              "options"
+            ]
+          }
+        },
+        "apiVersion": 2
+      },
+      "schemaValid": true,
+      "hostValid": true
+    },
+    {
+      "name": "settings-only plugin",
+      "patch": {
+        "platform": null,
+        "settings": {
+          "entry": "settings/index.html",
+          "bridgeVersion": 1
+        },
+        "apiVersion": 2
+      },
+      "schemaValid": true,
+      "hostValid": true
+    },
+    {
+      "name": "settings traversal is rejected",
+      "patch": {
+        "settings": {
+          "entry": "settings/../index.html"
+        },
+        "apiVersion": 2
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "translation dependencies are unique",
+      "patch": {
+        "translation": {
+          "cache": {
+            "storageNamespaces": [
+              "a",
+              "a"
+            ]
+          }
+        },
+        "apiVersion": 2
+      },
+      "schemaValid": false,
+      "hostValid": false
     }
   ]
 }

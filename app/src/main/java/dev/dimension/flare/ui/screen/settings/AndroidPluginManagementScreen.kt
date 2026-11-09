@@ -641,9 +641,11 @@ internal fun PluginItem(
     onUninstall: (String) -> Unit,
     onUpdate: (String) -> Unit,
 ) {
+    var showSettings by remember(plugin.pluginId) { mutableStateOf(false) }
+    if (showSettings) PluginSettingsDialog(plugin.pluginId) { showSettings = false }
     val name = plugin.nameText.resolveText().ifBlank { stringResource(R.string.plugin_ai_untitled) }
     SegmentedListItem(
-        onClick = {},
+        onClick = { if (plugin.hasSettings && !busy) showSettings = true },
         shapes = ListItemDefaults.segmentedShapes2(shapesIndex, shapesCount),
         leadingContent = {
             AsyncImage(
@@ -661,8 +663,11 @@ internal fun PluginItem(
             Column {
                 Text(
                     plugin.authoring?.let { stringResource(R.string.plugin_ai_source_revision, it.revision) }
-                        ?: "${plugin.platformId} · ${plugin.version}",
+                        ?: "${plugin.platformId.ifEmpty { plugin.pluginId }} · ${plugin.version}",
                 )
+                if (plugin.hasSettings) {
+                    TextButton(enabled = !busy, onClick = { showSettings = true }) { Text(stringResource(R.string.settings_title)) }
+                }
                 plugin.sourceUrl?.let { Text(it) }
                 plugin.availableUpdate?.let { update ->
                     TextButton(enabled = !busy, onClick = { onUpdate(plugin.pluginId) }) {

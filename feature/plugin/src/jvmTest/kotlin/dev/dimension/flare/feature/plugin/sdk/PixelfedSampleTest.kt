@@ -31,6 +31,7 @@ import dev.dimension.flare.feature.plugin.login.PluginOAuthLoginCoordinatorV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingStoreV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingV1
 import dev.dimension.flare.feature.plugin.login.PluginWebCookieLoginCoordinatorV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.manifest.toUiText
 import dev.dimension.flare.feature.plugin.runtime.PluginCallException
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeKeyV1
@@ -125,9 +126,9 @@ class PixelfedSampleTest {
 
             val plugin = install(firstPackage)
             assertEquals(PLUGIN_ID, plugin.installed.pluginId)
-            assertEquals("Pixelfed", plugin.installed.manifest.platform.id)
+            assertEquals("Pixelfed", plugin.installed.manifest.socialPlatform.id)
             assertTrue(
-                plugin.installed.manifest.platform.timelines
+                plugin.installed.manifest.socialPlatform.timelines
                     .single { it.id == "home" }
                     .defaultForNewAccount,
             )
@@ -248,7 +249,7 @@ class PixelfedSampleTest {
                 assertEquals(spec.metadata.displayNameText, defaultTab.title)
                 assertEquals(spec.metadata.icon, defaultTab.icon)
                 assertEquals(
-                    plugin.installed.manifest.platform.timelines
+                    plugin.installed.manifest.socialPlatform.timelines
                         .first()
                         .title
                         .toUiText(PLUGIN_ID),
@@ -691,7 +692,7 @@ class PixelfedSampleTest {
             val packagePath = root.resolve("default-tabs.fpp")
             pack(packagePath)
             val installed = install(packagePath)
-            val platform = installed.installed.manifest.platform
+            val platform = installed.installed.manifest.socialPlatform
             val timelines =
                 listOf(
                     platform.timelines.single { it.id == "discover" },
@@ -763,7 +764,7 @@ class PixelfedSampleTest {
                             manifest =
                                 plugin.installed.manifest.copy(
                                     platform =
-                                        plugin.installed.manifest.platform.copy(
+                                        plugin.installed.manifest.socialPlatform.copy(
                                             timelineSchemaVersion = 2,
                                         ),
                                 ),

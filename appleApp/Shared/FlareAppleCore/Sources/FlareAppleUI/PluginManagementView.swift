@@ -18,6 +18,7 @@ public struct PluginManagementView: View {
     private let onCreateWithAI: () -> Void
     private var showsGitHubInstall: Bool { presenter.state.gitHubInstall != nil }
     @State private var gitHubURL = ""
+    @State private var settingsPluginId: String?
     @State private var pendingUninstallId: String?
     @State private var pendingUninstallName: String?
     #if os(macOS)
@@ -140,6 +141,9 @@ public struct PluginManagementView: View {
             allowsMultipleSelection: false,
             onCompletion: importPlugin
         )
+        .sheet(isPresented: Binding(get: { settingsPluginId != nil }, set: { if !$0 { settingsPluginId = nil } })) {
+            if let settingsPluginId { PluginSettingsView(pluginId: settingsPluginId) }
+        }
         .task { try? await facade.checkUpdates(forceRefresh: false) }
         .sheet(isPresented: Binding(
             get: { showsGitHubInstall },
@@ -268,7 +272,7 @@ public struct PluginManagementView: View {
         let name = plugin.nameText.text.isEmpty ? String(localized: "plugin_ai_untitled") : plugin.nameText.text
         let subtitle = plugin.authoring.map {
             String(format: String(localized: "plugin_ai_source_revision"), $0.revision)
-        } ?? "\(plugin.platformId) · \(plugin.version)"
+        } ?? "\(plugin.platformId.isEmpty ? plugin.pluginId : plugin.platformId) · \(plugin.version)"
         let busy = presenter.state.busy || (plugin.authoring == nil && isDeveloping(plugin.pluginId))
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -291,6 +295,9 @@ public struct PluginManagementView: View {
             }
 
 
+            if plugin.hasSettings {
+                Button("settings_title") { settingsPluginId = plugin.pluginId }.disabled(busy)
+            }
             if let source = plugin.sourceUrl {
                 Text(source).font(.caption).foregroundStyle(.secondary)
             }

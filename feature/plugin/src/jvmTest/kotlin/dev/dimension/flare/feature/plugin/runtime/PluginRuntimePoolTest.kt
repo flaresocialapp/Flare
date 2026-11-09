@@ -15,6 +15,7 @@ import dev.dimension.flare.feature.plugin.installer.TestFppFactory
 import dev.dimension.flare.feature.plugin.lifecycle.PluginStateStore
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.login.PluginFormLoginCoordinatorV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.wire.PageV1
 import dev.dimension.flare.feature.plugin.wire.PostDetailTypeV1
 import dev.dimension.flare.feature.plugin.wire.TimelineItemV1
@@ -136,7 +137,7 @@ class PluginRuntimePoolTest {
                 assertEquals("true", result.getValue("blocked").jsonPrimitive.content)
                 assertTrue(transport.urls.isEmpty())
                 val profile =
-                    dev.dimension.flare.feature.plugin.abi.PluginJsonV1.decodeFromJsonElement(
+                    PluginJsonV1.decodeFromJsonElement(
                         dev.dimension.flare.feature.plugin.wire.ProfileV1
                             .serializer(),
                         result.getValue("profile"),
@@ -151,7 +152,7 @@ class PluginRuntimePoolTest {
                         originHost = "one.example",
                         capabilities =
                             PluginSessionCapabilitiesV1(
-                                declarations = plugin.installed.manifest.platform.capabilities,
+                                declarations = plugin.installed.manifest.socialPlatform.capabilities,
                                 operations =
                                     mapOf(
                                         PluginAbiV1.Capabilities.PROFILE to setOf("byId", "byHandle"),

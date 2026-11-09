@@ -4,6 +4,7 @@ import dev.dimension.flare.feature.plugin.host.PluginCallTimeoutV1
 import dev.dimension.flare.feature.plugin.host.PluginUrlPolicy
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.manifest.LoginInteractionV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimePool
 import dev.dimension.flare.feature.plugin.wire.LoginBeginRequestV1
 import dev.dimension.flare.feature.plugin.wire.LoginSuccessV1
@@ -25,7 +26,7 @@ public class PluginFormLoginCoordinatorV1(
         expectedAccountId: String? = null,
     ): LoginSuccessV1 {
         val method =
-            plugin.installed.manifest.platform.loginMethods
+            plugin.installed.manifest.socialPlatform.loginMethods
                 .singleOrNull { it.id == methodId }
                 ?: throw PluginLoginException("login.method", "Login method is not declared")
         require(

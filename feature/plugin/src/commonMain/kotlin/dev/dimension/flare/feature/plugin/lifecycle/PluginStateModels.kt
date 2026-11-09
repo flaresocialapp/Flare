@@ -30,6 +30,7 @@ public data class InstalledPluginV1(
     val runtimeGeneration: Long = 0,
     val iconExtension: String = "png",
     val removing: Boolean = false,
+    val ownedPlatformId: String? = manifest.platform?.id,
 )
 
 @Serializable
@@ -56,6 +57,7 @@ public data class RunningPluginV1(
     val iconPath: String,
     val developmentSource: String? = null,
     val generation: Long = 0,
+    internal val developmentResources: Map<String, ByteArray>? = null,
 ) {
     internal val session = PluginSessionV1()
     internal var diagnostic: ((RunningPluginV1, String) -> Unit)? = null

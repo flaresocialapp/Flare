@@ -18,7 +18,9 @@ public data class PluginManifestV1(
     val name: PluginTextV1,
     val description: PluginTextV1? = null,
     val permissions: PluginPermissionsV1 = PluginPermissionsV1(),
-    val platform: PluginPlatformManifestV1,
+    val platform: PluginPlatformManifestV1? = null,
+    val translation: PluginTranslationManifestV1? = null,
+    val settings: PluginSettingsManifestV1? = null,
     /** Editor hint only; the Host never resolves this URL. */
     @SerialName("\$schema")
     val schema: String? = null,
@@ -213,3 +215,24 @@ public data class PluginMethodTableV1(
     val apiVersion: Int,
     val methods: Set<String>,
 )
+
+@Serializable
+public data class PluginTranslationManifestV1(
+    val apiVersion: Int = 1,
+    val cache: PluginTranslationCacheManifestV1 = PluginTranslationCacheManifestV1(),
+)
+
+@Serializable
+public data class PluginTranslationCacheManifestV1(
+    val storageNamespaces: List<String>? = null,
+)
+
+@Serializable
+public data class PluginSettingsManifestV1(
+    val entry: String,
+    val bridgeVersion: Int = 1,
+)
+
+/** Social-only adapters call this after filtering plugins with no social platform. */
+public val PluginManifestV1.socialPlatform: PluginPlatformManifestV1
+    get() = requireNotNull(platform) { "Plugin has no social platform" }

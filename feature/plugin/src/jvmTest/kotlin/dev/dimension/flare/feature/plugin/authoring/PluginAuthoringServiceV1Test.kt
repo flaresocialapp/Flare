@@ -15,6 +15,7 @@ import dev.dimension.flare.feature.plugin.installer.pluginIconFixtures
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingStoreV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingV1
 import dev.dimension.flare.feature.plugin.management.PluginManagementPresenterV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.runtime.PluginSessionRetiredException
 import dev.dimension.flare.model.AccountType
 import dev.dimension.flare.model.MicroBlogKey
@@ -66,6 +67,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class PluginAuthoringServiceV1Test {
@@ -141,6 +143,41 @@ class PluginAuthoringServiceV1Test {
             assertFailsWith<IllegalStateException> { service.delete(plugin.id, expectedRevision = applied.revision - 1) }
             assertEquals(applied, state(plugin.id))
             assertTrue(plugin.id in subsystem.running.value.plugins)
+        }
+
+    @Test
+    fun deletingSettingsOnlyPluginDoesNotInspectAnUnownedPlatform() =
+        runBlocking<Unit> {
+            val plugin = service.create(UUID.randomUUID().toString())
+            service.write(plugin.id, 0, settingsSources(plugin))
+            await(plugin.id, PluginAuthoringPhase.Applied)
+            assertNull(
+                subsystem.running.value.plugins
+                    .getValue(plugin.id)
+                    .installed.ownedPlatformId,
+            )
+            service.delete(plugin.id)
+            assertTrue(accounts.deletedPlatforms.isEmpty())
+            assertFalse(plugin.id in subsystem.running.value.plugins)
+            assertFalse(plugin.id in subsystem.stateStore.desired.value.plugins)
+        }
+
+    @Test
+    fun deletingAfterRemovingSocialCapabilityStillCleansTheOwnedPlatform() =
+        runBlocking<Unit> {
+            val plugin = service.create(UUID.randomUUID().toString())
+            generate(plugin)
+            val applied = await(plugin.id, PluginAuthoringPhase.Applied)
+            service.write(plugin.id, applied.revision, settingsSources(plugin))
+            await(plugin.id, PluginAuthoringPhase.Applied)
+            val installed =
+                subsystem.running.value.plugins
+                    .getValue(plugin.id)
+                    .installed
+            assertNull(installed.manifest.platform)
+            assertEquals(plugin.platformId, installed.ownedPlatformId)
+            service.delete(plugin.id)
+            assertEquals(listOf(plugin.platformId), accounts.deletedPlatforms)
         }
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -281,7 +318,7 @@ class PluginAuthoringServiceV1Test {
             assertEquals(2, applied.revision)
             assertTrue(applied.running)
             assertTrue(installed.manifest.permissions.mediaNetwork)
-            assertEquals(2, installed.manifest.platform.credentialSchemaVersion)
+            assertEquals(2, installed.manifest.socialPlatform.credentialSchemaVersion)
         }
 
     @Test
@@ -1050,6 +1087,16 @@ class PluginAuthoringServiceV1Test {
         "plugin.js" to TestFppFactory.validScript,
     )
 
+    private fun settingsSources(plugin: AuthoredPlugin) =
+        mapOf(
+            "manifest.json" to
+                """
+                { "apiVersion": 2, "id": "${plugin.id}", "version": "1.0.0", "name": "Settings only",
+                  "settings": { "entry": "settings/index.html" } }
+                """.trimIndent(),
+            "settings/index.html" to "<!doctype html><title>Settings</title>",
+        )
+
     private fun state(id: String) = service.plugins.value.single { it.id == id }
 
     private suspend fun await(
@@ -1104,11 +1151,16 @@ private object AuthoringGuest : PlatformSpec {
 }
 
 private class AuthoringAccounts : AccountService {
+    val deletedPlatforms = mutableListOf<String>()
+
     override suspend fun deleteAccounts(
         platformId: String,
         ownsCredential: (String) -> Boolean,
         beforeDelete: suspend () -> Unit,
-    ) = beforeDelete()
+    ) {
+        deletedPlatforms += platformId
+        beforeDelete()
+    }
 
     @Volatile var invalidations = 0
 

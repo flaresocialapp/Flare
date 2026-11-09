@@ -9,6 +9,7 @@ internal fun AppSettings.preTranslationExecutionKey(): String =
 
 internal fun AppSettings.TranslateConfig.Provider.cacheKey(): String =
     when (this) {
+        is AppSettings.TranslateConfig.Provider.Plugin -> pluginTranslationCacheKey(pluginId)
         AppSettings.TranslateConfig.Provider.AI -> "ai"
         AppSettings.TranslateConfig.Provider.GoogleWeb -> "google-web"
         is AppSettings.TranslateConfig.Provider.DeepL -> "deepl:${if (usePro) "pro" else "free"}"

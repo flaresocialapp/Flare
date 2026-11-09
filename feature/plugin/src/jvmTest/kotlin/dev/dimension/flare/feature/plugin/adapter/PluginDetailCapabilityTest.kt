@@ -22,6 +22,7 @@ import dev.dimension.flare.feature.plugin.installer.PluginInstaller
 import dev.dimension.flare.feature.plugin.installer.TestFppFactory
 import dev.dimension.flare.feature.plugin.lifecycle.PluginStateStore
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.runtime.PluginCallException
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimePool
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeUnavailableException
@@ -50,6 +51,7 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
@@ -998,7 +1000,7 @@ class PluginDetailCapabilityTest {
                 credential = JsonObject(emptyMap()),
                 profile = ProfileV1(EntityKeyV1(accountKey.id, accountKey.host), "test@plugin.example", "Test"),
                 capabilities =
-                    plugin.installed.manifest.platform.capabilities
+                    plugin.installed.manifest.socialPlatform.capabilities
                         .filterKeys { it !in unavailableCapabilities }
                         .mapValues { (id, declaration) -> declaration.operations.keys - unavailableOperations[id].orEmpty() },
             )
@@ -1040,7 +1042,7 @@ private class MemoryPlatformContext(
         return value as T
     }
 
-    override fun <T : Any> credentialFlow(serializer: KSerializer<T>): Flow<T> = kotlinx.coroutines.flow.flowOf(credential(serializer))
+    override fun <T : Any> credentialFlow(serializer: KSerializer<T>): Flow<T> = flowOf(credential(serializer))
 
     override suspend fun <T : Any> updateCredential(
         serializer: KSerializer<T>,

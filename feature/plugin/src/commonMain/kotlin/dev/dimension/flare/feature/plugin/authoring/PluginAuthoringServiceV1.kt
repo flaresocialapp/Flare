@@ -19,6 +19,7 @@ import dev.dimension.flare.feature.plugin.installer.pluginIconExtension
 import dev.dimension.flare.feature.plugin.lifecycle.PluginRuntimeSwitcherV1
 import dev.dimension.flare.feature.plugin.lifecycle.derivedPluginState
 import dev.dimension.flare.feature.plugin.manifest.fallbackText
+import dev.dimension.flare.feature.plugin.manifest.isPluginSettingsPath
 import dev.dimension.flare.feature.plugin.runtime.PluginSessionBusyException
 import dev.dimension.flare.model.PlatformRegistry
 import kotlinx.coroutines.CancellationException
@@ -155,7 +156,13 @@ internal class PluginAuthoringServiceV1(
                     "Plugin changed. Confirm deletion again."
                 }
                 subsystem.mutationMutex.withLock {
-                    switcher.uninstall(pluginId, authoredPluginPlatformId(pluginId))
+                    val platformId =
+                        subsystem.stateStore.desired.value.plugins[pluginId]
+                            ?.ownedPlatformId
+                            ?: subsystem.running.value.plugins[pluginId]
+                                ?.installed
+                                ?.ownedPlatformId
+                    switcher.uninstall(pluginId, platformId)
                     entry.application?.cancel()
                     files.delete(root / "$pluginId.json", mustExist = false)
                     entries.update { it - pluginId }
@@ -253,13 +260,25 @@ internal class PluginAuthoringServiceV1(
         )
 
     private fun validateSources(files: Map<String, String>) {
-        require(files.keys.containsAll(listOf(FppPaths.MANIFEST, FppPaths.ENTRY))) { "Submit manifest.json and plugin.js together" }
+        require(FppPaths.MANIFEST in files) { "Submit manifest.json with the complete plugin file set" }
         require(
-            files.size <= FppLimits.MAX_CATALOG_COUNT + 2 &&
+            files.size < FppLimits.MAX_ENTRY_COUNT &&
                 files.all { (path, text) ->
-                    (path == FppPaths.MANIFEST || path == FppPaths.ENTRY || CATALOG.matches(path)) &&
+                    (
+                        path == FppPaths.MANIFEST || path == FppPaths.ENTRY || CATALOG.matches(path) ||
+                            (
+                                isPluginSettingsPath(path) &&
+                                    path.substringAfterLast('.') in setOf("html", "js", "mjs", "css", "json")
+                            )
+                    ) &&
                         text.encodeToByteArray().size <=
-                        if (path == FppPaths.ENTRY) FppLimits.MAX_SCRIPT_BYTES else FppLimits.MAX_CATALOG_BYTES
+                        if (path == FppPaths.ENTRY ||
+                            path.startsWith("settings/")
+                        ) {
+                            FppLimits.MAX_SCRIPT_BYTES
+                        } else {
+                            FppLimits.MAX_CATALOG_BYTES
+                        }
                 },
         ) { "Invalid plugin file or size" }
     }
@@ -281,7 +300,10 @@ internal class PluginAuthoringServiceV1(
                 bytes,
             )
         val validated = validator.validate(archive)
-        require(validated.manifest.id == record.id && validated.manifest.platform.id == authoredPluginPlatformId(record.id)) {
+        require(
+            validated.manifest.id == record.id &&
+                (validated.manifest.platform == null || validated.manifest.platform.id == authoredPluginPlatformId(record.id)),
+        ) {
             "Keep the host-assigned plugin and platform IDs"
         }
         return Candidate(
