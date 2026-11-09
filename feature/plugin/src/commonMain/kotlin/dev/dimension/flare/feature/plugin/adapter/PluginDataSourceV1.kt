@@ -18,6 +18,7 @@ import dev.dimension.flare.data.datasource.microblog.SearchOperation
 import dev.dimension.flare.data.datasource.microblog.TabCatalogCapability
 import dev.dimension.flare.data.datasource.microblog.TimelineCapability
 import dev.dimension.flare.data.datasource.microblog.datasource.PostDataSource
+import dev.dimension.flare.data.datasource.microblog.datasource.TimelinePageDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.TimelineTabConfigurationDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.UserDataSource
 import dev.dimension.flare.data.datasource.microblog.handler.PostEventHandler
@@ -69,6 +70,7 @@ import dev.dimension.flare.feature.plugin.wire.SearchRequestV1
 import dev.dimension.flare.feature.plugin.wire.SemanticActionV1
 import dev.dimension.flare.feature.plugin.wire.TimelineDisplayV1
 import dev.dimension.flare.feature.plugin.wire.TimelineItemV1
+import dev.dimension.flare.feature.plugin.wire.TimelinePageLoadRequestV2
 import dev.dimension.flare.feature.plugin.wire.TimelinePageRequestV1
 import dev.dimension.flare.feature.plugin.wire.USER_ACTIONS_V1
 import dev.dimension.flare.feature.plugin.wire.VisibilityV1
@@ -91,6 +93,8 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.encodeToString
 
 /** Lazy proxy: construction reads only the Host-owned credential envelope and never starts a JavaScript engine. */
@@ -138,8 +142,18 @@ internal class PluginDataSourceV1 private constructor(
             capabilities.hasOperation(PluginAbiV1.Capabilities.SEARCH, it.pluginName)
         }
 
+    private val pageRevision = MutableStateFlow(0L)
+
     override val capabilitySet: DataSourceCapabilitySet by lazy {
         DataSourceCapabilitySet(
+            timelinePage =
+                if (plugin.installed.manifest.apiVersion >= 2 &&
+                    capabilities.canExpose(PluginAbiV1.Capabilities.TIMELINE_PAGE)
+                ) {
+                    TimelinePageAdapter()
+                } else {
+                    null
+                },
             timeline = if (capabilities.canExpose(PluginAbiV1.Capabilities.TIMELINE)) TimelineCapability(this) else null,
             search = if (capabilities.canExpose(PluginAbiV1.Capabilities.SEARCH)) SearchCapability(this) else null,
             profile = if (capabilities.canExpose(PluginAbiV1.Capabilities.PROFILE)) ProfileCapability(this, userDataSource) else null,
@@ -298,6 +312,7 @@ internal class PluginDataSourceV1 private constructor(
 
                     MutationResultV1.Deleted -> {
                         updater.deleteFromCache(event.postKey)
+                        pageRevision.update { it + 1 }
                     }
 
                     is MutationResultV1.Invalidate -> {
@@ -305,6 +320,7 @@ internal class PluginDataSourceV1 private constructor(
                             updater.deleteFromCache(it.toKey())
                             extraCapabilities.refreshGallery(it.toKey())
                         }
+                        pageRevision.update { it + 1 }
                     }
 
                     is MutationResultV1.UpdatedProfile -> {
@@ -369,14 +385,15 @@ internal class PluginDataSourceV1 private constructor(
 
                             override suspend fun deleteStatus(statusKey: MicroBlogKey) {
                                 capabilities.requireOperation(PluginAbiV1.Capabilities.POST, "delete")
-                                invoker.invoke(
-                                    capabilityId = PluginAbiV1.Capabilities.POST,
-                                    operation = "delete",
-                                    request = EntityRequestV1(statusKey.toWire()),
-                                    requestSerializer = EntityRequestV1.serializer(),
-                                    responseSerializer = MutationResultV1.serializer(),
-                                    validate = MutationResultV1::requireDeleteResult,
-                                )
+                                invoker
+                                    .invoke(
+                                        capabilityId = PluginAbiV1.Capabilities.POST,
+                                        operation = "delete",
+                                        request = EntityRequestV1(statusKey.toWire()),
+                                        requestSerializer = EntityRequestV1.serializer(),
+                                        responseSerializer = MutationResultV1.serializer(),
+                                        validate = MutationResultV1::requireDeleteResult,
+                                    ).also { if (it == MutationResultV1.Deleted) pageRevision.update { revision -> revision + 1 } }
                             }
                         },
                 )
@@ -385,6 +402,37 @@ internal class PluginDataSourceV1 private constructor(
                     accountType,
                     postMutationHandler,
                 )
+        }
+    }
+
+    private inner class TimelinePageAdapter : TimelinePageDataSource {
+        override val pluginId: String get() = plugin.installed.pluginId
+        override val packageHash: String get() = plugin.installed.packageHash
+        override val revision = pageRevision
+
+        override fun timelinePage(
+            pageId: String,
+            parameters: Map<String, String>,
+        ): RemoteLoader<UiTimelineV2> {
+            TimelinePageLoadRequestV2(pageId, PagingRequest.Refresh.toWire(1, parameters)).requireValid()
+            return invoker.timelineLoader(
+                capability = PluginAbiV1.Capabilities.TIMELINE_PAGE,
+                operation = "load",
+                identity = listOf(pageId) + parameters.toPagingIdentity(),
+                directions = capabilities.directions(PluginAbiV1.Capabilities.TIMELINE_PAGE, "load"),
+                collapseReplies = false,
+                load = { pageSize, request ->
+                    invoker.invoke(
+                        capabilityId = PluginAbiV1.Capabilities.TIMELINE_PAGE,
+                        operation = "load",
+                        request = TimelinePageLoadRequestV2(pageId, request.toWire(pageSize, parameters)),
+                        requestSerializer = TimelinePageLoadRequestV2.serializer(),
+                        responseSerializer = PageV1.serializer(TimelineItemV1.serializer()),
+                        validate = { page -> page.requireValid { it.requireValid() } },
+                    )
+                },
+                map = mapper::timelineItem,
+            )
         }
     }
 
@@ -671,6 +719,7 @@ internal class PluginDataSourceV1 private constructor(
                     validate = ComposeResultV1::requireValid,
                 )
             mapper.post(result.post)
+            pageRevision.update { it + 1 }
             progress()
         }
 
@@ -845,6 +894,7 @@ internal class PluginDataSourceV1 private constructor(
                 mapper =
                     PluginWireMapperV1(
                         pluginId = plugin.installed.pluginId,
+                        packageHash = plugin.installed.packageHash,
                         platformIcon = plugin.platformMetadata().icon,
                         platformId = plugin.installed.manifest.socialPlatform.id,
                         accountKey = accountKey,

@@ -58,7 +58,7 @@ length in the Host rather than JSON Schema's Unicode code point count.
 | --- | --- | --- |
 | `$schema` | Omitted | Editor schema URL/path only; never loaded by Flare |
 | `schemaVersion` | `1` | Manifest schema, currently exactly 1 |
-| `apiVersion` | Required | Host API, 1 or 2; storage, translation, settings and header/session extensions require v2 |
+| `apiVersion` | Required | Host API, 1 or 2; storage, translation, settings, platform actions, header/session extensions and temporary timeline pages require v2 |
 | `id` | Required | Stable reverse-domain plugin ID; `[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+` |
 | `version` | Required | Plugin SemVer, independent of the repository snapshot tag and npm SDK version |
 | `defaultLocale` | `"en"` | BCP-47 locale tag |
@@ -166,6 +166,11 @@ arrays; placing them on another capability is invalid.
 IDs must be unique within each list. At least one declared timeline must have
 `defaultForNewAccount: true`. `display` is `List` or `Grid`, not lowercase.
 `tabCatalog.page` still requires a static timeline and `timeline.page`.
+
+The API v2 [temporary page capability](capabilities.md#api-v2-temporary-timeline-pages)
+is independent: `timelinePage.load` does not require `timelines`, `timeline.page`
+or `tabCatalog`. Keep the plugin's ordinary displayable entry capability and
+declare a post/quote navigation target for the temporary page.
 
 Icons use these Host semantic names:
 `Home`, `Notification`, `Search`, `Profile`, `Local`, `World`, `Featured`,

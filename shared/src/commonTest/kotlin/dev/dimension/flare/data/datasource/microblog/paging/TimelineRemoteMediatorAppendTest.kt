@@ -12,6 +12,7 @@ import dev.dimension.flare.data.database.createDatabaseDriver
 import dev.dimension.flare.memoryDatabaseBuilder
 import dev.dimension.flare.model.AccountType
 import dev.dimension.flare.model.MicroBlogKey
+import dev.dimension.flare.model.ReferenceType
 import dev.dimension.flare.ui.model.ClickEvent
 import dev.dimension.flare.ui.model.UiTimelineV2
 import dev.dimension.flare.ui.model.UiTranslatableText
@@ -122,13 +123,64 @@ class TimelineRemoteMediatorAppendTest : RobolectricTest() {
             assertEquals(otherRows, database.pagingTimelineDao().getByPagingKey(other.pagingKey))
         }
 
+    @Test
+    fun flatCommentPagesKeepParentAndRepliesInBackendOrder() =
+        runTest {
+            val root = post(0).copy(createdAt = Instant.fromEpochMilliseconds(30).toUi())
+            val first =
+                post(1).copy(
+                    createdAt = Instant.fromEpochMilliseconds(10).toUi(),
+                    references = persistentListOf(UiTimelineV2.Post.Reference(root.statusKey, ReferenceType.Reply)),
+                )
+            val second =
+                post(2).copy(
+                    createdAt = Instant.fromEpochMilliseconds(20).toUi(),
+                    references = persistentListOf(UiTimelineV2.Post.Reference(first.statusKey, ReferenceType.Reply)),
+                )
+            val hot = mediator("plugin:forum-hot", collapseReplies = false) { PagingResult(listOf(root, first, second)) }
+            val latest = mediator("plugin:forum-latest", collapseReplies = false) { PagingResult(listOf(root, second, first)) }
+            hot.loadPage(LoadType.REFRESH)
+            latest.loadPage(LoadType.REFRESH)
+            assertEquals(listOf(0, 1, 2), postOrder(hot.pagingKey))
+            assertEquals(listOf(0, 2, 1), postOrder(latest.pagingKey))
+        }
+
+    @Test
+    fun emptyCommentPageRetainsOpaqueCursorAndContinuesPastPageTwentyAfterReopening() =
+        runTest {
+            val cursor = "/fixture/comments?offset=a+b/c=&page=21"
+            val requests = mutableListOf<PagingRequest>()
+
+            fun reopened() =
+                mediator("plugin:forum-continuation", collapseReplies = false) { request ->
+                    requests += request
+                    when (request) {
+                        PagingRequest.Refresh -> PagingResult(listOf(post(0)), nextKey = cursor)
+                        PagingRequest.Append(cursor) -> PagingResult(emptyList(), nextKey = "21")
+                        PagingRequest.Append("21") -> PagingResult(listOf(post(1), post(2)))
+                        else -> error("Unexpected paging direction")
+                    }
+                }
+            reopened().loadPage(LoadType.REFRESH)
+            assertEquals(cursor, database.pagingTimelineDao().getNextKey("plugin:forum-continuation"))
+            val empty = assertIs<RemoteMediator.MediatorResult.Success>(reopened().load(LoadType.APPEND, state))
+            assertEquals(false, empty.endOfPaginationReached)
+            assertEquals("21", database.pagingTimelineDao().getNextKey("plugin:forum-continuation"))
+            reopened().loadPage(LoadType.APPEND)
+            assertEquals(listOf(PagingRequest.Refresh, PagingRequest.Append(cursor), PagingRequest.Append("21")), requests)
+            assertEquals(listOf(0, 1, 2), postOrder("plugin:forum-continuation"))
+            assertEquals(null, database.pagingTimelineDao().getNextKey("plugin:forum-continuation"))
+        }
+
     private fun mediator(
         pagingKey: String,
+        collapseReplies: Boolean = true,
         response: (PagingRequest) -> PagingResult<UiTimelineV2>,
     ) = TimelineRemoteMediator(
         loader =
             object : CacheableRemoteLoader<UiTimelineV2> {
                 override val pagingKey = pagingKey
+                override val collapseReplyChains = collapseReplies
 
                 override suspend fun load(
                     pageSize: Int,

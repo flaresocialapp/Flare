@@ -41,6 +41,7 @@ internal class PluginAccountInvokerV1(
         directions: Set<PageDirectionV1>,
         load: suspend (pageSize: Int, request: PagingRequest) -> PageV1<Wire>,
         map: (Wire) -> UiTimelineV2?,
+        collapseReplies: Boolean = capability != PluginAbiV1.Capabilities.NOTIFICATION,
     ): CacheableRemoteLoader<UiTimelineV2> {
         val loader = pluginRemoteLoader(directions, load, map)
         val key =
@@ -67,7 +68,7 @@ internal class PluginAccountInvokerV1(
                         .sha256()
                         .hex()
             override val supportPrepend = PageDirectionV1.Newer.isSupportedBy(directions)
-            override val collapseReplyChains = capability != PluginAbiV1.Capabilities.NOTIFICATION
+            override val collapseReplyChains = collapseReplies
         }
     }
 

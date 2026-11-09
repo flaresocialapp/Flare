@@ -81,6 +81,7 @@ import dev.dimension.flare.ui.screen.home.ProfileWithUserNameAndHostDeeplinkRout
 import dev.dimension.flare.ui.screen.home.ReportUserDialog
 import dev.dimension.flare.ui.screen.home.SearchScreen
 import dev.dimension.flare.ui.screen.home.TabSettingScreen
+import dev.dimension.flare.ui.screen.home.TimelinePageScreen
 import dev.dimension.flare.ui.screen.home.TimelineScreen
 import dev.dimension.flare.ui.screen.home.UnblockUserDialog
 import dev.dimension.flare.ui.screen.home.UnmuteUserDialog
@@ -765,6 +766,8 @@ internal fun Router(
                 entry<Route.AppLogging> {
                     AppLoggingScreen()
                 }
+
+                entry<Route.TimelinePage> { args -> TimelinePageScreen(args.page) }
 
                 entry<Timeline> { args ->
                     TimelineScreen(

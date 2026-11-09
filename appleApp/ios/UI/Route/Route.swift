@@ -64,6 +64,8 @@ enum Route: Hashable, Identifiable {
             toSecondaryMenu: { onNavigate(.secondaryMenu) },
             onNavigate: onNavigate
         )
+        case .timelinePage(let page):
+            TimelinePageScreen(page: page)
         case .timeline(let item):
             TimelineScreen(tabItem: item)
                 .navigationTitle(item.title.text)
@@ -296,6 +298,7 @@ enum Route: Hashable, Identifiable {
 
     case home
     case timeline(UiTimelineTabItem)
+    case timelinePage(DeeplinkRoute.TimelinePage)
     case composeNew
     case composeCrossPost(ComposePrefill)
     case composeDraft(String)
@@ -540,6 +543,8 @@ enum Route: Hashable, Identifiable {
             return .allChannels(.Specific(accountKey: data.accountKey))
         case .timeline(let data):
             switch onEnum(of: data) {
+            case .page(let data):
+                return .timelinePage(data)
             case .source(let data):
                 if let tabItem = TimelineDeepLinkRouteResolver.shared.resolve(route: data) {
                     return .timeline(tabItem)

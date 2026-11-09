@@ -7,6 +7,7 @@ import dev.dimension.flare.data.datasource.microblog.datasource.NotificationData
 import dev.dimension.flare.data.datasource.microblog.datasource.PinnableTimelineTabDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.PostDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.RelationDataSource
+import dev.dimension.flare.data.datasource.microblog.datasource.TimelinePageDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.TimelineTabConfigurationDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.UserDataSource
 import dev.dimension.flare.data.datasource.microblog.paging.RemoteLoader
@@ -37,6 +38,7 @@ public data class DataSourceCapabilitySet(
     public val article: ArticleDataSource? = null,
     public val gallery: GalleryDataSource? = null,
     public val tabCatalog: TabCatalogCapability? = null,
+    public val timelinePage: TimelinePageDataSource? = null,
 )
 
 @HiddenFromObjC

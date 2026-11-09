@@ -29,7 +29,7 @@ to the user's plugin repository.
 3. Use [flare-plugin.d.ts](flare-plugin.d.ts) for exact signatures and [ABI.md](ABI.md)
    for the boundary contract. Declare apiVersion 2 when using application response
    headers, manual redirects, conditional credential updates, or WebCookie pending
-   state/metadata, plugin storage, translation or settings. Host API v2 is
+   state/metadata, plugin storage, translation, settings, platform actions or temporary timeline pages. Host API v2 is
    unreleased; select matching Host/SDK source revisions. Keep v1 manifests within
    their original behavior. If the target Flare build
    has a different contract, establish its version before generating code; there
@@ -74,7 +74,8 @@ Read the references needed for the task:
 | Manual SSO redirects, response headers, body/header tokens, native retry limits | [Runtime/HTTP](references/runtime-http.md) |
 | Text translation, namespace revisions, offline page SDK and cache dependencies | [Storage, translation and settings](references/storage-and-settings.md) |
 | Map remote entities, HTML, media, identity, cursor pagination, opaque tokens | [Wire data](references/wire-data.md) |
-| Implement any of the twelve capabilities, guest access, actions, Deep Links, localization | [Recipes](references/recipes.md) and the relevant [capability row](references/capabilities.md) |
+| Open a native replies/sublist page from a post or quote without home tabs | [Temporary timeline pages](references/capabilities.md#api-v2-temporary-timeline-pages) and [page recipe](references/recipes.md#temporary-timeline-pages-api-v2) |
+| Implement capabilities, guest access, actions, Deep Links, localization | [Recipes](references/recipes.md) and the relevant [capability row](references/capabilities.md) |
 | Diagnose a rejected package, missing UI, failed request, or retired runtime | [Troubleshooting and limits](references/troubleshooting.md) |
 | Check the generated files and exercise behavior | [Testing](references/testing.md) |
 | Prepare a GitHub repository, version tag, update, or schema change | [Publishing](references/publishing.md) |

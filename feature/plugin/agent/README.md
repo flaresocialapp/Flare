@@ -28,6 +28,9 @@ and use the Host account-authorization flow; implement the action with
    read [capabilities](references/capabilities.md) and [runtime/HTTP](references/runtime-http.md).
    For login use [authentication](references/authentication.md);
    for results use [Wire data](references/wire-data.md) and [recipes](references/recipes.md).
+   For native reply sublists reached from posts or quotes, use the API v2
+   [temporary page contract](references/capabilities.md#api-v2-temporary-timeline-pages)
+   and [page recipe](references/recipes.md#temporary-timeline-pages-api-v2).
 5. Submit `manifest.json`, a complete classic `plugin.js` for background capabilities, and any `locales/*.json` or packaged settings text files
    through `write_plugin_files`, with `expectedRevision` from the latest read. Submit the
    complete file set, not a patch. Flare supplies the icon asset; do not submit binary files.
@@ -94,7 +97,8 @@ mapping to verified website evidence. Read the authentication recipes for other
 login methods; the full Pixelfed example and external SDK tooling are not bundled.
 The [mixed timeline showcase](examples/timeline-showcase/README.md) and its
 manifest/script are also available. Its offline demo state exercises all timeline
-item types, votes, reactions and user buttons; replace demo logic with verified
+item types, votes, reactions, user buttons and nested temporary reply pages;
+replace demo logic with verified
 website operations before using it for a real adapter.
 
 Report what validation passed and what still needs a website/account/UI check.

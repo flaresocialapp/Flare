@@ -77,6 +77,8 @@ interface SocialPluginDefinitionV1 {
   detector?: { detect(request: DetectorRequestV1, context: PluginInvocationContextV1): MaybePromise<DetectorResultV1> };
   login?: Record<string, LoginServiceV1>;
   capabilities?: {
+    /** API v2: transient native lists, independent of home timelines and tabCatalog. */
+    timelinePage?: { load(request: TimelinePageLoadRequestV2, context: PluginInvocationContextV1): MaybePromise<PageV1<TimelineItemV1>> };
     timeline?: { page(request: TimelinePageRequestV1, context: PluginInvocationContextV1): MaybePromise<PageV1<TimelineItemV1>> };
     search?: Partial<SearchServiceV1>;
     profile?: Partial<ProfileServiceV1>;
@@ -333,6 +335,10 @@ interface PostV1 {
   actions?: ActionDescriptorV1[];
   /** Omission defaults to "post"; "link" opens url. Unknown strings disable post/cover/grid navigation without a fallback. */
   detailType?: PostDetailTypeV1;
+  /** API v2: overrides navigation only; quote posts use this same field.
+   * Keep the target stable for the same key, including detail/mutation results.
+   */
+  target?: NavigationTargetV1;
   sourceLanguages?: string[];
   replyToHandle?: string;
   references?: PostReferenceV1[];
@@ -362,6 +368,7 @@ interface PostPresentationV1 {
   notificationKey?: EntityKeyV1;
 }
 type NavigationTargetV1 =
+  | { type: "timelinePage"; pageId: string; title: WireTextV1; parameters?: Record<string, string> }
   | { type: "post" | "profile" | "article" | "gallery"; key: EntityKeyV1 }
   | { type: "link"; url: string };
 interface FeedV1 {
@@ -452,6 +459,8 @@ interface PageV1<T> {
   endReached?: boolean;
 }
 interface TimelinePageRequestV1 { timelineId: string; page: PageRequestV1; parameters: Record<string, string> }
+/** API v2: page.parameters is copied from the navigation target on every request. */
+interface TimelinePageLoadRequestV2 { pageId: string; page: PageRequestV1 }
 interface SearchRequestV1 { query: string; page: PageRequestV1 }
 /** entityToken is opaque entity context (at most 8192 characters), not a paging cursor. */
 interface EntityRequestV1 { key: EntityKeyV1; entityToken?: string }

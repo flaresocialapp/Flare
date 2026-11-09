@@ -244,7 +244,11 @@ All documentation is in English. The complete Pixelfed adapter is bundled at
 `skill/flare-plugin/examples/pixelfed/`. The offline
 [mixed timeline showcase](skill/flare-plugin/examples/timeline-showcase/README.md)
 covers Post, Feed, User, UserList and Message rows, notifications, voting,
-reactions and follow requests using Flare's existing UI.
+reactions, follow requests and API v2 temporary replies pages using Flare's existing UI.
+For post/quote navigation into paginated sublists without home tabs, start with
+the [temporary page contract](skill/flare-plugin/references/capabilities.md#api-v2-temporary-timeline-pages)
+and [implementation recipe](skill/flare-plugin/references/recipes.md#temporary-timeline-pages-api-v2).
+Use matching Host and SDK revisions that include this API v2 capability.
 
 Timeline-producing methods now return `PageV1<TimelineItemV1>`; post detail returns
 `{ post, presentation? }`. This preview intentionally removes the old bare-post

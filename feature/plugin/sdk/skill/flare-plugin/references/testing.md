@@ -33,6 +33,9 @@ do not replace Host validation, and parsing JSON does not validate the manifest.
 - Compose fixtures distinguish new/reply/quote, preserve opaque target keys,
   reject unsupported modes before upload and keep quote/reply attachment rules
   aligned with the editor. Retired compose/v1 declarations must fail validation.
+- Temporary page fixtures cover post/quote entry, nested replies, page.parameters,
+  opaque cursors and empty-page continuation. Keep entity keys and targets stable
+  through detail/mutation results and recover reply context after runtime eviction.
 - Media headers reach previews/downloads; test same-origin and cross-origin
   redirects, HLS children, account cache isolation and media permission denial.
   Use dummy short-lived tokens: media headers follow ordinary cache/navigation persistence.
@@ -111,6 +114,12 @@ PostEventHandlerTest, UserHandlerTest and NotificationTimelineTest cover SQLite
 hydration, profile updates, and failed optimistic votes. The showcase has no
 remote side effects; it can also be used for manual existing-UI acceptance.
 
+For temporary pages, `PluginDetailCapabilityTest` also covers independent capability
+negotiation, account/parameter isolation and Zhihu/Tieba-shaped reply contexts with
+mock HTTP. Shared `TimelineRemoteMediatorAppendTest` covers flat order and stored
+cursor continuation; `TimelinePageRefreshTest` covers invalidation during loading,
+hidden pages and an in-flight refresh. These fixtures do not call real child-reply APIs.
+
 For changes to manifests or wire contracts, relevant existing suites include
 PluginManifestV1Test and WireV1Test. Runtime/HTTP/login suites cover their own Host
 contracts. Run the affected suites rather than requiring a full app build for a
@@ -159,6 +168,12 @@ After an adapter has real endpoints and authorized credentials:
 5. Record Android, JVM Desktop, iOS, and native macOS evidence separately.
    Simulator/compilation results do not establish physical-device UI behavior.
 
+For temporary pages, enter from both a post and a quote, open a deeper reply,
+return to check scroll position, and refresh/paginate through an empty continued
+page. Verify reply/like/delete targets, refresh after publishing while the parent
+page is hidden, and failure after account removal or plugin replacement. Sort
+parameters do not provide a native sort picker; see the [page contract](capabilities.md#api-v2-temporary-timeline-pages).
+
 The generic template's API is illustrative. Passing its fixture tests does not
 turn it into a working adapter for an arbitrary website; replace and validate
 the API contract before claiming it is ready for end users.
@@ -195,7 +210,8 @@ GitHub repository and stable tag, if publication was authorized and completed:
 | --- | --- |
 | Quick start and AI workflow | README.md, SKILL.md, GitHub template |
 | Manifest fields, defaults, validation | manifest.md; template and Pixelfed manifests |
-| Capability/UI matrix and all twelve services | capabilities.md, recipes.md |
+| Capability/UI matrix and service recipes | capabilities.md, recipes.md |
+| Temporary pages, reply context and refresh | capabilities.md; timeline showcase; Host page/paging/refresh tests |
 | Platform engines, HTTP, credentials, permissions | runtime-http.md; template requestJson helper |
 | Translation, generic storage and offline settings | storage-and-settings.md; translation-settings example and focused acceptance above |
 | Five login methods and detection | authentication.md; template token login and Pixelfed OAuth |
