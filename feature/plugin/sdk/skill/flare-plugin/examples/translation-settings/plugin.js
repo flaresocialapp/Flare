@@ -8,7 +8,7 @@ async function prefix() {
   const { values } = await flare.storage.open("options").read(["prefix"]);
   return typeof values.prefix === "string" ? values.prefix : "[demo] ";
 }
-defineFlarePlugin({ translation: {
+defineFlareTranslatePlugin({
   async translateDocumentJson(request) {
     return JSON.stringify(documentWithPrefix(JSON.parse(request.sourceJson), await prefix(), request.targetLanguage));
   },
@@ -19,4 +19,4 @@ defineFlarePlugin({ translation: {
         [field, document && documentWithPrefix(document, value, request.targetLanguage)])),
     })) });
   },
-} });
+});

@@ -19,8 +19,9 @@ Engine versions on Apple and Android follow the OS/provider. Use portable
 JavaScript and test on each target; newer syntax, `Intl` data, stack traces and
 engine-specific globals are not a cross-platform compatibility guarantee.
 
-Register exactly once with `defineFlarePlugin` or its `defineFlareSocialPlugin`
-alias. Use standard JavaScript data handling
+Register each provided type once, synchronously: `defineFlareSocialPlugin` for
+social services and `defineFlareTranslatePlugin` for text translation. A combined
+package calls both in either order. Use standard JavaScript data handling
 and the frozen `flare` Host facade. Browser/Node facilities (`fetch`, DOM,
 `localStorage`, `require`, `process`, `Buffer`, browser URL helpers, timers) are
 not part of the plugin contract. Do not assume them from your build environment.

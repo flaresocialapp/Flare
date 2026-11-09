@@ -1,6 +1,6 @@
 # Storage, text translation and offline settings
 
-Use Host API `apiVersion: 2` for storage, translation and settings. This extends the unreleased v2 contract; API v1 social plugins remain compatible. `platform`, `translation` and `settings` are independently optional; provide at least one. Only background capabilities require `plugin.js`. Register background methods once with `defineFlarePlugin` (the `defineFlareSocialPlugin` alias remains supported).
+Use Host API `apiVersion: 2` for storage, translation and settings. This extends the unreleased v2 contract; API v1 social plugins remain compatible. `platform`, `translation` and `settings` are independently optional; provide at least one. Only background capabilities require `plugin.js`. Register social methods with `defineFlareSocialPlugin` and translation methods with `defineFlareTranslatePlugin`, each at most once. A combined package calls both synchronously in either order. Settings-only packages need neither call.
 
 Use matching Host and SDK source revisions; this document does not promise a
 published app/npm version. The translation interface and settings bridge each
@@ -57,7 +57,22 @@ Limits: 64 namespaces and 4,096 keys per plugin; 256 UTF-8 bytes per namespace/k
 }
 ```
 
-Register `translation.translateDocumentJson(request, context)` and `translation.translateBatchDocumentJson(request, context)`. Both return a JSON string or null. Throw `flare.error(...)` for expected failures. The Host retains its existing translation, platform-preference, batching, retry and error policies. Image translation is outside this interface.
+Pass the two implemented handlers directly, without a `translation` wrapper:
+
+```js
+defineFlareTranslatePlugin({
+  translateDocumentJson,
+  translateBatchDocumentJson,
+});
+```
+
+Social detection, login and capabilities belong in a separate
+`defineFlareSocialPlugin` call when supplied. Duplicate registrations, registering
+translation through the social entrypoint, and registrations after initialization
+are rejected. Both types share the package identity, storage namespaces and
+manifest permission limits.
+
+The Host invokes these methods internally as `translation.translateDocumentJson(request, context)` and `translation.translateBatchDocumentJson(request, context)`. Both return a JSON string or null. Throw `flare.error(...)` for expected failures. The Host retains its existing translation, platform-preference, batching, retry and error policies. Image translation is outside this interface.
 
 The single-document request contains `sourceTemplate`, `sourceJson`, `targetLanguage` and `prompt`. `sourceJson` encodes `{version, targetLanguage, blocks:[{id,tokens:[{id,kind,text}]}]}`. Preserve block/token IDs and `Locked` tokens, replacing the text of `Translatable` tokens. Return the translated document as a JSON string.
 

@@ -15,3 +15,5 @@ configuration. To implement a real translator, replace the background demo
 methods, declare its HTTPS service origins and keep service configuration in
 plugin storage. Read the [complete contract](../../references/storage-and-settings.md)
 for snapshot revisions, cache dependencies and the browser SDK boundary.
+
+The background script calls `defineFlareTranslatePlugin` with both translation handlers. A package that also provides a social extension calls `defineFlareSocialPlugin` separately, once per type.

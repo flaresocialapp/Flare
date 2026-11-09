@@ -239,13 +239,13 @@ class PluginTranslationIntegrationTest {
             val original = installExample()
             val script =
                 """
-                defineFlarePlugin({ translation: {
+                defineFlareTranslatePlugin({
                   async translateDocumentJson() {
                     await flare.storage.open("options").write({set:{value:1}}, {expectedRevision:"stale"});
                     return null;
                   },
                   async translateBatchDocumentJson() { return null; }
-                } });
+                });
                 """.trimIndent()
             subsystem.replaceRunning(ID, original.copy(developmentSource = script))
             val service = PluginTranslationServiceV1(subsystem)

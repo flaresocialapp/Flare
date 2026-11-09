@@ -31,6 +31,7 @@ import dev.dimension.flare.ui.theme.FlareTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
 import okio.Buffer
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
@@ -78,6 +79,26 @@ class PluginSettingsWebViewTest {
             manager.confirmInstall()
         }
         val service = koinGet<PluginTranslationService>()
+        val translated =
+            runBlocking {
+                service.translate(
+                    pluginId = ID,
+                    sourceTemplate = "Hello",
+                    sourceJson = """{"version":1,"blocks":[{"id":0,"tokens":[{"id":0,"kind":"Translatable","text":"Hello"}]}]}""",
+                    targetLanguage = "zh-Hans",
+                    prompt = "",
+                    batch = false,
+                )
+            }
+        assertEquals(
+            "[demo] Hello",
+            JSONObject(checkNotNull(translated))
+                .getJSONArray("blocks")
+                .getJSONObject(0)
+                .getJSONArray("tokens")
+                .getJSONObject(0)
+                .getString("text"),
+        )
         val before =
             service.providers.value
                 .single { it.pluginId == ID }

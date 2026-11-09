@@ -307,8 +307,11 @@ class PluginJavaScriptEngineTest {
         withEngine { engine ->
             engine.evaluate(RUNTIME_PRELUDE + "''", "runtime.js")
             assertEquals(
-                "function,undefined",
-                engine.evaluate("[typeof defineFlareSocialPlugin, typeof definePlugin].join(',')", "globals.js"),
+                "function,function,undefined,undefined",
+                engine.evaluate(
+                    "[typeof defineFlareSocialPlugin, typeof defineFlareTranslatePlugin, typeof defineFlarePlugin, typeof definePlugin].join(',')",
+                    "globals.js",
+                ),
             )
             val missing = assertFails { engine.evaluate("__flareValidateRegistrationV1()", "missing.js") }
             assertTrue(missing.message.orEmpty().contains("plugin.js did not call defineFlareSocialPlugin"), missing.message)
@@ -332,6 +335,81 @@ class PluginJavaScriptEngineTest {
             assertTrue(missing.message.orEmpty().contains("plugin.js did not call defineFlareSocialPlugin"), missing.message)
             assertFails { inspector.inspect("definePlugin({});") }
             assertFails { inspector.inspect("eval('defineFlareSocialPlugin({})')") }
+        }
+
+    @Test
+    fun translationRegistrationDispatchesWithoutASocialPlugin() =
+        withEngine { engine ->
+            engine.evaluate(
+                RUNTIME_PRELUDE + "defineFlareTranslatePlugin({ translateDocumentJson() { return 'translated'; } }); ''",
+                "plugin.js",
+            )
+            assertEquals(
+                "translated",
+                PluginJsonV1
+                    .parseToJsonElement(
+                        engine.evaluate("__flareInvokeV1('id', 'translation.translateDocumentJson', {}, {})", "invoke.js", true),
+                    ).jsonObject
+                    .getValue("value")
+                    .jsonPrimitive.content,
+            )
+            val duplicate = assertFails { engine.evaluate("defineFlareTranslatePlugin({})", "duplicate.js") }
+            assertTrue(duplicate.message.orEmpty().contains("defineFlareTranslatePlugin may only be called once"))
+            val late = assertFails { engine.evaluate("defineFlareSocialPlugin({})", "late.js") }
+            assertTrue(late.message.orEmpty().contains("Plugin registration is closed"))
+        }
+
+    @Test
+    fun socialAndTranslationRegistrationsWorkInEitherOrder() {
+        for (translationFirst in listOf(false, true)) {
+            withEngine { engine ->
+                val social = "defineFlareSocialPlugin({ capabilities: { timeline: { page() { return 'social'; } } } });"
+                val translation = "defineFlareTranslatePlugin({ translateDocumentJson() { return 'translated'; } });"
+                engine.evaluate(
+                    RUNTIME_PRELUDE + (if (translationFirst) translation + social else social + translation) + "''",
+                    "plugin.js",
+                )
+                for ((method, expected) in listOf(
+                    "capabilities.timeline.page" to "social",
+                    "translation.translateDocumentJson" to "translated",
+                )) {
+                    val result = engine.evaluate("__flareInvokeV1('id', '$method', {}, {})", "invoke.js", true)
+                    assertEquals(
+                        expected,
+                        PluginJsonV1
+                            .parseToJsonElement(result)
+                            .jsonObject
+                            .getValue("value")
+                            .jsonPrimitive.content,
+                    )
+                }
+                assertEquals("true", engine.evaluate("String(Object.isFrozen(__flareReadRegistrationV1().translation))", "frozen.js"))
+            }
+        }
+    }
+
+    @Test
+    fun inspectorRecognizesTypedRegistrationsAndRejectsInvalidDefinitions() =
+        runBlocking<Unit> {
+            val inspector = PluginRegistrationInspector(engineFactory = { host -> createTestPluginJavaScriptEngine(host) })
+            val social = "defineFlareSocialPlugin({ detector: { detect() {} } });"
+            val translation = "defineFlareTranslatePlugin({ translateDocumentJson() {}, translateBatchDocumentJson() {} });"
+            val expected = setOf("detector.detect", "translation.translateDocumentJson", "translation.translateBatchDocumentJson")
+            for (source in listOf(social + translation, translation + social)) {
+                val result = inspector.inspect(source, apiVersion = 2)
+                assertEquals(2, result.apiVersion)
+                assertEquals(expected, result.methods)
+            }
+            for (source in listOf(
+                "defineFlarePlugin({});",
+                "defineFlareSocialPlugin({translation:{translateDocumentJson(){}}});",
+                "defineFlareTranslatePlugin({}); defineFlareTranslatePlugin({});",
+                "defineFlareTranslatePlugin([]);",
+                "defineFlareSocialPlugin(null);",
+                "Promise.resolve().then(() => defineFlareTranslatePlugin({}));",
+            )) {
+                assertFails(source) { inspector.inspect(source, apiVersion = 2) }
+            }
         }
 
     private fun withEngine(

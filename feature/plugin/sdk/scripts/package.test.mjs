@@ -181,6 +181,21 @@ process.cwd();
   writeFileSync(join(directory, "plugin.ts"), `
 const plugin: PluginDefinitionV1 = {};
 defineFlareSocialPlugin(plugin);
+const translate: TranslatePluginDefinitionV1 = {
+  translateDocumentJson(request, context) { return request.sourceJson + context.pluginId; },
+  async translateBatchDocumentJson(request) { return JSON.stringify(request.sourceDocument); },
+};
+defineFlareTranslatePlugin(translate);
+const social: SocialPluginDefinitionV1 = plugin;
+defineFlareSocialPlugin(social);
+// @ts-expect-error Generic registration has been removed.
+defineFlarePlugin(plugin);
+// @ts-expect-error Translation is registered separately from social methods.
+defineFlareSocialPlugin({ translation: translate });
+// @ts-expect-error Both translation handlers are required.
+defineFlareTranslatePlugin({ translateDocumentJson: translate.translateDocumentJson });
+// @ts-expect-error Social capabilities are not translation methods.
+defineFlareTranslatePlugin({ ...translate, capabilities: {} });
 const host: FlareHostV1 = flare;
 void host.crypto.uuid();
 // @ts-expect-error Social plugins use the explicit registration entry point.

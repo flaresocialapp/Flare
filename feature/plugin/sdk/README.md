@@ -80,7 +80,7 @@ for authentication, Host APIs, capabilities, and Wire data mapping.
    `check` uses the SDK's ambient types with strict TypeScript checking. `build`
    checks types and bundles local TS modules into one ES2020 IIFE at root.
    Actual execution and manifest/registration validation happen in Flare, which
-   provides `defineFlarePlugin`, its `defineFlareSocialPlugin` alias, and `flare`
+   provides `defineFlareSocialPlugin`, `defineFlareTranslatePlugin`, and `flare`
    for background code.
 2. In Compose Desktop or native macOS, open **Settings → Plugins → More → Plugin
    development**. Choose the `my-plugin` directory, click **Start development**,
@@ -193,7 +193,7 @@ registration, permissions, and behavior. File installs have no GitHub update tra
 
 The generated `tsconfig.json` already sets `types: ["flare-plugin-sdk"]`, strict
 checking, and an ES2020 library without browser or Node globals.
-`defineFlareSocialPlugin` contextually types its handlers; `TimelineItemV1`, `PostV1`, `ProfileV1`,
+`defineFlareSocialPlugin` and `defineFlareTranslatePlugin` contextually type their handlers; `TimelineItemV1`, `PostV1`, `ProfileV1`,
 and other SDK types are available directly. The SDK root provides background
 ambient declarations as a development dependency.
 Local TS imports are bundled into `plugin.js`; imported code must also work
@@ -225,8 +225,10 @@ Add the package to your TypeScript project's compiler options:
 ```
 
 Append it to any existing `types` list. For JavaScript, enable `checkJs` as well.
-The root declarations provide ambient `defineFlarePlugin`, its social alias,
-`flare`, and Wire types for background code; Flare supplies those globals.
+The root declarations provide ambient `defineFlareSocialPlugin`,
+`defineFlareTranslatePlugin`, `flare`, and Wire types for background code; Flare
+supplies those globals. Register each provided type once in the same script;
+a package can provide both social and translation capabilities.
 Settings pages instead use the `flare-plugin-sdk/settings` module with its own
 browser types/build. Bundle that module into the packaged page; see the
 [page SDK contract](skill/flare-plugin/references/storage-and-settings.md#offline-settings-page).

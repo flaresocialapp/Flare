@@ -17,6 +17,8 @@ imported and GitHub-installed plugins are outside their scope.
 With a matching Host API v2 build, ask for any combination of a social adapter,
 text translation and an offline settings page, including a settings-only plugin.
 Those standalone features need no social account or invented website/login.
+Background code uses `defineFlareSocialPlugin` for social services and
+`defineFlareTranslatePlugin` for translation; combined packages call each once.
 Settings pages run on iOS, Android and native macOS; Compose Desktop has no
 settings page integration. The assistant can submit packaged HTML, JS/MJS, CSS
 and JSON text files and the page SDK alongside background code. See the

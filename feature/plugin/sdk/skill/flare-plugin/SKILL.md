@@ -74,8 +74,10 @@ Read the references needed for the task:
 | Check the generated files and exercise behavior | [Testing](references/testing.md) |
 | Prepare a GitHub repository, version tag, update, or schema change | [Publishing](references/publishing.md) |
 
-When background code is needed, keep `plugin.js` self-contained and register once
-with `defineFlarePlugin` or its social alias. Package settings page modules and
+When background code is needed, keep `plugin.js` self-contained. Register social
+services once with `defineFlareSocialPlugin` and text-translation handlers once
+with `defineFlareTranslatePlugin`; a combined package calls both synchronously,
+in either order. Settings-only packages omit background registration. Package page modules and
 dependencies separately under `settings/`; bundle `flare-plugin-sdk/settings`
 for the browser instead of importing it from the background entrypoint.
 Use `flare.http.request` with structured authorization/Cookies; retain credentials

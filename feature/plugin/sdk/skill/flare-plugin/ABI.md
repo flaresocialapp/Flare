@@ -74,9 +74,11 @@ branch tracking, client-side builds, and automatic installation are unsupported.
 
 ## Registration
 
-The background script calls `defineFlarePlugin` once; `defineFlareSocialPlugin`
-remains a supported alias. It registers named services rather than a universal
-dispatcher. The social-only example below uses the original alias:
+The background script registers each provided type once, synchronously. Use
+`defineFlareSocialPlugin` for social detection, login and capability services; use
+`defineFlareTranslatePlugin` for the two text-translation handlers. A combined
+package calls both in either order. Each definition is frozen, and registration
+closes when script initialization finishes. The social example is:
 
 ```js
 defineFlareSocialPlugin({
@@ -129,8 +131,9 @@ optional operations and explains UI dependencies. `PluginAbiV1.kt` defines the
 Host contract. Use [flare-plugin.d.ts](flare-plugin.d.ts) for the complete
 JavaScript types and [recipes](references/recipes.md) for implementation guidance.
 
-Text translation instead registers `translation.translateDocumentJson` and
-`translation.translateBatchDocumentJson`; see the [translation contract](references/storage-and-settings.md#text-translation).
+Text translation uses `defineFlareTranslatePlugin({ translateDocumentJson,
+translateBatchDocumentJson })`. The Host keeps the internal method paths
+`translation.translateDocumentJson` and `translation.translateBatchDocumentJson`; see the [translation contract](references/storage-and-settings.md#text-translation).
 Settings-only packages have no background registration to execute.
 
 Compose uses `flare.datasource.compose/v2`, independently of the runtime API
@@ -446,7 +449,7 @@ keep their original selection and completion behavior.
 
 ## Storage, translation and settings
 
-Host API v2 adds independent `translation` and offline `settings` declarations and generic plugin-scoped storage. Read [storage, translation and settings](references/storage-and-settings.md) for the exact contract, namespace revision dependencies, page SDK and lifecycle. API v1 social plugins keep their behavior; the unreleased v2 also includes its HTTP/session extensions. Background code can use `defineFlarePlugin` as the generic registration alias.
+Host API v2 adds independent `translation` and offline `settings` declarations and generic plugin-scoped storage. Read [storage, translation and settings](references/storage-and-settings.md) for the exact contract, namespace revision dependencies, page SDK and lifecycle. API v1 social plugins keep their behavior; the unreleased v2 also includes its HTTP/session extensions. Background code registers each provided type with `defineFlareSocialPlugin` or `defineFlareTranslatePlugin`.
 
 ## Lifecycle and trust
 

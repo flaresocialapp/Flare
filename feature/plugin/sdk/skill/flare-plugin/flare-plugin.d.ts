@@ -43,7 +43,7 @@ interface TranslationBatchDocumentV1 { version?: number; targetLanguage?: string
 interface TranslationRequestV1 { sourceTemplate: string; sourceJson: string; targetLanguage: string; prompt: string }
 interface BatchTranslationRequestV1 { sourceJson: string; sourceDocument: TranslationBatchDocumentV1; targetLanguage: string; prompt: string }
 
-/** Register once, synchronously. Run Host API calls only inside these methods.
+/** Register each provided type once, synchronously. Run Host API calls only inside these methods.
  * Manifest operation names, registration paths, and login negotiation must agree.
  * Await or return all work whose failure must fail the invocation. The Host drains
  * started Host tasks, but detached Promise rejections do not fail the returned chain.
@@ -51,11 +51,12 @@ interface BatchTranslationRequestV1 { sourceJson: string; sourceDocument: Transl
  * or QuickJS (Compose Desktop). No uniform heap/stack cap or busy-loop interruption.
  * @see references/capabilities.md
  */
-interface PluginDefinitionV1 {
-  translation?: {
-    translateDocumentJson(request: TranslationRequestV1, context: PluginInvocationContextV1): MaybePromise<string | null>;
-    translateBatchDocumentJson(request: BatchTranslationRequestV1, context: PluginInvocationContextV1): MaybePromise<string | null>;
-  };
+interface TranslatePluginDefinitionV1 {
+  translateDocumentJson(request: TranslationRequestV1, context: PluginInvocationContextV1): MaybePromise<string | null>;
+  translateBatchDocumentJson(request: BatchTranslationRequestV1, context: PluginInvocationContextV1): MaybePromise<string | null>;
+}
+
+interface SocialPluginDefinitionV1 {
   detector?: { detect(request: DetectorRequestV1, context: PluginInvocationContextV1): MaybePromise<DetectorResultV1> };
   login?: Record<string, LoginServiceV1>;
   capabilities?: {
@@ -73,6 +74,9 @@ interface PluginDefinitionV1 {
     tabCatalog?: { page(request: PageRequestV1, context: PluginInvocationContextV1): MaybePromise<PageV1<TimelineSectionV1>> };
   };
 }
+
+/** Social registration shape retained for existing SDK consumers. */
+type PluginDefinitionV1 = SocialPluginDefinitionV1;
 
 /** Key this service by the manifest login method ID.
  * OAuth: begin -> externalBrowser/success, resume -> success.
@@ -668,8 +672,8 @@ interface FlareHostV1 {
 type MaybePromise<T> = T | Promise<T>;
 
 /** Register this social plugin once when its classic script is evaluated. */
-declare function defineFlareSocialPlugin(plugin: PluginDefinitionV1): void;
+declare function defineFlareSocialPlugin(plugin: SocialPluginDefinitionV1): void;
 declare const flare: FlareHostV1;
 
-/** Generic registration alias; the social registration entry remains supported. */
-declare function defineFlarePlugin(plugin: PluginDefinitionV1): void;
+/** Register this text-translation provider once; may coexist with a social registration. */
+declare function defineFlareTranslatePlugin(plugin: TranslatePluginDefinitionV1): void;
