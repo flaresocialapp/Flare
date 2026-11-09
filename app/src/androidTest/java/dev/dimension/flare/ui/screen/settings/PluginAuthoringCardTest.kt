@@ -112,6 +112,7 @@ class PluginAuthoringCardTest {
             MaterialTheme {
                 PluginManagementList(
                     state = state,
+                    onSettings = {},
                     onCancelPluginUpdate = {},
                     onUninstall = {},
                     onUpdate = { updated = it },
@@ -176,7 +177,7 @@ class PluginAuthoringCardTest {
                 LocalUriHandler provides uriHandler,
             ) {
                 FlareTheme(darkTheme = false, dynamicColor = false) {
-                    AndroidPluginManagementScreen(onBack = {})
+                    AndroidPluginManagementScreen(onBack = {}, onSettings = {})
                 }
             }
         }
@@ -233,6 +234,7 @@ class PluginAuthoringCardTest {
                         shapesIndex = 0,
                         shapesCount = 1,
                         busy = busy,
+                        onSettings = {},
                         onCancelUpdate = {},
                         onUninstall = { uninstalls++ },
                         onUpdate = {},

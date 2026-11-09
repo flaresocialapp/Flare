@@ -96,6 +96,7 @@ import java.io.File
 @Composable
 internal fun AndroidPluginManagementScreen(
     onBack: () -> Unit,
+    onSettings: (String) -> Unit,
     onCreateWithAI: () -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -250,6 +251,7 @@ internal fun AndroidPluginManagementScreen(
             content = {
                 PluginManagementList(
                     state = state,
+                    onSettings = onSettings,
                     onCancelPluginUpdate = { id -> scope.launchPresenterAction { presenter.cancelPluginUpdate(id) } },
                     onUninstall = { pendingUninstallId = it },
                     onUpdate = { pluginId -> scope.launchPresenterAction { presenter.inspectGitHubUpdate(pluginId) } },
@@ -531,6 +533,7 @@ internal fun GitHubInstallDialog(
 @Composable
 internal fun PluginManagementList(
     state: PluginManagementStateV1,
+    onSettings: (String) -> Unit,
     onCancelPluginUpdate: (String) -> Unit,
     onUninstall: (String) -> Unit,
     onUpdate: (String) -> Unit,
@@ -637,6 +640,7 @@ internal fun PluginManagementList(
                     busy = state.busy,
                     shapesIndex = index,
                     shapesCount = state.items.size,
+                    onSettings = onSettings,
                     onCancelUpdate = onCancelPluginUpdate,
                     onUninstall = onUninstall,
                     onUpdate = onUpdate,
@@ -652,12 +656,11 @@ internal fun PluginItem(
     busy: Boolean,
     shapesIndex: Int,
     shapesCount: Int,
+    onSettings: (String) -> Unit,
     onCancelUpdate: (String) -> Unit,
     onUninstall: (String) -> Unit,
     onUpdate: (String) -> Unit,
 ) {
-    var showSettings by remember(plugin.pluginId) { mutableStateOf(false) }
-    if (showSettings) PluginSettingsDialog(plugin.pluginId) { showSettings = false }
     val name = plugin.nameText.resolveText().ifBlank { stringResource(R.string.plugin_ai_untitled) }
     SegmentedListItem(
         onClick = {},
@@ -704,7 +707,7 @@ internal fun PluginItem(
                 name = name,
                 busy = busy,
                 onUninstall = { onUninstall(plugin.pluginId) },
-                onSettings = if (plugin.hasSettings) ({ showSettings = true }) else null,
+                onSettings = if (plugin.hasSettings) ({ onSettings(plugin.pluginId) }) else null,
             )
         },
     )

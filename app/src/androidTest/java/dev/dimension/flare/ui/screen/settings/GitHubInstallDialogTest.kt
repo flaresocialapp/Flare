@@ -158,6 +158,7 @@ class GitHubInstallDialogTest {
             MaterialTheme {
                 PluginManagementList(
                     state = state,
+                    onSettings = {},
                     onCancelPluginUpdate = {},
                     onUninstall = {},
                     onUpdate = {},

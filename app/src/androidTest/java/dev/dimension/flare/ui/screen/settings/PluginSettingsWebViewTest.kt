@@ -5,10 +5,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inspector.WindowInspector
 import android.webkit.WebView
-import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.ComposeUiFlags
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -17,10 +19,15 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.webkit.WebViewFeature
 import dev.dimension.flare.R
+import dev.dimension.flare.data.model.appearance.GlobalAppearance
+import dev.dimension.flare.data.model.appearance.TimelineAppearance
 import dev.dimension.flare.data.translation.PluginTranslationService
 import dev.dimension.flare.di.koinGet
 import dev.dimension.flare.feature.plugin.PluginSubsystemV1
 import dev.dimension.flare.feature.plugin.management.PluginManagementPresenterV1
+import dev.dimension.flare.ui.component.LocalGlobalAppearance
+import dev.dimension.flare.ui.component.LocalTimelineAppearance
+import dev.dimension.flare.ui.theme.FlareTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.runBlocking
 import okio.Buffer
@@ -38,12 +45,14 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /** Exercise the actual renderer, native bridge, storage and shared translation cache identity together. */
+@OptIn(ExperimentalComposeUiApi::class)
 @RunWith(AndroidJUnit4::class)
 class PluginSettingsWebViewTest {
     @get:Rule val compose = createComposeRule()
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private var presenter: PluginManagementPresenterV1? = null
     private var visible by mutableStateOf(true)
+    private var settingsPluginId by mutableStateOf<String?>(null)
 
     @After
     fun cleanup() {
@@ -58,6 +67,7 @@ class PluginSettingsWebViewTest {
 
     @Test
     fun offlineSettingsShareStorageAndInvalidateOnlyDeclaredTranslationDependencies() {
+        ComposeUiFlags.isMediaQueryIntegrationEnabled = true
         assumeTrue(WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER))
         assumeTrue(WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE))
         assumeTrue(WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT))
@@ -73,19 +83,30 @@ class PluginSettingsWebViewTest {
                 .single { it.pluginId == ID }
                 .cacheKey
         compose.setContent {
-            MaterialTheme {
-                if (visible) {
-                    PluginItem(
-                        plugin =
-                            manager.state.value.items
-                                .single { it.pluginId == ID },
-                        busy = false,
-                        shapesIndex = 0,
-                        shapesCount = 1,
-                        onCancelUpdate = {},
-                        onUninstall = {},
-                        onUpdate = {},
-                    )
+            CompositionLocalProvider(
+                LocalGlobalAppearance provides GlobalAppearance.Default,
+                LocalTimelineAppearance provides TimelineAppearance.Default,
+            ) {
+                FlareTheme(darkTheme = false, dynamicColor = false) {
+                    if (visible) {
+                        val selected = settingsPluginId
+                        if (selected != null) {
+                            PluginSettingsScreen(pluginId = selected, onBack = { settingsPluginId = null })
+                        } else {
+                            PluginItem(
+                                plugin =
+                                    manager.state.value.items
+                                        .single { it.pluginId == ID },
+                                busy = false,
+                                shapesIndex = 0,
+                                shapesCount = 1,
+                                onSettings = { settingsPluginId = it },
+                                onCancelUpdate = {},
+                                onUninstall = {},
+                                onUpdate = {},
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -155,9 +176,9 @@ class PluginSettingsWebViewTest {
         )
         awaitValue(view, "document.querySelector('#status')?.textContent", "\"host.invalid-request\"")
 
-        compose.runOnUiThread { visible = false }
+        compose.onNodeWithContentDescription(instrumentation.targetContext.getString(R.string.navigate_back)).performClick()
         compose.waitForIdle()
-        compose.runOnUiThread { visible = true }
+        assertEquals(false, view.isAttachedToWindow)
         openSettings()
         view = awaitWebView()
         awaitValue(view, "document.querySelector('#prefix')?.value", "\"android: \"")

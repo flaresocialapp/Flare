@@ -1,3 +1,4 @@
+import FlareAppleCore
 import Foundation
 @preconcurrency import KotlinSharedUI
 import SwiftUI
@@ -10,12 +11,52 @@ struct PluginSettingsView: View {
     @State private var failed = false
 
     var body: some View {
+        Group {
+            #if os(macOS)
+            VStack(spacing: 0) {
+                HStack {
+                    Text("settings_title").font(.headline)
+                    Spacer()
+                    closeButton.buttonStyle(.bordered)
+                }
+                .padding()
+                Divider()
+                content
+            }
+            .frame(minWidth: 480, minHeight: 480)
+            #else
+            NavigationStack {
+                content
+                    .navigationTitle("settings_title")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { closeButton }
+                    }
+            }
+            #endif
+        }
+        .task {
+            do { session = try PluginSettingsFacadeV1.companion.open(pluginId: pluginId) }
+            catch { failed = true }
+        }
+        .onDisappear { session?.close() }
+    }
+
+    private var closeButton: some View {
+        Button(role: .cancel) { dismiss() } label: {
+            Label {
+                Text("Close")
+            } icon: {
+                Image(fontAwesome: .xmark)
+            }
+        }
+        .labelStyle(.iconOnly)
+        .help("Close")
+        .keyboardShortcut(.cancelAction)
+    }
+
+    private var content: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("settings_title").font(.headline)
-                Spacer()
-                Button("Close") { dismiss() }
-            }.padding()
             if failed {
                 Text("plugin_operation_failed").padding()
                 Spacer()
@@ -25,14 +66,6 @@ struct PluginSettingsView: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        #if os(macOS)
-        .frame(minWidth: 480, minHeight: 480)
-        #endif
-        .task {
-            do { session = try PluginSettingsFacadeV1.companion.open(pluginId: pluginId) }
-            catch { failed = true }
-        }
-        .onDisappear { session?.close() }
     }
 }
 
