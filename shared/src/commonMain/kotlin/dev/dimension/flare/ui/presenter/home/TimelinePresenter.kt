@@ -8,6 +8,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.paging.ExperimentalPagingApi
 import androidx.paging.LoadState
 import androidx.paging.LoadType
@@ -76,6 +77,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.emitAll
@@ -442,6 +444,11 @@ public open class TimelinePresenter : PresenterBase<TimelineState> {
         val contextLoadStates by remember {
             contextMediator.flatMapLatest { it?.loadStates ?: flowOf(null) }
         }.collectAsState(null)
+        LaunchedEffect(items) {
+            contextMediator.collectLatest { mediator ->
+                mediator?.retryWhenReady(snapshotFlow { items.loadState.mediator }, items::retry)
+            }
+        }
         val reading by viewport.collectAsState()
         val target by remember(reading) { reading?.target ?: flowOf(null) }.collectAsState(null)
         val newContent by remember(reading) { reading?.hasNewContent ?: flowOf(false) }.collectAsState(false)
@@ -474,8 +481,8 @@ public open class TimelinePresenter : PresenterBase<TimelineState> {
         val retry =
             remember(items) {
                 {
-                    contextMediator.value?.prepareRetry()
-                    items.retry()
+                    val queued = contextMediator.value?.prepareRetry() == true
+                    if (!queued || items.loadState.source.hasError) items.retry()
                 }
             }
         val listState = items.toPagingState(contextLoadStates, retry)

@@ -1,9 +1,12 @@
 package dev.dimension.flare.data.datasource.microblog
 
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.paging.ExperimentalPagingApi
 import androidx.paging.LoadState
+import androidx.paging.LoadStates
 import androidx.paging.LoadType
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
@@ -60,6 +63,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.koin.core.context.stopKoin
@@ -71,6 +75,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.time.Duration.Companion.seconds
 import kotlin.time.Instant
 import dev.dimension.flare.common.PagingState as UiPagingState
 
@@ -98,6 +103,173 @@ class PostContextRemoteMediatorTest : RobolectricTest() {
         db.close()
         stopKoin()
     }
+
+    @Test
+    fun appendRetryIsQueuedUntilPagingRegistersTheFailure() = assertRetryAcrossPagingHandoff(PagingRequest.Append(""), early = true)
+
+    @Test
+    fun prependRetryIsQueuedUntilPagingRegistersTheFailure() = assertRetryAcrossPagingHandoff(PagingRequest.Prepend(""), early = true)
+
+    @Test
+    fun refreshRetryIsQueuedUntilPagingRegistersTheFailure() = assertRetryAcrossPagingHandoff(PagingRequest.Refresh, early = true)
+
+    @Test
+    fun retryAfterPagingRegistersTheFailureStillLoadsReplies() = assertRetryAcrossPagingHandoff(PagingRequest.Append(""), early = false)
+
+    @Test
+    fun aFailedRetryWaitsForAnotherClick() = assertRetryAcrossPagingHandoff(PagingRequest.Append(""), early = true, failureCount = 2)
+
+    private fun assertRetryAcrossPagingHandoff(
+        failingRequest: PagingRequest,
+        early: Boolean,
+        failureCount: Int = 1,
+    ) = runTest(timeout = 10.seconds) {
+        startPlatformEventLoop()
+        seed(listOf("main"))
+        db.pagingTimelineDao().insertPagingKey(DbPagingKey(pagingKey))
+        val errorReady = CompletableDeferred<Unit>()
+        val publishError = CompletableDeferred<Unit>()
+        val pagingRefresh = MutableStateFlow<LoadState?>(null)
+        val requests = mutableListOf<PagingRequest>()
+        var attempts = 0
+        val mediator =
+            PostContextRemoteMediator(
+                loader(update = { request, result, initial ->
+                    val update = result.toContextUpdate(mainKey, request, initial)
+                    if (request == PagingRequest.Refresh) {
+                        if (failingRequest is PagingRequest.Prepend) update.copy(before = null) else update.copy(after = null)
+                    } else {
+                        update
+                    }
+                }) { request ->
+                    requests += request
+                    if (request == failingRequest && ++attempts <= failureCount) error("Context failure $attempts")
+                    when (request) {
+                        PagingRequest.Refresh -> {
+                            if (failingRequest is PagingRequest.Prepend) {
+                                PagingResult(listOf(post("main")), previousKey = "")
+                            } else {
+                                PagingResult(listOf(post("main")), nextKey = "")
+                            }
+                        }
+
+                        is PagingRequest.Append -> {
+                            PagingResult(listOf(post("reply")))
+                        }
+
+                        is PagingRequest.Prepend -> {
+                            PagingResult(listOf(post("parent")))
+                        }
+                    }
+                },
+                db,
+            )
+        val pager =
+            Pager(
+                config = offsetPagingConfig,
+                remoteMediator =
+                    object : RemoteMediator<OffsetFromStartPagingKey, TimelinePageItem>() {
+                        override suspend fun initialize() = mediator.initialize()
+
+                        override suspend fun load(
+                            loadType: LoadType,
+                            state: PagingState<OffsetFromStartPagingKey, TimelinePageItem>,
+                        ): MediatorResult {
+                            val result = mediator.load(loadType, state)
+                            // Hold the handoff after our footer exposes the error, before Paging receives it.
+                            if (result is MediatorResult.Error && !errorReady.isCompleted) {
+                                errorReady.complete(Unit)
+                                publishError.await()
+                            }
+                            return result
+                        }
+                    },
+                pagingSourceFactory = { OffsetFromStartPagingSource(TimelineDbPageLoader(db, pagingKey, TimelineDbPageCache())) },
+            )
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val states = MutableStateFlow<UiPagingState<TimelinePageItem>>(UiPagingState.Loading())
+        val job =
+            launch {
+                moleculeFlow(RecompositionMode.Immediate) {
+                    val loading by mediator.loadStates.collectAsState()
+                    val items = pager.flow.collectAsLazyPagingItems()
+                    LaunchedEffect(items) {
+                        mediator.retryWhenReady(snapshotFlow { items.loadState.mediator }, items::retry)
+                    }
+                    val ui =
+                        items.toPagingState(loading) {
+                            val queued = mediator.prepareRetry()
+                            if (!queued || items.loadState.source.hasError) items.retry()
+                        }
+                    ui to items.loadState.mediator?.refresh
+                }.collect {
+                    states.value = it.first
+                    pagingRefresh.value = it.second
+                }
+            }
+        try {
+            val failure = states.filterIsInstance<UiPagingState.Success<TimelinePageItem>>().first { it.appendState is LoadState.Error }
+            errorReady.await()
+            assertEquals(listOf("main"), rows())
+            if (early) {
+                failure.retry()
+                runCurrent()
+                assertEquals(1, attempts)
+            }
+            publishError.complete(Unit)
+            if (!early) {
+                pagingRefresh.first { it is LoadState.Error }
+                failure.retry()
+            }
+            if (failureCount == 2) {
+                val failedAgain =
+                    states.filterIsInstance<UiPagingState.Success<TimelinePageItem>>().first {
+                        (it.appendState as? LoadState.Error)?.error?.message == "Context failure 2"
+                    }
+                runCurrent()
+                assertEquals(2, attempts)
+                failedAgain.retry()
+            }
+            states.filterIsInstance<UiPagingState.Success<TimelinePageItem>>().first {
+                it.appendState is LoadState.NotLoading && it.itemCount == 2
+            }
+            assertEquals(failureCount + 1, attempts)
+            assertEquals(if (failingRequest is PagingRequest.Prepend) listOf("parent", "main") else listOf("main", "reply"), rows())
+            assertEquals(if (failingRequest == PagingRequest.Refresh) 2 else 1, requests.count { it == PagingRequest.Refresh })
+        } finally {
+            job.cancelAndJoin()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun refreshFailureDoesNotConsumeRetryInTheActiveSideCallback() =
+        runTest(timeout = 10.seconds) {
+            var attempts = 0
+            val failure = IllegalStateException("Refresh failed")
+            lateinit var mediator: PostContextRemoteMediator
+            mediator =
+                PostContextRemoteMediator(
+                    loader {
+                        if (++attempts == 1) throw failure
+                        PagingResult(listOf(post("main")))
+                    },
+                    db,
+                    notifyError = { mediator.prepareRetry() },
+                )
+            val pagingStates = MutableStateFlow<LoadStates?>(null)
+            val retried = CompletableDeferred<RemoteMediator.MediatorResult>()
+            backgroundScope.launch {
+                mediator.retryWhenReady(pagingStates) {
+                    launch { retried.complete(mediator.load(LoadType.REFRESH, state)) }
+                }
+            }
+            assertIs<RemoteMediator.MediatorResult.Error>(mediator.load(LoadType.REFRESH, state))
+            pagingStates.value = LoadStates(LoadState.Error(failure), LoadState.NotLoading(true), LoadState.NotLoading(true))
+            assertIs<RemoteMediator.MediatorResult.Success>(retried.await())
+            assertEquals(2, attempts)
+            assertFalse(mediator.prepareRetry(), "Source-only errors must use Paging's own retry")
+        }
 
     @Test
     fun stagedRefreshKeepsLongCacheAndLoadsRepliesWithoutAnEdgeHint() =
@@ -466,6 +638,232 @@ class PostContextRemoteMediatorTest : RobolectricTest() {
         }
 
     @Test
+    fun stagedRefreshPreservesLegacyInlineParentsUntilTheParentSideSucceeds() =
+        runTest {
+            val grandparent = post("grandparent")
+            val parent = post("parent").replyTo(grandparent)
+            val main = post("main").replyTo(parent)
+            val legacy =
+                TimelineRemoteMediator(
+                    loader { PagingResult(listOf(grandparent, parent, main)) },
+                    db,
+                    allowLongText = true,
+                )
+            assertIs<RemoteMediator.MediatorResult.Success>(legacy.load(LoadType.REFRESH, state))
+
+            assertEquals(listOf("grandparent", "parent", "main"), visibleIds())
+            val parentsStarted = CompletableDeferred<Unit>()
+            val parentsResponse = CompletableDeferred<PagingResult<UiTimelineV2>>()
+            val requests = mutableListOf<PagingRequest>()
+            var parentCalls = 0
+            val mediator =
+                PostContextRemoteMediator(
+                    loader(update = { request, result, initial ->
+                        if (request ==
+                            PagingRequest.Refresh
+                        ) {
+                            ContextUpdate(result.data)
+                        } else {
+                            result.toContextUpdate(mainKey, request, initial)
+                        }
+                    }) { request ->
+                        requests += request
+                        when (request) {
+                            PagingRequest.Refresh -> {
+                                PagingResult(listOf(post("main", "fresh main").replyTo(parent)), previousKey = "before", nextKey = "after")
+                            }
+
+                            is PagingRequest.Append -> {
+                                PagingResult(listOf(post("reply")))
+                            }
+
+                            is PagingRequest.Prepend -> {
+                                if (parentCalls++ == 0) {
+                                    parentsStarted.complete(Unit)
+                                    parentsResponse.await()
+                                } else {
+                                    PagingResult(listOf(post("parent", "fresh parent")))
+                                }
+                            }
+                        }
+                    },
+                    db,
+                )
+            val refresh = async { mediator.load(LoadType.REFRESH, state) }
+            try {
+                parentsStarted.await()
+                mediator.loadStates.first { it.append is LoadState.NotLoading }
+                assertEquals("fresh main", text("main"))
+                assertEquals(listOf("grandparent", "parent", "main", "reply"), visibleIds())
+                parentsResponse.completeExceptionally(IllegalStateException("Parents unavailable"))
+                assertIs<RemoteMediator.MediatorResult.Error>(refresh.await())
+                assertEquals(listOf("grandparent", "parent", "main", "reply"), visibleIds())
+
+                mediator.prepareRetry()
+                assertIs<RemoteMediator.MediatorResult.Success>(mediator.load(LoadType.REFRESH, state))
+                assertEquals(listOf("parent", "main", "reply"), visibleIds())
+                assertEquals("fresh parent", text("parent"))
+                assertEquals(1, requests.count { it == PagingRequest.Refresh })
+                assertEquals(1, requests.count { it is PagingRequest.Append })
+                assertEquals(2, requests.count { it is PagingRequest.Prepend })
+            } finally {
+                refresh.cancelAndJoin()
+            }
+        }
+
+    @Test
+    fun legacyInlineParentMigrationDeduplicatesExistingRowsWithoutOverwritingNewerParentContent() =
+        runTest {
+            val grandparent = post("grandparent")
+            val oldParent = post("parent", "old parent").replyTo(grandparent)
+            val main =
+                UiTimelineV2.TimelinePostItem(
+                    post = post("main").replyTo(oldParent),
+                    presentation =
+                        UiTimelineV2.PostPresentation(
+                            inlineParents =
+                                persistentListOf(
+                                    UiTimelineV2.TimelinePostItem(grandparent),
+                                    UiTimelineV2.TimelinePostItem(oldParent),
+                                ),
+                        ),
+                )
+            saveToDatabase(db, listOf(TimelinePagingMapper.toDb(main, pagingKey, sortId = 0)))
+            val freshParent = post("parent", "fresh parent").replyTo(grandparent)
+            saveToDatabase(
+                db,
+                TimelinePagingMapper.toDb(
+                    listOf(post("older-before"), freshParent),
+                    pagingKey,
+                    sortIds = listOf(-2, -1),
+                ),
+            )
+            db.pagingTimelineDao().insertPagingKey(DbPagingKey(pagingKey, prevKey = "cached-before", nextKey = "cached-after"))
+            val mediator =
+                PostContextRemoteMediator(
+                    loader(update = { _, result, _ -> ContextUpdate(result.data) }) { request ->
+                        assertEquals(PagingRequest.Refresh, request)
+                        PagingResult(listOf(post("main", "fresh main").replyTo(freshParent)))
+                    },
+                    db,
+                )
+
+            assertIs<RemoteMediator.MediatorResult.Success>(mediator.load(LoadType.REFRESH, state))
+            val expected = listOf("older-before", "grandparent", "parent", "main")
+            assertEquals(expected, rows())
+            assertEquals(expected, visibleIds())
+            assertEquals("fresh parent", text("parent"))
+            assertEquals("fresh main", text("main"))
+            val keys = db.pagingTimelineDao().getPagingKey(pagingKey)
+            assertEquals("cached-before", keys?.prevKey)
+            assertEquals("cached-after", keys?.nextKey)
+        }
+
+    @Test
+    fun migratedInlineParentQuotesAreRemovedByTheNextParentResponse() = assertMigratedParentQuoteRemoval(quoteAddedByMain = false)
+
+    @Test
+    fun migratedInlineParentQuoteAddedByMainRefreshIsRemovedByTheParentResponse() =
+        assertMigratedParentQuoteRemoval(quoteAddedByMain = true)
+
+    private fun assertMigratedParentQuoteRemoval(quoteAddedByMain: Boolean) =
+        runTest {
+            val quoted = post("quoted", "quoted body")
+            val parent = post("parent", "cached parent")
+            val quotedParent =
+                UiTimelineV2.TimelinePostItem(
+                    post = parent,
+                    presentation = UiTimelineV2.PostPresentation(quotes = persistentListOf(quoted)),
+                )
+            if (quoteAddedByMain) {
+                saveToDatabase(db, listOf(TimelinePagingMapper.toDb(quoted, "$pagingKey-quoted", sortId = 0)))
+            }
+            val legacy =
+                TimelineRemoteMediator(
+                    loader { PagingResult(listOf(if (quoteAddedByMain) parent else quotedParent, post("main").replyTo(parent))) },
+                    db,
+                    allowLongText = true,
+                )
+            assertIs<RemoteMediator.MediatorResult.Success>(legacy.load(LoadType.REFRESH, state))
+            val parentsStarted = CompletableDeferred<Unit>()
+            val parentsResponse = CompletableDeferred<PagingResult<UiTimelineV2>>()
+            val mediator =
+                PostContextRemoteMediator(
+                    loader(update = { request, result, initial ->
+                        if (request ==
+                            PagingRequest.Refresh
+                        ) {
+                            ContextUpdate(result.data)
+                        } else {
+                            result.toContextUpdate(mainKey, request, initial)
+                        }
+                    }) { request ->
+                        when (request) {
+                            PagingRequest.Refresh -> {
+                                val main = post("main", "fresh main").replyTo(parent)
+                                val freshMain =
+                                    if (quoteAddedByMain) {
+                                        UiTimelineV2.TimelinePostItem(
+                                            post = main,
+                                            presentation =
+                                                UiTimelineV2.PostPresentation(
+                                                    quotes =
+                                                        persistentListOf(
+                                                            parent.copy(
+                                                                references =
+                                                                    persistentListOf(
+                                                                        UiTimelineV2.Post.Reference(quoted.statusKey, ReferenceType.Quote),
+                                                                    ),
+                                                            ),
+                                                        ),
+                                                ),
+                                        )
+                                    } else {
+                                        main
+                                    }
+                                PagingResult(listOf(freshMain), previousKey = "before")
+                            }
+
+                            is PagingRequest.Prepend -> {
+                                parentsStarted.complete(Unit)
+                                parentsResponse.await()
+                            }
+
+                            is PagingRequest.Append -> {
+                                error("Unexpected request")
+                            }
+                        }
+                    },
+                    db,
+                )
+
+            suspend fun currentParent() =
+                requireNotNull(
+                    TimelineDbPageLoader(db, pagingKey, TimelineDbPageCache())
+                        .load(0, 20)
+                        .first { it.baseItem.statusKey.id == "parent" }
+                        .baseItem
+                        .asTimelinePostItem(),
+                )
+
+            val refresh = async { mediator.load(LoadType.REFRESH, state) }
+            try {
+                parentsStarted.await()
+                assertEquals(listOf("quoted"), currentParent().presentation.quotes.map { it.statusKey.id })
+                assertEquals("cached parent", text("parent"))
+                assertEquals("fresh main", text("main"))
+
+                parentsResponse.complete(PagingResult(listOf(post("parent", "fresh parent"))))
+                assertIs<RemoteMediator.MediatorResult.Success>(refresh.await())
+                assertEquals(emptyList(), currentParent().presentation.quotes)
+                assertEquals("fresh parent", text("parent"))
+                assertEquals("fresh main", text("main"))
+            } finally {
+                refresh.cancelAndJoin()
+            }
+        }
+
+    @Test
     fun stagedRepliesKeepTheOriginalInlineParentPresentation() =
         runTest {
             val parent = post("parent")
@@ -567,6 +965,12 @@ class PostContextRemoteMediatorTest : RobolectricTest() {
     }
 
     private suspend fun rows() = db.pagingTimelineDao().getTimelinePage(pagingKey, 0, 100).map { it.statusData.statusKey.id }
+
+    private suspend fun visibleIds(): List<String> =
+        TimelineDbPageLoader(db, pagingKey, TimelineDbPageCache()).load(0, 20).flatMap {
+            val item = requireNotNull(it.baseItem.asTimelinePostItem())
+            item.presentation.inlineParents.map { parent -> parent.statusKey.id } + item.statusKey.id
+        }
 
     private suspend fun text(id: String) =
         (

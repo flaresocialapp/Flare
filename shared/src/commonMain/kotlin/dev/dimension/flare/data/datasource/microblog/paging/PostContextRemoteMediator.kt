@@ -9,19 +9,26 @@ import dev.dimension.flare.data.database.cache.CacheDatabase
 import dev.dimension.flare.data.database.cache.connect
 import dev.dimension.flare.data.database.cache.mapper.saveToDatabase
 import dev.dimension.flare.data.database.cache.model.DbPagingKey
+import dev.dimension.flare.data.database.cache.model.DbPagingTimeline
 import dev.dimension.flare.data.database.cache.model.DbStatus
+import dev.dimension.flare.data.database.cache.model.DbTimelineItemPresentationType
+import dev.dimension.flare.data.repository.DebugRepository
 import dev.dimension.flare.data.translation.NoopPreTranslationService
 import dev.dimension.flare.data.translation.PreTranslationService
 import dev.dimension.flare.model.AccountType
 import dev.dimension.flare.ui.model.UiTimelineV2
+import dev.dimension.flare.ui.model.asTimelinePostItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -52,9 +59,23 @@ internal class PostContextRemoteMediator(
         val initial: Boolean,
     )
 
-    fun prepareRetry() {
+    fun prepareRetry(): Boolean {
+        if (!loadStates.value.hasError) return false
         retryRequested.value = true
         retryWhileLoading.value?.invoke()
+        return true
+    }
+
+    suspend fun retryWhenReady(
+        pagingStates: Flow<LoadStates?>,
+        retryPaging: () -> Unit,
+    ) {
+        // Keep early clicks queued until Paging has registered the failure.
+        combine(retryRequested, pagingStates, loadStates) { requested, paging, context ->
+            requested && context.hasError && paging?.hasError == true
+        }.distinctUntilChanged().collect { ready ->
+            if (ready) retryPaging()
+        }
     }
 
     override suspend fun initialize(): InitializeAction = InitializeAction.LAUNCH_INITIAL_REFRESH
@@ -91,8 +112,10 @@ internal class PostContextRemoteMediator(
                     launch {
                         val pending =
                             writes.withLock {
-                                if (epoch != generation || !retryRequested.compareAndSet(true, false)) return@withLock emptyList()
                                 val failed = failures.keys.filter { it.request != PagingRequest.Refresh }
+                                if (epoch != generation || failed.isEmpty() || !retryRequested.compareAndSet(true, false)) {
+                                    return@withLock emptyList()
+                                }
                                 failed.forEach { failures.remove(it) }
                                 failed
                             }
@@ -201,6 +224,7 @@ internal class PostContextRemoteMediator(
                     failures[pending] = e
                     setRequestState(pending.request, LoadState.Error(e))
                     onError(e)
+                    DebugRepository.error(e)
                 }
             }
             null
@@ -233,7 +257,10 @@ internal class PostContextRemoteMediator(
             database.connect {
                 val dao = database.pagingTimelineDao()
                 // ponytail: Read row IDs per update; use range queries if very large threads make this expensive.
-                val existing = dao.getByPagingKey(pagingKey)
+                val cached = dao.getByPagingKey(pagingKey)
+                val cachedIds = cached.map { it.statusId }.toSet()
+                val existing = migrateInlineParents(cached, update, revision)
+                val promotedIds = existing.filterNot { it.statusId in cachedIds }.map { it.statusId }
                 val existingById = existing.associateBy { it.statusId }
                 val anchorSortId = existingById[anchorId]?.sortId ?: 0L
                 require(anchorId in existingById || update.posts.any { it.statusKey == loader.statusKey }) {
@@ -286,6 +313,17 @@ internal class PostContextRemoteMediator(
                         .map { it.copy(sortId = positions.getValue(it.statusId)) }
                 if (moved.isNotEmpty()) dao.updateExisting(moved)
                 saveToDatabase(database, mapped)
+                val promoted = promotedIds.filterNot { it in posts }
+                if (promoted.isNotEmpty()) {
+                    // The focal save may itself change a promoted parent's quote/repost references.
+                    val references = promoted.chunked(500).flatMap { dao.getPageStatusReferences(it) }.groupBy { it.statusId }
+                    val corrected =
+                        promoted.chunked(500).flatMap { dao.getByPagingKeyAndStatusIds(pagingKey, it) }.mapNotNull { row ->
+                            val signature = TimelinePagingMapper.semanticReferenceSignature(references[row.statusId].orEmpty())
+                            if (row.semanticReferenceSignature == signature) null else row.copy(semanticReferenceSignature = signature)
+                        }
+                    if (corrected.isNotEmpty()) dao.updateExisting(corrected)
+                }
                 val removed = stale + (posts.keys - positions.keys)
                 if (removed.isNotEmpty()) {
                     val removedRows = (existing + mapped.map { it.timeline }).filter { it.statusId in removed }.distinctBy { it._id }
@@ -300,5 +338,59 @@ internal class PostContextRemoteMediator(
         if (update.after != null) sideVersions[false] = revision
         enqueuePreTranslation(savedRows)
         return update
+    }
+
+    private suspend fun migrateInlineParents(
+        existing: List<DbPagingTimeline>,
+        update: ContextUpdate,
+        revision: Long,
+    ): List<DbPagingTimeline> {
+        if (update.before != null || revision < (postVersions[anchorId] ?: Long.MIN_VALUE)) return existing
+        val incoming = update.posts.firstOrNull { it.statusKey == loader.statusKey }?.asTimelinePostItem() ?: return existing
+        if (incoming.presentation.inlineParents.isNotEmpty()) return existing
+        val anchor = existing.firstOrNull { it.statusId == anchorId } ?: return existing
+        val byId = existing.associateBy { it.statusId }
+        val dao = database.pagingTimelineDao()
+        val parentIds =
+            dao
+                .getPagePresentationReferences(pagingKey, listOf(anchor._id))
+                .filter { it.presentationType == DbTimelineItemPresentationType.InlineParent }
+                .sortedBy { it.referenceOrder }
+                .map { it.referenceStatusId }
+                .distinct()
+                .filter { it != anchorId && (byId[it]?.sortId ?: Long.MIN_VALUE) < anchor.sortId }
+        if (parentIds.isEmpty()) return existing
+        val validIds =
+            parentIds
+                .chunked(500)
+                .flatMap { database.statusDao().getVersions(it) }
+                .map { it.id }
+                .toSet()
+        val inlineIds = parentIds.filter { it in validIds }
+        if (inlineIds.isEmpty()) return existing
+        val references = inlineIds.chunked(500).flatMap { dao.getPageStatusReferences(it) }.groupBy { it.statusId }
+        val beforeIds =
+            existing
+                .filter { it.sortId < anchor.sortId }
+                .sortedBy { it.sortId }
+                .map { it.statusId }
+                .filterNot { it in inlineIds } +
+                inlineIds
+        // Preserve legacy inline ancestors as preceding rows until the independent parent request succeeds.
+        val before =
+            beforeIds.mapIndexed { index, id ->
+                val sortId = anchor.sortId - beforeIds.size + index
+                byId[id]?.copy(sortId = sortId) ?: DbPagingTimeline(
+                    pagingKey = pagingKey,
+                    statusId = id,
+                    sortId = sortId,
+                    semanticReferenceSignature = TimelinePagingMapper.semanticReferenceSignature(references[id].orEmpty()),
+                )
+            }
+        val inserted = before.filter { it.statusId !in byId }
+        val moved = before.filter { byId[it.statusId]?.let { old -> old.sortId != it.sortId } == true }
+        if (inserted.isNotEmpty()) dao.insertNew(inserted)
+        if (moved.isNotEmpty()) dao.updateExisting(moved)
+        return (existing.filterNot { it.statusId in beforeIds } + before).sortedBy { it.sortId }
     }
 }

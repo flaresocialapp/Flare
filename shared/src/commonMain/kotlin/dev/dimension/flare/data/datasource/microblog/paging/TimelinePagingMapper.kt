@@ -118,7 +118,7 @@ internal object TimelinePagingMapper {
         )
     }
 
-    private fun semanticReferenceSignature(references: List<DbStatusReference>): String =
+    fun semanticReferenceSignature(references: List<DbStatusReference>): String =
         buildString {
             references
                 .sortedWith(compareBy(DbStatusReference::statusId, DbStatusReference::referenceType, DbStatusReference::referenceStatusId))

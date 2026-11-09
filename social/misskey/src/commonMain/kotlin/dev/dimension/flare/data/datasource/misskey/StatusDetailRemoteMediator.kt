@@ -14,6 +14,9 @@ import dev.dimension.flare.data.network.misskey.api.model.NotesConversationReque
 import dev.dimension.flare.model.MicroBlogKey
 import dev.dimension.flare.ui.model.UiTimelineV2
 import dev.dimension.flare.ui.model.mapper.render
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.updateAndGet
 
 @OptIn(ExperimentalPagingApi::class)
 internal class StatusDetailRemoteMediator(
@@ -22,6 +25,13 @@ internal class StatusDetailRemoteMediator(
     private val service: MisskeyService,
     private val statusOnly: Boolean,
 ) : PostContextLoader {
+    private data class ParentFallback(
+        val revision: Long = 0,
+        val parent: Note? = null,
+    )
+
+    private val parentFallback = MutableStateFlow(ParentFallback())
+
     override val pagingKey: String =
         buildString {
             append("status_detail_")
@@ -39,7 +49,7 @@ internal class StatusDetailRemoteMediator(
         initial: Boolean,
     ): ContextUpdate =
         if (request == PagingRequest.Refresh && !statusOnly) {
-            result.toContextUpdate(statusKey, request, initial).copy(after = null)
+            ContextUpdate(posts = result.data)
         } else {
             result.toContextUpdate(statusKey, request, initial)
         }
@@ -48,14 +58,13 @@ internal class StatusDetailRemoteMediator(
         pageSize: Int,
         request: PagingRequest,
     ): PagingResult<UiTimelineV2> {
+        if (statusOnly && request != PagingRequest.Refresh) {
+            return PagingResult(endOfPaginationReached = true)
+        }
+        var previousKey: String? = null
         val (result, nextKey) =
             when (request) {
                 is PagingRequest.Append -> {
-                    if (statusOnly) {
-                        return PagingResult(
-                            endOfPaginationReached = true,
-                        )
-                    }
                     loadReplyPage(
                         pageSize = pageSize,
                         untilId = request.nextKey.takeIf { it.isNotEmpty() },
@@ -63,31 +72,29 @@ internal class StatusDetailRemoteMediator(
                 }
 
                 is PagingRequest.Prepend -> {
-                    return PagingResult(
-                        endOfPaginationReached = true,
-                    )
+                    val fallback = parentFallback.value.parent?.takeIf { it.id == request.previousKey }
+                    val ancestors =
+                        service
+                            .notesConversation(
+                                NotesConversationRequest(
+                                    noteId = statusKey.id,
+                                    limit = MAX_CONTEXT_NOTES,
+                                ),
+                            ).asReversed()
+                            .ifEmpty { listOfNotNull(fallback) }
+                    ancestors.distinctBy { it.id } to null
                 }
 
                 PagingRequest.Refresh -> {
+                    val revision = parentFallback.updateAndGet { ParentFallback(revision = it.revision + 1) }.revision
                     val current =
                         service
                             .notesShow(
                                 IPinRequest(noteId = statusKey.id),
                             )
-                    if (statusOnly) {
-                        listOf(current) to null
-                    } else {
-                        val ancestors =
-                            service
-                                .notesConversation(
-                                    NotesConversationRequest(
-                                        noteId = statusKey.id,
-                                        limit = MAX_CONTEXT_NOTES,
-                                    ),
-                                ).asReversed()
-                                .ifEmpty { listOfNotNull(current.reply) }
-                        (ancestors + current).distinctBy { it.id } to ""
-                    }
+                    parentFallback.update { if (it.revision == revision) it.copy(parent = current.reply) else it }
+                    previousKey = if (statusOnly) null else current.reply?.id ?: current.replyId.orEmpty()
+                    listOf(current) to if (statusOnly) null else ""
                 }
             }
 
@@ -96,6 +103,7 @@ internal class StatusDetailRemoteMediator(
             data =
                 result.render(accountKey),
             nextKey = nextKey,
+            previousKey = previousKey,
         )
     }
 
