@@ -15,6 +15,7 @@ public struct VideoControlView: View {
     private let videoState: VideoState
     private let playbackRate: Float
     @State private var sliderValue: Double = 0
+    @State private var lastKnownDuration: Double = 0
     @State private var isSeeking = false
     @State private var wasPlayingBeforeSeek = false
     @State private var baselineSeconds: Double = 0
@@ -110,6 +111,7 @@ public struct VideoControlView: View {
             }
         }
         .onAppear {
+            lastKnownDuration = duration
             let seconds = currentTime.seconds.isFinite ? currentTime.seconds : 0
             sliderValue = seconds
             baselineSeconds = seconds
@@ -135,6 +137,7 @@ public struct VideoControlView: View {
             baselineDate = Date()
         }
         .onChange(of: duration) { _, newValue in
+            lastKnownDuration = newValue
             if sliderValue > newValue {
                 sliderValue = newValue
             }
@@ -170,6 +173,8 @@ public struct VideoControlView: View {
         switch videoState {
         case .playing(let duration), .paused(let duration):
             return duration
+        case .loading:
+            return lastKnownDuration
         default:
             return 0
         }
