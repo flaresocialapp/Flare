@@ -23,8 +23,8 @@ and the frozen `flare` Host facade. Browser/Node facilities (`fetch`, DOM,
 not part of the plugin contract. Do not assume them from your build environment.
 Static/dynamic imports, remote code, `eval`, `Function`, and WebAssembly compilation
 are unavailable. A TypeScript declaration file supplies types, not runtime code.
-If authoring with a bundler, commit its self-contained classic-script output at
-repository root and check the output for unsupported dependencies.
+If authoring with a bundler, commit its self-contained classic-script output as
+`plugin.js` in the selected plugin directory and check for unsupported dependencies.
 
 Initialization is also evaluated during installation, without Host services.
 Define constants/functions and register synchronously at top level. HTTP,

@@ -18,13 +18,13 @@ The generated manifest's `$schema` is pinned to the SDK version that created it.
 Open `manifest.json` in VS Code or another JSON Schema editor for completion,
 field descriptions, enum choices and static errors. Flare treats the URL as
 metadata and never downloads it; actual registration and behavior are checked in
-Flare. See the [manifest editor guide](https://github.com/DimensionDev/Flare/blob/feature/plugin/feature/plugin/sdk/skill/flare-plugin/references/manifest.md#json-schema-and-editor-support)
+Flare. See the [manifest editor guide](https://github.com/flaresocialapp/Flare/blob/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin/references/manifest.md#json-schema-and-editor-support)
 for offline use and older Flare builds that reject `$schema`.
 
 1. Update the description, login methods, and declared capabilities in
    `manifest.json`. Replace the one-pixel placeholder PNG with your own icon.
 2. Adapt `src/plugin.ts` using the
-   [developer guide](https://github.com/DimensionDev/Flare/tree/feature/plugin/feature/plugin/sdk/skill/flare-plugin)
+   [developer guide](https://github.com/flaresocialapp/Flare/tree/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin)
    and your website's API evidence.
    It currently verifies an imported bearer token with `/api/me`, then reads
    `/api/posts`. It registers no detector, so choose the platform explicitly.
@@ -80,10 +80,11 @@ manifest, registration, and runtime checks. Use a Flare build with Plugins in Se
    automatically mount this directory. Development uses real accounts and data,
    and remote writes are not rolled back.
 
-Keep the project root selected in Flare. Edit TS source, not the generated
+Keep the plugin directory selected in Flare. Edit TS source, not the generated
 `plugin.js`; `npm run build` checks types before rebuilding it. Commit that built
-script at root so GitHub installation works without running npm on the device.
-See [development and testing details](https://github.com/DimensionDev/Flare/blob/feature/plugin/feature/plugin/sdk/skill/flare-plugin/references/testing.md#develop-locally-in-desktop)
+script at the plugin directory root, even when that directory is nested in a
+larger repository, so GitHub installation works without running npm on the device.
+See [development and testing details](https://github.com/flaresocialapp/Flare/blob/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin/references/testing.md#develop-locally-in-desktop)
 for reload restrictions, credential changes, and platform acceptance checks.
 
 ## 3. Publish and install through GitHub (recommended)
@@ -129,17 +130,19 @@ git push origin refs/tags/v0.1.0
 
 Commit/push each changed plugin's manifest version and built files before tagging.
 The repository snapshot tag, each plugin's version, and the npm SDK version are
-independent. Flare ignores prerelease plugin tags; a branch alone is insufficient.
+independent. Flare ignores prerelease repository tags; a branch alone is
+insufficient.
 A GitHub Release and uploaded `.fpp` asset are unnecessary.
 
 Stop development, then in **Settings → Plugins → Add → Install from GitHub** enter
-`https://github.com/OWNER/REPO`. Load the latest stable version, review its source
+`https://github.com/OWNER/REPO` (append `?path=/plugins/example` for a subdirectory).
+Flare selects the latest stable repository snapshot; review its source
 and permissions, and confirm. Installation takes effect immediately. Select the
 plugin platform, HTTPS API origin, and real access token to verify it on each target
 device. For later updates, increment `manifest.version`, commit/push, and publish
-a newer stable repository snapshot tag while preserving IDs and directory. Check for updates in Flare and
-review/confirm the new version. See the
-[publication and update rules](https://github.com/DimensionDev/Flare/blob/feature/plugin/feature/plugin/sdk/skill/flare-plugin/references/publishing.md).
+a newer stable repository snapshot tag while preserving IDs and directory.
+Check for updates in Flare and review/confirm the new version. See the
+[publication and update rules](https://github.com/flaresocialapp/Flare/blob/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin/references/publishing.md).
 
 Several plugins can share one repository. Each directory must contain a complete
 plugin with unique plugin/platform IDs. Install a subdirectory using

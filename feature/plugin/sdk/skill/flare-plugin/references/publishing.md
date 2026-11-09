@@ -23,15 +23,23 @@ it does not run a package manager, build script, or client-side bundler. Commit
 the already-built classic script, including all runtime dependencies. Several
 plugins can share a repository, with separate directories and unique
 plugin/platform IDs. Files and resources are relative to the selected plugin
-directory; runtime files cannot depend on siblings. For example:
+directory; runtime files cannot depend on siblings. For example, repository
+snapshot tag `v9.0.0` can contain:
 
-```text
-https://github.com/OWNER/REPOSITORY?path=/plugins/first
-https://github.com/OWNER/REPOSITORY?path=/plugins/second
-```
+| Plugin directory | Its manifest.version | Installation URL |
+| --- | --- | --- |
+| `plugins/first` | `1.4.0` | `https://github.com/OWNER/REPOSITORY?path=/plugins/first` |
+| `plugins/second` | `3.2.0` | `https://github.com/OWNER/REPOSITORY?path=/plugins/second` |
+
+Paths are relative to the repository root and case-sensitive. A leading/trailing
+slash is optional; omitting `path` or using `?path=/` selects the root. Use forward
+slashes and URL-encode spaces/reserved characters once, such as
+`?path=/plugins/My%20Plugin`. Dot segments (`.` or `..`), empty interior segments,
+backslashes, and repeated `path` parameters are rejected.
 
 Directory installation and independent plugin versions require a Flare release
 with this support; older Hosts only install root plugins with matching tags.
+Existing root installations keep using the repository root.
 
 ## Prepare and publish
 
@@ -58,10 +66,10 @@ with this support; older Hosts only install root plugins with matching tags.
    not required. Creating/pushing the repository or tag follows the user's
    authorization; a generated project alone is not permission to publish it.
 5. The user enters the repository URL in Flare plugin management and clicks
-   **Install**. Flare selects and downloads the latest stable version, then shows
-   source and permission review in the same dialog. Only confirmation installs
-   the plugin; cancellation discards the download. Errors stay in the dialog for
-   retry. Successful installs take effect immediately; verify the installed
+   **Install**. Flare selects and downloads the latest stable repository snapshot,
+   then shows source and permission review in the same dialog. Only confirmation
+   installs the plugin; cancellation discards the download. Errors stay in the
+   dialog for retry. Successful installs take effect immediately; verify the installed
    tag/version and running behavior without restarting Flare.
 
 For a first release from a generated project, follow the complete Git setup,
@@ -72,13 +80,17 @@ Private repositories, arbitrary branch tracking, prerelease tags, automatic
 installation, and build-on-device are unsupported. A public repo without a stable
 version tag has no installable version, even if its default branch has valid files.
 
-Flare resolves the latest stable tag to a commit SHA and downloads that source ZIP.
+Flare resolves the latest stable tag to a commit SHA, downloads the full repository
+ZIP, and imports the selected plugin directory.
 Archive checks also inspect ignored development files for unsafe paths/symlinks,
 duplicates, multiple roots, and size limits. Downloads above 20 MiB ask for
 confirmation, including when their final size is initially unknown. Confirmed
 downloads are limited to 200 MiB, 512 MiB declared uncompressed content, and
-50,000 ZIP entries. Single-plugin limits remain separate. Cancellation removes
-temporary downloads. Do not commit node_modules or build caches. See
+50,000 ZIP entries. Single-plugin limits remain separate. When the total size is
+unknown, the prompt appears after more than 20 MiB has been received. The partial
+file is removed; confirming starts a fresh download of the same pinned snapshot.
+Source and permission review still follows before installation. Cancellation
+removes temporary downloads. Keep node_modules and build caches out of Git. See
 [limits](troubleshooting.md#limits).
 
 ## Updates and compatibility
@@ -103,6 +115,12 @@ separate steps. Failed checks are shown as plugin issues. GitHub metadata uses
 global proxy routing and
 rate-limit handling, not plugin account credentials. Excessive tag lists produce
 an error rather than an incomplete “latest version” answer.
+
+For the example above, snapshot `v9.1.0` could update `plugins/first` to `1.5.0`
+while leaving `plugins/second` at `3.2.0` with identical runtime files. Only the
+first plugin is offered an update. The second keeps its installed tag/SHA until
+its own runtime files change. A missing directory or failed check appears as a
+plugin issue; retry after fixing the snapshot or connection.
 
 Install, update, and uninstall take effect immediately. Installed plugins are always enabled. There are no plugin lifecycle/migration callbacks. Media
 grants follow the running package; cached media retains plugin ownership and

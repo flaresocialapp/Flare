@@ -38,7 +38,10 @@ native macOS. Use a Flare build that includes Plugins in Settings; plugin suppor
 is not available in the Web client.
 
 - **Install a plugin:** open Settings → Plugins, add its public GitHub repository
-  URL, and review its source and permissions before confirming. See the
+  URL, and review its source and permissions before confirming. For a plugin in
+  a subdirectory, use `https://github.com/OWNER/REPO?path=/plugins/example`.
+  One repository can contain several plugins with independent versions; its
+  latest stable tag selects the repository snapshot. See the
   [installation and update guide](feature/plugin/sdk/skill/flare-plugin/references/publishing.md).
 - **Create with Flare AI:** ask the configured AI assistant to build an adapter
   for your website. See [creating plugins in Flare](feature/plugin/AI_AUTHORING.md).

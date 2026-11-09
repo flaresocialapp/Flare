@@ -38,8 +38,8 @@ selected directory. Other development files are ignored.
 
 Publish stable SemVer repository snapshot tags such as `1.2.3` or `v1.2.3`.
 Flare selects the highest stable tag and pins its commit SHA. Each plugin's
-`manifest.version` is independent of that repository tag. Prerelease tags and
-branch/SHA URL fragments are unsupported. A GitHub Release or `.fpp` asset is
+`manifest.version` is independent of that repository tag. Prerelease repository
+tags and branch/SHA URL fragments are unsupported. A GitHub Release or `.fpp` asset is
 not required; Flare installs committed build output without running build tools.
 
 The Host compares selected runtime-file Git blob hashes before offering updates,
