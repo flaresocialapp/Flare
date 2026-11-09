@@ -7,14 +7,18 @@ extern crate flare_core as _;
 boltffi::scaffolding!();
 
 /// Initialize this browser's Rust application after loading its Wasm module.
+/// Pass `new URL("./database/worker.js", import.meta.url).href` from the startup module.
 ///
 /// # Errors
 ///
 /// Rejects the returned Promise if application initialization fails.
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen::prelude::wasm_bindgen]
-pub async fn initialize() -> Result<(), wasm_bindgen::JsValue> {
-    flare_core::application::initialize(flare_core::application::InitConfig::default())
-        .await
-        .map_err(|error| js_sys::Error::new(&error.to_string()).into())
+pub async fn initialize(database_worker_url: String) -> Result<(), wasm_bindgen::JsValue> {
+    flare_core::application::initialize(flare_core::application::InitConfig {
+        web_database_worker_url: Some(database_worker_url),
+        ..Default::default()
+    })
+    .await
+    .map_err(|error| js_sys::Error::new(&error.to_string()).into())
 }

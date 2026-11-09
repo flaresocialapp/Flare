@@ -1,10 +1,14 @@
 //! Application startup shared by all UI hosts and Rust modules.
 
+mod database;
+mod lazy;
+
 use std::{
     future::Future,
     sync::{Arc, Mutex, PoisonError},
 };
 
+use flare_database::{AgentDatabase, AppDatabase, CacheDatabase};
 use flare_datastore::DataStore;
 use tokio::sync::watch;
 
@@ -16,24 +20,53 @@ static APPLICATION: Application = Application::new();
 pub struct InitConfig {
     /// Android's application `Context.getFilesDir()`. Leave absent elsewhere.
     pub android_files_dir: Option<String>,
+    /// Android's actual database directory, containing `app.db`. Leave absent elsewhere.
+    pub android_database_dir: Option<String>,
+    /// Android's application `Context.getCacheDir()`. Validated on first cache use.
+    pub android_cache_dir: Option<String>,
+    /// Absolute HTTP(S) worker URL resolved by the Web startup module. Leave absent on native.
+    pub web_database_worker_url: Option<String>,
 }
 
 impl InitConfig {
     fn validate(&self) -> Result<(), InitError> {
         #[cfg(target_os = "android")]
-        if !self
-            .android_files_dir
-            .as_deref()
-            .is_some_and(|path| std::path::Path::new(path).is_absolute())
-        {
-            return Err(InitError::InvalidConfiguration {
-                message: "Android requires an absolute application filesDir".into(),
-            });
+        for (name, path) in [
+            ("filesDir", &self.android_files_dir),
+            ("database directory", &self.android_database_dir),
+        ] {
+            if !path
+                .as_deref()
+                .is_some_and(|path| std::path::Path::new(path).is_absolute())
+            {
+                return Err(InitError::InvalidConfiguration {
+                    message: format!("Android requires an absolute application {name}"),
+                });
+            }
         }
         #[cfg(not(target_os = "android"))]
-        if self.android_files_dir.is_some() {
+        if self.android_files_dir.is_some()
+            || self.android_database_dir.is_some()
+            || self.android_cache_dir.is_some()
+        {
             return Err(InitError::InvalidConfiguration {
-                message: "android_files_dir is only valid on Android".into(),
+                message: "Android directories are only valid on Android".into(),
+            });
+        }
+        #[cfg(target_arch = "wasm32")]
+        if self.web_database_worker_url.as_deref().is_none_or(|url| {
+            web_sys::Url::new(url).map_or(true, |url| {
+                !matches!(url.protocol().as_str(), "http:" | "https:")
+            })
+        }) {
+            return Err(InitError::InvalidConfiguration {
+                message: "Web requires an absolute HTTP(S) database worker URL".into(),
+            });
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.web_database_worker_url.is_some() {
+            return Err(InitError::InvalidConfiguration {
+                message: "web_database_worker_url is only valid on Web".into(),
             });
         }
         Ok(())
@@ -52,6 +85,8 @@ pub enum InitError {
     NotInitialized,
     #[error("Rust DataStore initialization failed: {message}")]
     DataStore { message: String },
+    #[error("Rust database initialization failed: {message}")]
+    Database { message: String },
     #[error("Rust background executor could not start: {message}")]
     Executor { message: String },
     #[error("Rust initialization stopped before producing a result")]
@@ -73,9 +108,25 @@ impl From<flare_datastore::Error> for InitError {
     }
 }
 
+impl From<flare_database::Error> for InitError {
+    fn from(error: flare_database::Error) -> Self {
+        Self::Database {
+            message: error.to_string(),
+        }
+    }
+}
+
 /// Shared Rust dependencies. These are never exported to a UI host.
+///
+/// Handles live for the application lifetime. After successful initialization, fatal
+/// database worker failures require an application restart or page reload; initialization
+/// does not replace handles cached by repositories. Web owner takeover is handled internally.
 pub struct AppServices {
     pub datastore: DataStore,
+    pub app_database: AppDatabase,
+    config: InitConfig,
+    agent: lazy::Service<AgentDatabase>,
+    cache: lazy::Service<CacheDatabase>,
 }
 
 impl AppServices {
@@ -86,11 +137,37 @@ impl AppServices {
                 message: "Android application filesDir is missing".into(),
             }
         })?)?;
-        #[cfg(not(target_os = "android"))]
-        let _ = config;
-
         let datastore = DataStore::open().await?;
-        Ok(Arc::new(Self { datastore }))
+        let app_database = database::open(&config).await?;
+        Ok(Arc::new(Self {
+            datastore,
+            app_database,
+            config,
+            agent: lazy::Service::new(),
+            cache: lazy::Service::new(),
+        }))
+    }
+
+    /// Open Agent persistence on first use. Concurrent callers share initialization;
+    /// failed attempts may be explicitly retried without affecting application startup.
+    /// A successful handle is retained, including after a fatal worker failure.
+    /// # Errors
+    /// Returns Agent initialization or dispatch errors. Cancellation only stops this waiter.
+    pub async fn agent_database(&self) -> Result<AgentDatabase, InitError> {
+        let config = self.config.clone();
+        self.agent
+            .get(async move { database::open_agent(&config).await })
+            .await
+    }
+    /// Open the independent, rebuildable cache lazily. Initialization failures may be
+    /// retried and do not affect app or Agent persistence. Cancelling only stops this waiter.
+    /// # Errors
+    /// Returns cache directory, schema, or worker initialization errors.
+    pub async fn cache_database(&self) -> Result<CacheDatabase, InitError> {
+        let config = self.config.clone();
+        self.cache
+            .get(async move { database::open_cache(&config).await })
+            .await
     }
 }
 
@@ -101,7 +178,8 @@ impl AppServices {
 /// configuration. Once accepted, the configuration cannot be changed.
 /// Dropping a polled initialization future only cancels that caller's wait.
 ///
-/// Currently this opens `DataStore`; individual records are decoded on demand.
+/// Opens `DataStore` and migrates `app.db` before publishing services. Completed storage
+/// migrations persist if another module fails; retrying initialization is idempotent.
 ///
 /// # Errors
 ///
@@ -298,7 +376,17 @@ mod tests {
     fn fixture() -> (tempfile::TempDir, Arc<AppServices>) {
         let directory = tempfile::tempdir().unwrap();
         let datastore = block_on(DataStore::open_in(directory.path())).unwrap();
-        (directory, Arc::new(AppServices { datastore }))
+        let app_database = block_on(AppDatabase::open(directory.path().join("app.db"))).unwrap();
+        (
+            directory,
+            Arc::new(AppServices {
+                datastore,
+                app_database,
+                config: InitConfig::default(),
+                agent: lazy::Service::new(),
+                cache: lazy::Service::new(),
+            }),
+        )
     }
 
     #[test]
@@ -389,9 +477,24 @@ mod tests {
         let (_directory, expected) = fixture();
         let application = Application::new();
         // Exercise the coordinator independently of platform-specific validation.
-        let different = InitConfig {
-            android_files_dir: Some("/another-app".into()),
-        };
+        let different = [
+            InitConfig {
+                android_files_dir: Some("/another-app".into()),
+                ..Default::default()
+            },
+            InitConfig {
+                android_database_dir: Some("/another-database".into()),
+                ..Default::default()
+            },
+            InitConfig {
+                android_cache_dir: Some("/another-cache".into()),
+                ..Default::default()
+            },
+            InitConfig {
+                web_database_worker_url: Some("https://example.test/worker.js".into()),
+                ..Default::default()
+            },
+        ];
         block_on(async {
             let (release, released) = oneshot::channel();
             let value = Arc::clone(&expected);
@@ -400,20 +503,24 @@ mod tests {
                 Ok(value)
             }));
             assert!(futures::poll!(pending.as_mut()).is_pending());
-            let result = application
-                .initialize(different.clone(), async {
-                    panic!("conflicting configuration must not construct modules")
-                })
-                .await;
-            assert!(matches!(result, Err(InitError::ConfigurationConflict)));
+            for config in different.clone() {
+                let result = application
+                    .initialize(config, async {
+                        panic!("conflicting configuration must not construct modules")
+                    })
+                    .await;
+                assert!(matches!(result, Err(InitError::ConfigurationConflict)));
+            }
             release.send(()).unwrap();
             pending.await.unwrap();
-            let result = application
-                .initialize(different, async {
-                    panic!("successful startup must keep its configuration")
-                })
-                .await;
-            assert!(matches!(result, Err(InitError::ConfigurationConflict)));
+            for config in different {
+                let result = application
+                    .initialize(config, async {
+                        panic!("successful startup must keep its configuration")
+                    })
+                    .await;
+                assert!(matches!(result, Err(InitError::ConfigurationConflict)));
+            }
         });
     }
 
@@ -444,17 +551,46 @@ mod tests {
         fn require_send<T: Send>(_: T) {}
         require_send(initialize(InitConfig::default()));
         #[cfg(not(target_os = "android"))]
-        let invalid = InitConfig {
-            android_files_dir: Some("/android-only".into()),
-        };
+        let invalid = [
+            InitConfig {
+                android_files_dir: Some("/android-only".into()),
+                ..Default::default()
+            },
+            InitConfig {
+                android_database_dir: Some("/android-only".into()),
+                ..Default::default()
+            },
+            InitConfig {
+                android_cache_dir: Some("/android-only".into()),
+                ..Default::default()
+            },
+            InitConfig {
+                web_database_worker_url: Some("https://example.test/worker.js".into()),
+                ..Default::default()
+            },
+        ];
         #[cfg(target_os = "android")]
-        let invalid = InitConfig {
-            android_files_dir: Some("relative".into()),
-        };
-        assert!(matches!(
-            block_on(initialize(invalid)),
-            Err(InitError::InvalidConfiguration { .. })
-        ));
+        let invalid = [
+            InitConfig {
+                android_files_dir: Some("relative".into()),
+                ..Default::default()
+            },
+            InitConfig {
+                android_files_dir: Some("/data/files".into()),
+                ..Default::default()
+            },
+            InitConfig {
+                android_files_dir: Some("/data/files".into()),
+                android_database_dir: Some("relative".into()),
+                ..Default::default()
+            },
+        ];
+        for config in invalid {
+            assert!(matches!(
+                block_on(initialize(config)),
+                Err(InitError::InvalidConfiguration { .. })
+            ));
+        }
         assert!(matches!(services(), Err(InitError::NotInitialized)));
     }
 }

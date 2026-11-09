@@ -15,9 +15,9 @@ fun main(args: Array<String>): Unit = runBlocking {
     val root = Path.of(args[0], ".flare")
     check(!Files.exists(root))
     val fixture = Files.readAllBytes(Path.of(args[1]))
-    val config = InitConfig(androidFilesDir = null)
+    val config = InitConfig(androidFilesDir = null, androidDatabaseDir = null, androidCacheDir = null, webDatabaseWorkerUrl = null)
     try {
-        initialize(InitConfig(androidFilesDir = "/android-only"))
+        initialize(InitConfig(androidFilesDir = "/android-only", androidDatabaseDir = null, androidCacheDir = null, webDatabaseWorkerUrl = null))
         error("invalid configuration succeeded")
     } catch (_: InitError.InvalidConfiguration) {}
     Files.createDirectories(root.parent)

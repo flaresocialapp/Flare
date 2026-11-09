@@ -8,9 +8,9 @@ struct InitializationSmoke {
         let root = URL(fileURLWithPath: directory).appendingPathComponent(".flare")
         precondition(!FileManager.default.fileExists(atPath: root.path))
         let fixture = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]))
-        let config = InitConfig(androidFilesDir: nil)
+        let config = InitConfig(androidFilesDir: nil, androidDatabaseDir: nil, androidCacheDir: nil, webDatabaseWorkerUrl: nil)
         do {
-            try await initialize(config: InitConfig(androidFilesDir: "/android-only"))
+            try await initialize(config: InitConfig(androidFilesDir: "/android-only", androidDatabaseDir: nil, androidCacheDir: nil, webDatabaseWorkerUrl: nil))
             fatalError("invalid configuration succeeded")
         } catch InitError.invalidConfiguration(_) {}
 

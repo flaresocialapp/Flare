@@ -22,23 +22,47 @@ boltffi = { workspace = true, optional = true }
 inventory = { version = "0.3.25", optional = true }
 flare-view-model-macros = { path = "../flare-view-model-macros" }
 flare-datastore = { path = "../flare-datastore" }
+flare-database = { path = "../flare-database" }
 thiserror = "2"
 tokio = { version = "1", default-features = false, features = ["sync"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 tokio = { version = "1", default-features = false, features = ["rt-multi-thread"] }
+blocking = "1.6"
+
+[target.'cfg(target_vendor = "apple")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSPathUtilities", "NSString", "NSError", "NSFileManager", "NSURL"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-foundation = { version = "0.3", default-features = false, features = ["NSError", "NSFileManager", "NSURL"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { version = "0.31", default-features = false, features = ["user"] }
+
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+dirs = "6"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Url"] }
 
 [dev-dependencies]
 futures = "0.3"
+serde_json = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies.diesel]
+version = "=2.3.14"
+default-features = false
+features = ["sqlite"]
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 tempfile = "3.27"
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
 wasm-bindgen-test = "0.3"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window", "Location"] }
 
 [lints]
 workspace = true

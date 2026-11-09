@@ -2,6 +2,7 @@
 members = [
     "crates/flare-core",
     "crates/flare-datastore",
+    "crates/flare-database",
     "crates/flare-ffi",
     "crates/flare-view-model-macros",
 ]

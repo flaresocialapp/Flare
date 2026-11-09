@@ -13,7 +13,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 // Compile with bindings/Initialization.kt instead of generated JNI bindings to hold back completion.
-data class InitConfig(val androidFilesDir: String? = null)
+data class InitConfig(
+    val androidFilesDir: String? = null,
+    val androidDatabaseDir: String? = null,
+    val androidCacheDir: String? = null,
+    val webDatabaseWorkerUrl: String? = null,
+)
 class InitError : Exception()
 interface InitializationObserver {
     fun onInitialized()
@@ -24,6 +29,9 @@ private val observers = mutableListOf<InitializationObserver>()
 
 fun beginInitialize(config: InitConfig, observer: InitializationObserver) {
     check(config.androidFilesDir == null)
+    check(config.androidDatabaseDir == null)
+    check(config.androidCacheDir == null)
+    check(config.webDatabaseWorkerUrl == null)
     observers += observer
 }
 
