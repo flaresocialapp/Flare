@@ -10,9 +10,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.webkit.WebViewFeature
+import dev.dimension.flare.R
 import dev.dimension.flare.data.translation.PluginTranslationService
 import dev.dimension.flare.di.koinGet
 import dev.dimension.flare.feature.plugin.PluginSubsystemV1
@@ -70,9 +74,22 @@ class PluginSettingsWebViewTest {
                 .cacheKey
         compose.setContent {
             MaterialTheme {
-                if (visible) PluginSettingsDialog(ID) { visible = false }
+                if (visible) {
+                    PluginItem(
+                        plugin =
+                            manager.state.value.items
+                                .single { it.pluginId == ID },
+                        busy = false,
+                        shapesIndex = 0,
+                        shapesCount = 1,
+                        onCancelUpdate = {},
+                        onUninstall = {},
+                        onUpdate = {},
+                    )
+                }
             }
         }
+        openSettings()
         var view = awaitWebView()
         awaitValue(view, "document.querySelector('#prefix')?.value", "\"[demo] \"")
         assertEquals("\"undefined\"", evaluate(view, "typeof RTCPeerConnection"))
@@ -141,8 +158,15 @@ class PluginSettingsWebViewTest {
         compose.runOnUiThread { visible = false }
         compose.waitForIdle()
         compose.runOnUiThread { visible = true }
+        openSettings()
         view = awaitWebView()
         awaitValue(view, "document.querySelector('#prefix')?.value", "\"android: \"")
+    }
+
+    private fun openSettings() {
+        val context = instrumentation.targetContext
+        compose.onNodeWithContentDescription("${context.getString(R.string.more)}: Translation contract demo").performClick()
+        compose.onNodeWithText(context.getString(R.string.settings_title)).performClick()
     }
 
     private fun packageBytes(): ByteArray {

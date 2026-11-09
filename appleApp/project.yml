@@ -461,6 +461,10 @@ targets:
         excludes:
           - Resources/**
     dependencies:
+      - package: swiftui-introspect
+        product: SwiftUIIntrospect
+        destinationFilters: [iOS]
+        link: false
       - package: GSPlayer
         destinationFilters: [iOS]
         link: false

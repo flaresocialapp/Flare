@@ -71,6 +71,9 @@ does not refresh JavaScript variables managed by the plugin.
 
 ## Offline settings page
 
+On iOS, Android and native macOS, open the plugin item's **More → Settings** menu
+to show its packaged page. Plugins without a page have no Settings menu item.
+
 ```json
 { "settings": { "entry": "settings/index.html", "bridgeVersion": 1 } }
 ```

@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 
 #if os(iOS)
 import UIKit
+import SwiftUIIntrospect
 #elseif os(macOS)
 import AppKit
 #endif
@@ -15,6 +16,8 @@ public struct PluginManagementView: View {
     @State private var facade: PluginAppleFacadeV1
     @State private var presenter: KotlinPresenter<PluginManagementStateV1>
     @State private var importsPlugin = false
+    @State private var checkingUpdates = false
+    private var isRefreshing: Bool { presenter.state.busy || checkingUpdates }
     private let onCreateWithAI: () -> Void
     private var showsGitHubInstall: Bool { presenter.state.gitHubInstall != nil }
     @State private var gitHubURL = ""
@@ -105,12 +108,42 @@ public struct PluginManagementView: View {
                 }
             }
         }
+        .refreshable {
+            await checkUpdates()
+            do {
+                while isRefreshing { try await Task.sleep(for: .milliseconds(100)) }
+            } catch {}
+        }
+        #if os(iOS)
+        .introspect(.list, on: .iOS(.v17, .v18, .v26, .v27)) { list in
+            updatePluginListRefreshControl(list, isRefreshing: isRefreshing)
+        }
+        #endif
         .navigationTitle("settings_plugins_title")
         #if os(macOS)
         // The Settings window reserves its toolbar for pane selection.
         .safeAreaInset(edge: .top) {
             HStack(spacing: 8) {
                 Spacer()
+                Button {
+                    Task { await checkUpdates() }
+                } label: {
+                    Label {
+                        Text("Refresh")
+                    } icon: {
+                        if isRefreshing {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                                .scaleEffect(0.5)
+                                .frame(width: 12, height: 12)
+                        } else {
+                            Image(fontAwesome: .arrowsRotate)
+                        }
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .help("Refresh")
+                .disabled(isRefreshing || !presenter.state.plugins.contains { $0.sourceUrl != nil })
                 addActions
                 maintenanceMenu.menuStyle(.borderedButton)
             }
@@ -128,13 +161,6 @@ public struct PluginManagementView: View {
             }
         }
         #endif
-        .overlay {
-            if presenter.state.busy {
-                ProgressView()
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            }
-        }
         .fileImporter(
             isPresented: $importsPlugin,
             allowedContentTypes: [UTType(filenameExtension: "fpp") ?? .data],
@@ -144,7 +170,7 @@ public struct PluginManagementView: View {
         .sheet(isPresented: Binding(get: { settingsPluginId != nil }, set: { if !$0 { settingsPluginId = nil } })) {
             if let settingsPluginId { PluginSettingsView(pluginId: settingsPluginId) }
         }
-        .task { try? await facade.checkUpdates(forceRefresh: false) }
+        .task { await checkUpdates(forceRefresh: false) }
         .sheet(isPresented: Binding(
             get: { showsGitHubInstall },
             set: { visible in
@@ -224,6 +250,14 @@ public struct PluginManagementView: View {
         }
     }
 
+    @MainActor
+    private func checkUpdates(forceRefresh: Bool = true) async {
+        guard !isRefreshing else { return }
+        checkingUpdates = true
+        defer { checkingUpdates = false }
+        try? await facade.checkUpdates(forceRefresh: forceRefresh)
+    }
+
     private var betaNotice: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(fontAwesome: .circleInfo)
@@ -239,8 +273,11 @@ public struct PluginManagementView: View {
         .padding(.vertical, 4)
     }
 
-    private func pluginMenu(name: String, onUninstall: @escaping () -> Void) -> some View {
+    private func pluginMenu(_ plugin: PluginManagementItemV1, name: String, onUninstall: @escaping () -> Void) -> some View {
         Menu {
+            if plugin.hasSettings {
+                Button("settings_title") { settingsPluginId = plugin.pluginId }
+            }
             Button(role: .destructive, action: onUninstall) {
                 Label {
                     Text("plugin_uninstall")
@@ -287,17 +324,13 @@ public struct PluginManagementView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                pluginMenu(name: name) {
+                pluginMenu(plugin, name: name) {
                     pendingUninstallId = plugin.pluginId
                     pendingUninstallName = name
                 }
                 .disabled(busy)
             }
 
-
-            if plugin.hasSettings {
-                Button("settings_title") { settingsPluginId = plugin.pluginId }.disabled(busy)
-            }
             if let source = plugin.sourceUrl {
                 Text(source).font(.caption).foregroundStyle(.secondary)
             }
@@ -390,9 +423,9 @@ public struct PluginManagementView: View {
             }
             #endif
             Button("plugin_check_updates") {
-                Task { try? await facade.checkUpdates(forceRefresh: true) }
+                Task { await checkUpdates() }
             }
-            .disabled(!presenter.state.plugins.contains { $0.sourceUrl != nil })
+            .disabled(isRefreshing || !presenter.state.plugins.contains { $0.sourceUrl != nil })
             if presenter.state.canRebuildIndex {
                 Button("plugin_rebuild_index") {
                     Task { try? await facade.rebuildIndex() }
