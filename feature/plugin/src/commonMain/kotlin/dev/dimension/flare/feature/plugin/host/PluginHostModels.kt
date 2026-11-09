@@ -28,6 +28,15 @@ public interface PluginCredentialAccess {
     public suspend fun ensureActive() {}
 }
 
+@HiddenFromObjC
+public interface PluginAccountHttpAccess {
+    public val origins: Set<String>
+
+    public suspend fun ensureActive()
+
+    public suspend fun headers(url: String): Map<String, String>
+}
+
 @Serializable
 public data class PluginCredentialSnapshot(
     val value: JsonElement,
@@ -60,6 +69,9 @@ public enum class PluginInvocationScopeV1 {
 
     @SerialName("plugin")
     Plugin,
+
+    @SerialName("extension")
+    Extension,
 }
 
 @Serializable
@@ -74,6 +86,7 @@ public data class PluginInvocationMetadataV1(
     val approvedOrigins: Set<String>,
     val credentialAvailable: Boolean,
     val assetHandles: Set<String>,
+    val targetPlatformId: String? = null,
 )
 
 public class PluginInvocationContextV1 private constructor(
@@ -81,8 +94,36 @@ public class PluginInvocationContextV1 private constructor(
     internal val credential: PluginCredentialAccess?,
     internal val assets: Map<String, PluginAsset>,
     internal val proxy: ProxyRef,
+    internal val accountHttp: PluginAccountHttpAccess? = null,
 ) {
     public companion object {
+        public fun extension(
+            pluginId: String,
+            packageHash: String,
+            platformId: String,
+            targetPlatformId: String,
+            accountId: String,
+            accountKey: MicroBlogKey,
+            httpOrigins: Set<String>,
+            locale: String,
+            access: PluginAccountHttpAccess,
+        ): PluginInvocationContextV1 {
+            val base = plugin(pluginId, packageHash, httpOrigins, locale, platformId)
+            require(ID.matches(targetPlatformId) && accountId.isNotBlank() && accountId.length <= 512) { "Invalid extension identity" }
+            return PluginInvocationContextV1(
+                metadata =
+                    base.metadata.copy(
+                        scope = PluginInvocationScopeV1.Extension,
+                        accountId = accountId,
+                        targetPlatformId = targetPlatformId,
+                    ),
+                credential = null,
+                assets = emptyMap(),
+                proxy = ProxyRef.forAccount(accountKey),
+                accountHttp = access,
+            )
+        }
+
         public fun plugin(
             pluginId: String,
             packageHash: String,

@@ -36,7 +36,7 @@ internal class PluginPackageValidator(
         require(manifest.apiVersion in PluginAbiV1.supportedApiVersions) { "Unsupported API version" }
         val source = archive.files[FppPaths.ENTRY]?.let { decodeUtf8(it, FppPaths.ENTRY) }
         require(
-            source != null || (manifest.platform == null && manifest.translation == null),
+            source != null || (manifest.platform == null && manifest.translation == null && manifest.platformExtension == null),
         ) { "Background capabilities require plugin.js" }
         require(source == null || '\u0000' !in source) { "plugin.js contains a null character" }
         val methodTable =
@@ -166,6 +166,10 @@ private fun PluginManifestV1.localizedKeys(): Set<String> =
         }
         addText(name)
         addText(description)
+        platformExtension?.actions?.forEach {
+            addText(it.title)
+            addText(it.description)
+        }
         platform?.let { platform ->
             addText(platform.name)
             addText(platform.description)

@@ -42,6 +42,9 @@ offline settings pages, independently of social capabilities. Settings pages
 support iOS, Android and native macOS. See the
 [v2 developer contract](feature/plugin/sdk/skill/flare-plugin/references/storage-and-settings.md)
 for storage, the webpage SDK and matching Host/SDK requirements.
+Existing-platform actions can use explicitly authorized built-in accounts and run
+manually or once per day when Flare enters the foreground. The first native
+authentication adapter is Weibo; see the [extension contract](feature/plugin/sdk/skill/flare-plugin/references/platform-extensions.md).
 
 - **Install a plugin:** open Settings → Plugins, add its public GitHub repository
   URL, and review its source and permissions before confirming. For a plugin in

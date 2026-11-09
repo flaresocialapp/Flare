@@ -29,6 +29,10 @@ val generatePluginSdk by tasks.registering {
                 "references/capabilities.md",
                 "references/runtime-http.md",
                 "references/storage-and-settings.md",
+                "references/platform-extensions.md",
+                "examples/platform-extension/README.md",
+                "examples/platform-extension/manifest.json",
+                "examples/platform-extension/plugin.js",
                 "settings-sdk.mjs",
                 "settings-sdk.d.ts",
                 "examples/translation-settings/README.md",
@@ -180,6 +184,7 @@ kotlin {
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.serialization.json)
                 implementation(libs.kotlinx.immutable)
+                implementation(libs.kotlinx.datetime)
                 implementation(libs.ksoup)
                 implementation(libs.ktor.client.core)
                 implementation(dependencies.platform(libs.koin.bom))

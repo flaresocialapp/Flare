@@ -27,6 +27,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.updateAndGet
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -70,6 +71,13 @@ internal class IsolatedPluginRuntime(
                 require(context.metadata.packageHash == plugin.installed.packageHash) { "Invocation package mismatch" }
                 require(METHOD_PATH.matches(method)) { "Invalid plugin method" }
                 require(method in plugin.installed.manifest.requiredMethods()) { "Plugin method is not declared" }
+                require(
+                    !method.startsWith("platformExtension.") ||
+                        context.metadata.scope == dev.dimension.flare.feature.plugin.host.PluginInvocationScopeV1.Extension,
+                ) {
+                    "Platform extensions require an authorized account"
+                }
+                if (plugin.installed.manifest.apiVersion >= 2) context.accountHttp?.ensureActive()
                 val requestJson = request.toString()
                 require(requestJson.encodeToByteArray().size <= MAX_INVOCATION_REQUEST_BYTES) { "Plugin request is too large" }
                 if (poisoned) throw PluginRuntimeFatalException(IllegalStateException("Runtime generation is retired"), false)
@@ -92,6 +100,7 @@ internal class IsolatedPluginRuntime(
                         }
                     require(result.encodeToByteArray().size <= MAX_INVOCATION_RESPONSE_BYTES) { "Plugin response is too large" }
                     val value = decodeResult(result, plugin, context.metadata.locale)
+                    if (plugin.installed.manifest.apiVersion >= 2) context.accountHttp?.ensureActive()
                     validate(value)
                     value
                 } catch (error: PluginCallException) {
@@ -134,6 +143,9 @@ internal class IsolatedPluginRuntime(
                     .async {
                         // A catchable Host error must not cancel the invocation's coroutine scope.
                         runCatching {
+                            if (invocation.context.accountHttp != null && operation in setOf("http.request", "account.http.request")) {
+                                require(invocation.httpCalls.updateAndGet { it + 1 } <= 64) { "Extension HTTP request limit reached" }
+                            }
                             gateway.call(
                                 operation,
                                 arguments,
@@ -175,7 +187,9 @@ internal class IsolatedPluginRuntime(
         val context: PluginInvocationContextV1,
         val timeoutMillis: Long,
         val scope: CoroutineScope,
-    )
+    ) {
+        val httpCalls = MutableStateFlow(0)
+    }
 }
 
 public class PluginCallException(
@@ -270,6 +284,7 @@ internal val RUNTIME_PRELUDE =
           };
           const facade = {
             http: { request: request => hostCall("http.request", request) },
+            account: { http: { request: request => hostCall("account.http.request", request) } },
             storage: { open: namespace => Object.freeze({
               read: keys => hostCall("storage.read", { namespace, keys }),
               write: (changes, options) => {

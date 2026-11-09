@@ -962,4 +962,24 @@
     <string name="plugin_large_repository_message">此仓库下载超过 20 MiB，会使用更多流量和存储空间。是否继续下载？</string>
     <string name="plugin_continue_download">继续下载</string>
     <string name="plugin_github_path_hint">安装子目录中的插件时，在链接末尾添加 ?path=/plugins/example。</string>
+    <string name="plugin_extension_title">平台操作</string>
+    <string name="plugin_extension_authorize">授权账号</string>
+    <string name="plugin_extension_revoke">撤销授权</string>
+    <string name="plugin_extension_authorize_message">允许此插件使用 %1$s，向以下网站发送已登录请求：\n%2$s\n\n这些请求可能包含发帖、关注等账号操作。自动执行需要单独开启。</string>
+    <string name="plugin_extension_foreground_notice">操作仅在 Flare 处于前台时执行。每日任务按指定时区，在进入前台时择机执行，每天自动尝试一次。失败或中断后需手动重试。</string>
+    <string name="plugin_extension_no_accounts">没有兼容的账号，请先登录此插件支持的平台。</string>
+    <string name="plugin_extension_automatic">每日进入前台时执行（%1$s）</string>
+    <string name="plugin_extension_run">立即执行</string>
+    <string name="plugin_extension_history">最近执行</string>
+    <string name="plugin_extension_running">正在执行…</string>
+    <string name="plugin_extension_completed">已完成</string>
+    <string name="plugin_extension_already_completed">此前已完成</string>
+    <string name="plugin_extension_partial">部分完成，请手动重试</string>
+    <string name="plugin_extension_failed">执行失败，请手动重试</string>
+    <string name="plugin_extension_login_required">需要重新登录，自动执行已暂停</string>
+    <string name="plugin_extension_user_action_required">需要人工验证，自动执行已暂停</string>
+    <string name="plugin_extension_skipped">已跳过</string>
+    <string name="plugin_extension_interrupted">执行中断，重试前请确认远端结果</string>
+    <string name="plugin_extension_counts">成功 %1$d · 跳过 %2$d · 失败 %3$d</string>
+    <string name="plugin_permission_account_http_origin">使用 %1$s 账号发送已登录请求：%2$s</string>
 </resources>

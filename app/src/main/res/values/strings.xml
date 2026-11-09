@@ -1027,4 +1027,24 @@
     <string name="plugin_large_repository_message">This repository download exceeds 20 MiB and will use more data and storage. Continue downloading?</string>
     <string name="plugin_continue_download">Continue download</string>
     <string name="plugin_github_path_hint">For a plugin in a subdirectory, add ?path=/plugins/example to the URL.</string>
+    <string name="plugin_extension_title">Platform actions</string>
+    <string name="plugin_extension_authorize">Authorize account</string>
+    <string name="plugin_extension_revoke">Revoke authorization</string>
+    <string name="plugin_extension_authorize_message">Allow this plugin to use %1$s to make authenticated requests to:\n%2$s\n\nThis can include account changes such as posting and following. Automatic execution is enabled separately.</string>
+    <string name="plugin_extension_foreground_notice">Actions run while Flare is in the foreground. Daily actions run on the next foreground opportunity, once per date in their timezone. Failed or interrupted attempts need a manual retry.</string>
+    <string name="plugin_extension_no_accounts">No compatible accounts are available. Sign in to a supported platform first.</string>
+    <string name="plugin_extension_automatic">Run daily when foregrounded (%1$s)</string>
+    <string name="plugin_extension_run">Run now</string>
+    <string name="plugin_extension_history">Recent runs</string>
+    <string name="plugin_extension_running">Running…</string>
+    <string name="plugin_extension_completed">Completed</string>
+    <string name="plugin_extension_already_completed">Already completed</string>
+    <string name="plugin_extension_partial">Partially completed; retry manually</string>
+    <string name="plugin_extension_failed">Failed; retry manually</string>
+    <string name="plugin_extension_login_required">Sign in again; automatic execution paused</string>
+    <string name="plugin_extension_user_action_required">Manual verification required; automatic execution paused</string>
+    <string name="plugin_extension_skipped">Skipped</string>
+    <string name="plugin_extension_interrupted">Interrupted; verify the remote result before retrying</string>
+    <string name="plugin_extension_counts">Succeeded %1$d · Skipped %2$d · Failed %3$d</string>
+    <string name="plugin_permission_account_http_origin">Authenticated account requests for %1$s: %2$s</string>
 </resources>

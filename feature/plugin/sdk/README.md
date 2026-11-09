@@ -314,3 +314,8 @@ For subsequent releases:
 Run the **Plugin SDK** workflow manually to validate a branch or tag; this does not
 publish, even when a tag is selected. Publishing requires a push of a matching
 `plugin-sdk-v*` tag. Branch pushes and pull requests do not start this workflow.
+
+For actions on existing built-in accounts, use the
+[platform extension contract](skill/flare-plugin/references/platform-extensions.md)
+and [Weibo session-check example](skill/flare-plugin/examples/platform-extension/README.md).
+Account authorization and daily foreground execution are controlled by Flare.

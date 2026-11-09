@@ -422,7 +422,13 @@ public class PreparedPluginInstallV1 internal constructor(
                     emptyMap()
                 }
             ) +
-            (if (validated.manifest.settings != null) mapOf("flare.settings/v1" to setOf("open")) else emptyMap())
+            (if (validated.manifest.settings != null) mapOf("flare.settings/v1" to setOf("open")) else emptyMap()) +
+            (
+                validated.manifest.platformExtension?.let {
+                    mapOf("flare.platform-extension/v1" to it.actions.mapTo(mutableSetOf()) { action -> action.id })
+                }
+                    ?: emptyMap()
+            )
     public val permissions: Set<PluginPermission> = validated.manifest.sensitivePermissions()
 }
 
@@ -505,6 +511,9 @@ private fun buildWarnings(
 
 internal fun PluginManifestV1.sensitivePermissions(): Set<PluginPermission> =
     buildSet {
+        platformExtension?.targets?.forEach { target ->
+            target.authOrigins.forEach { add(PluginPermission(PluginPermissionType.AccountHttpOrigin, it, platformId = target.platformId)) }
+        }
         if (platform != null) add(PluginPermission(PluginPermissionType.NetworkOrigin, PluginAbiV1.ACCOUNT_ORIGIN))
         permissions.authOrigins.forEach { origin ->
             add(PluginPermission(PluginPermissionType.NetworkOrigin, origin))

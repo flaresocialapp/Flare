@@ -11,7 +11,7 @@ import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-class AppDatabaseMigration11To12Test {
+class AppDatabaseMigration11To13Test {
     @Test
     fun migrationPreservesEveryExistingPlatformAccountField() =
         runTest {
@@ -24,7 +24,7 @@ class AppDatabaseMigration11To12Test {
                 val database =
                     Room
                         .databaseBuilder<AppDatabase>(name = path)
-                        .addMigrations(AppDatabase.MIGRATION_11_12)
+                        .addMigrations(AppDatabase.MIGRATION_11_12, AppDatabase.MIGRATION_12_13)
                         .setDriver(BundledSQLiteDriver())
                         .setQueryCoroutineContext(Dispatchers.Unconfined)
                         .build()
@@ -37,6 +37,7 @@ class AppDatabaseMigration11To12Test {
                         assertEquals("{\"token\":\"$platformId\"}", account.credential_json)
                         assertEquals(1_000L + index, account.last_active)
                         assertEquals(index.toLong(), account.sort_id)
+                        assertEquals("", account.session_id)
                     }
                 } finally {
                     database.close()
@@ -45,11 +46,11 @@ class AppDatabaseMigration11To12Test {
                 BundledSQLiteDriver().open(path).use { connection ->
                     connection.prepare("PRAGMA user_version").use { statement ->
                         assertEquals(true, statement.step())
-                        assertEquals(12L, statement.getLong(0))
+                        assertEquals(13L, statement.getLong(0))
                     }
                     connection.prepare("SELECT identity_hash FROM room_master_table WHERE id = 42").use { statement ->
                         assertEquals(true, statement.step())
-                        assertEquals(APP_DATABASE_IDENTITY_HASH, statement.getText(0))
+                        assertEquals("31306d893e959a88af91f7f12e842a6c", statement.getText(0))
                     }
                 }
             } finally {

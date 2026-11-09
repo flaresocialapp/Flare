@@ -108,3 +108,8 @@ and adapts references to the available files. Documents are assembled only when
 read; listing paths or supplying the default icon does not assemble the corpus.
 No SDK download or remote cache is used. The complete external SDK and skill at
 `sdk/skill/flare-plugin/`, including publishing tools and Pixelfed, remain intact.
+
+Existing-platform actions use `defineFlarePlatformExtensionPlugin` and require
+explicit account grants in the native **Platform actions** page, including locally
+AI-authored plugins. Authoring tools cannot grant built-in accounts or run their
+actions. See the [extension contract](sdk/skill/flare-plugin/references/platform-extensions.md).

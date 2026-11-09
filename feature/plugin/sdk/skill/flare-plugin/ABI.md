@@ -11,7 +11,7 @@ An API v1/v2 package is a ZIP with a `.fpp` extension containing these runtime f
 
 ```text
 manifest.json
-plugin.js             # required when platform or translation is declared
+plugin.js             # required when platform, translation or platformExtension is declared
 assets/icon.png
 locales/<bcp47>.json   # optional
 settings/             # optional packaged HTML, JS, CSS, JSON, fonts and raster images
@@ -22,7 +22,7 @@ The package must contain exactly one `assets/icon.<extension>`: `png`, `jpg`,
 The icon is kept unchanged, limited to 2 MiB and 1024×1024 pixels. SVG is not
 supported. PNG remains the default in the templates.
 
-Declare at least one of `platform`, `translation` or `settings`. Translation and
+Declare at least one of `platform`, `translation`, `platformExtension` or `settings`. Translation and
 settings require the unreleased Host API v2; use a matching Host and SDK revision.
 Settings-only packages can omit `plugin.js` and all social/login declarations.
 
@@ -450,6 +450,10 @@ keep their original selection and completion behavior.
 ## Storage, translation and settings
 
 Host API v2 adds independent `translation` and offline `settings` declarations and generic plugin-scoped storage. Read [storage, translation and settings](references/storage-and-settings.md) for the exact contract, namespace revision dependencies, page SDK and lifecycle. API v1 social plugins keep their behavior; the unreleased v2 also includes its HTTP/session extensions. Background code registers each provided type with `defineFlareSocialPlugin` or `defineFlareTranslatePlugin`.
+
+For actions on existing built-in accounts, use `defineFlarePlatformExtensionPlugin`.
+Read the [platform extension contract](references/platform-extensions.md) for account
+grants, authenticated HTTP, scheduling and structured results.
 
 ## Lifecycle and trust
 

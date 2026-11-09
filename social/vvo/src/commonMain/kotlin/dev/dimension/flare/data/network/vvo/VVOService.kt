@@ -37,6 +37,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpHeaders
 import io.ktor.http.URLBuilder
 import io.ktor.http.URLProtocol
+import io.ktor.http.Url
 import io.ktor.http.takeFrom
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -132,6 +133,23 @@ internal class VVOService private constructor(
     )
 
     private val refreshMutex = Mutex()
+
+    suspend fun extensionAuthHeaders(url: String): Map<String, String> {
+        val target = Url(url)
+        require(target.protocol == URLProtocol.HTTPS && target.port == 443 && target.host in setOf("m.weibo.cn", "weibo.com")) {
+            "Unsupported Weibo authentication origin"
+        }
+        require(target.user.isNullOrEmpty() && target.password.isNullOrEmpty()) { "URL credentials are not allowed" }
+        val credential = refreshChocolateIfNeeded() ?: currentCredential()
+        val cookie = credential?.chocolate?.takeIf { it.isNotBlank() } ?: error("Weibo login is required")
+        return buildMap {
+            put(HttpHeaders.Cookie, cookie)
+            put(HttpHeaders.Referrer, "https://${target.host}/")
+            cookie.split(';').mapNotNull { it.toCookiePairOrNull() }.firstOrNull { it.first == "XSRF-TOKEN" }?.second?.let {
+                put("X-XSRF-TOKEN", it)
+            }
+        }
+    }
 
     companion object {
         fun checkChocolates(chocolate: String): Boolean =

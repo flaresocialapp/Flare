@@ -26,6 +26,12 @@ public interface AccountService {
 
     public fun allAccountServicesFlow(): Flow<List<AccountMicroblogDataSource>>
 
+    /** Re-login and removal revoke previous extension grants even when the account key is reused. */
+    public suspend fun isSessionActive(
+        accountKey: MicroBlogKey,
+        sessionId: String,
+    ): Boolean = false
+
     /** Runs beforeCommit inside the account writer transaction, immediately before persistence. */
     public suspend fun <T : Any> addAccount(
         account: UiAccount,
@@ -51,6 +57,7 @@ public data class AccountMicroblogDataSource(
     public val accountKey: MicroBlogKey,
     public val platformId: String,
     public val dataSource: MicroblogDataSource,
+    public val sessionId: String = "",
 )
 
 @HiddenFromObjC
@@ -101,6 +108,11 @@ internal class RepositoryAccountService(
         )
 
     override fun allAccountServicesFlow(): Flow<List<AccountMicroblogDataSource>> = repository.allAccountServices
+
+    override suspend fun isSessionActive(
+        accountKey: MicroBlogKey,
+        sessionId: String,
+    ): Boolean = repository.isSessionActive(accountKey, sessionId)
 
     override suspend fun <T : Any> addAccount(
         account: UiAccount,

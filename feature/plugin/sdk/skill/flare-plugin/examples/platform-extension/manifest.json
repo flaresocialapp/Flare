@@ -1,0 +1,24 @@
+{
+  "apiVersion": 2,
+  "id": "org.example.weibo-session",
+  "version": "0.1.0",
+  "name": "Weibo session check",
+  "platformExtension": {
+    "apiVersion": 1,
+    "targets": [
+      {
+        "platformId": "VVo",
+        "authOrigins": [
+          "https://m.weibo.cn"
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "id": "verifyLogin",
+        "title": "Check account session",
+        "dailyTimeZone": "Asia/Shanghai"
+      }
+    ]
+  }
+}

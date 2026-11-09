@@ -7,6 +7,7 @@ public data class PluginPermission(
     val type: PluginPermissionType,
     val origin: String,
     val cookieName: String? = null,
+    val platformId: String? = null,
 )
 
 @Serializable
@@ -15,4 +16,5 @@ public enum class PluginPermissionType {
     MediaNetwork,
     Cookie,
     HttpOrigin,
+    AccountHttpOrigin,
 }

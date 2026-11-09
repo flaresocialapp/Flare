@@ -32,7 +32,7 @@ async function main() {
   }
 
   const manifest = JSON.parse((await readFile(join(input, "manifest.json"))).toString("utf8"));
-  if ((manifest.platform || manifest.translation) && !names.includes("plugin.js")) throw new Error("Background capabilities require plugin.js");
+  if ((manifest.platform || manifest.translation || manifest.platformExtension) && !names.includes("plugin.js")) throw new Error("Background capabilities require plugin.js");
   if (manifest.settings && !names.includes(manifest.settings.entry)) throw new Error("Settings entry is missing");
   const packageName = `${manifest.id ?? "plugin"}-${manifest.version ?? "0.0.0"}.fpp`;
   const output = resolve(outputArgument ?? packageName);

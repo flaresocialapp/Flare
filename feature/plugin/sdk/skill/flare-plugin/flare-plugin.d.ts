@@ -13,10 +13,12 @@ interface PluginInvocationContextV1 {
   readonly pluginId: string;
   readonly platformId: string;
   readonly packageHash: string;
-  readonly scope: "detector" | "login" | "account" | "guest" | "plugin";
+  readonly scope: "detector" | "login" | "account" | "guest" | "plugin" | "extension";
   readonly origin: string;
-  /** Present for account calls; login and guest calls do not expose an account credential. */
+  /** Present for account and extension calls; extension handles are opaque and do not expose credentials. */
   readonly accountId?: string;
+  /** Extension scope: target built-in platform; accountId is a plugin-scoped opaque grant handle. */
+  readonly targetPlatformId?: string | null;
   readonly locale: string;
   /** HTTP allowlist: httpOrigins expands login/account/guest; authOrigins expands login only. Detector uses its candidate origin only. */
   readonly approvedOrigins: readonly string[];
@@ -54,6 +56,21 @@ interface BatchTranslationRequestV1 { sourceJson: string; sourceDocument: Transl
 interface TranslatePluginDefinitionV1 {
   translateDocumentJson(request: TranslationRequestV1, context: PluginInvocationContextV1): MaybePromise<string | null>;
   translateBatchDocumentJson(request: BatchTranslationRequestV1, context: PluginInvocationContextV1): MaybePromise<string | null>;
+}
+
+interface PlatformExtensionRequestV1 {
+  actionId: string;
+  businessDate: string;
+  trigger: "manual" | "automatic";
+}
+interface PlatformExtensionResultV1 {
+  status: "completed" | "already-completed" | "partial" | "failed" | "authentication-required" | "user-action-required" | "skipped";
+  succeeded?: number;
+  skipped?: number;
+  failed?: number;
+}
+interface PlatformExtensionPluginDefinitionV1 {
+  actions: Record<string, (request: PlatformExtensionRequestV1, context: PluginInvocationContextV1) => MaybePromise<PlatformExtensionResultV1>>;
 }
 
 interface SocialPluginDefinitionV1 {
@@ -648,6 +665,8 @@ interface PluginStorageV1 {
 interface FlareHostV1 {
   readonly storage: { open(namespace: string): PluginStorageV1 };
   readonly http: { request(request: HttpRequestV1): Promise<HttpResponseV1> };
+  /** API v2, authorized extension scope only. Host injects authentication for the approved target origins. */
+  readonly account: { readonly http: { request(request: Omit<HttpRequestV1, "authorization" | "cookies">): Promise<HttpResponseV1> } };
   /** Available only in account scope. replace atomically replaces the whole JSON payload. */
   readonly credential: {
     read(): Promise<JsonValue>;
@@ -677,3 +696,6 @@ declare const flare: FlareHostV1;
 
 /** Register this text-translation provider once; may coexist with a social registration. */
 declare function defineFlareTranslatePlugin(plugin: TranslatePluginDefinitionV1): void;
+
+/** Register actions for existing built-in accounts once; may coexist with other plugin definitions. */
+declare function defineFlarePlatformExtensionPlugin(plugin: PlatformExtensionPluginDefinitionV1): void;

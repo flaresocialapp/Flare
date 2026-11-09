@@ -5,6 +5,11 @@ These local references match the running Flare build. Read them with
 Paths in links are relative to their document. Only read the contracts relevant
 to the requested work instead of loading every document into the conversation.
 
+For operations on existing built-in accounts and daily foreground tasks, read
+[platform extensions](references/platform-extensions.md). Verify the website protocol
+and use the Host account-authorization flow; implement the action with
+`defineFlarePlatformExtensionPlugin` and `flare.account.http.request`.
+
 ## Workflow
 
 1. Use `list_plugins` to find editable local plugins. Read an existing plugin with

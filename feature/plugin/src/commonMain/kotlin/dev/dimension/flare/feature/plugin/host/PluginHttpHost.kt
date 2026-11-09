@@ -83,11 +83,16 @@ internal class PluginHttpHost(
         context: PluginInvocationContextV1,
         callTimeoutMillis: Long,
         apiVersion: Int = 1,
+        account: PluginAccountHttpAccess? = null,
     ): HttpResponseV1 {
         require(apiVersion in dev.dimension.flare.feature.plugin.abi.PluginAbiV1.supportedApiVersions) { "Unsupported API version" }
         require(apiVersion >= 2 || request.redirect == null) { "Redirect options require API v2" }
         validateRequest(request, callTimeoutMillis)
-        var currentUrl = PluginUrlPolicy.requireRequestUrl(request.url, context.metadata.approvedOrigins)
+        val origins = account?.origins ?: context.metadata.approvedOrigins
+        var currentUrl = PluginUrlPolicy.requireRequestUrl(request.url, origins)
+        require(account == null || (request.authorization == null && request.cookies.isEmpty())) {
+            "Account requests cannot override authentication"
+        }
         val body = request.body?.resolve(context.assets)
         val headers = request.buildHeaders()
         if (apiVersion >= 2) {
@@ -97,30 +102,58 @@ internal class PluginHttpHost(
         }
         val timeout = request.timeoutMillis ?: callTimeoutMillis
         repeat(MAX_REDIRECTS + 1) { redirectCount ->
+            account?.ensureActive()
+            val authenticatedHeaders = account?.headers(currentUrl.toString()).orEmpty()
+            val hopHeaders = headers.filterKeys { name -> authenticatedHeaders.keys.none { it.equals(name, true) } } + authenticatedHeaders
+            if (account != null) {
+                require(
+                    hopHeaders.size <= MAX_REQUEST_HEADERS &&
+                        hopHeaders.entries.sumOf { it.key.length + it.value.encodeToByteArray().size } <= MAX_HEADER_BYTES,
+                ) {
+                    "Authenticated request headers are too large"
+                }
+                require(
+                    hopHeaders.all { (name, value) ->
+                        HEADER_NAME.matches(name) &&
+                            value.none { it == '\r' || it == '\n' || it == '\u0000' }
+                    },
+                ) {
+                    "Invalid authenticated request header"
+                }
+            }
             val response =
                 transport.execute(
                     PluginTransportRequestV1(
                         method = request.method.uppercase(),
                         url = currentUrl.toString(),
-                        headers = headers,
+                        headers = hopHeaders,
                         body = body,
                         timeoutMillis = timeout,
                         proxy = context.proxy,
                     ),
                 )
             validateResponse(response)
+            account?.ensureActive()
+            val visibleResponse =
+                if (account ==
+                    null
+                ) {
+                    response
+                } else {
+                    response.copy(headers = response.headers.filterKeys { it.lowercase() !in HIDDEN_RESPONSE_HEADERS })
+                }
             val location = response.headers.firstValue(HttpHeaders.Location)
             if (request.redirect == HttpRedirectV1.Manual) {
-                return response.toWire(apiVersion, currentUrl, context.metadata.approvedOrigins)
+                return visibleResponse.toWire(apiVersion, currentUrl, origins)
             }
             if (response.status !in REDIRECT_STATUSES || location == null) {
-                return response.toWire(apiVersion, currentUrl, context.metadata.approvedOrigins)
+                return visibleResponse.toWire(apiVersion, currentUrl, origins)
             }
             require(redirectCount < MAX_REDIRECTS) { "Too many HTTP redirects" }
             require(request.method.equals("GET", true) || request.method.equals("HEAD", true)) {
                 "Redirects for requests with a body are not supported"
             }
-            val redirected = PluginUrlPolicy.resolveRedirect(currentUrl, location, context.metadata.approvedOrigins)
+            val redirected = PluginUrlPolicy.resolveRedirect(currentUrl, location, origins)
             require(redirected.origin() == currentUrl.origin()) { "Cross-origin redirects are not allowed" }
             currentUrl = redirected
         }

@@ -736,7 +736,12 @@
           "capabilities": {
             "flare.datasource.search/v1": {
               "operations": {
-                "posts": { "directions": ["refresh", "older"] }
+                "posts": {
+                  "directions": [
+                    "refresh",
+                    "older"
+                  ]
+                }
               }
             }
           }
@@ -1666,6 +1671,99 @@
           }
         },
         "apiVersion": 2
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "extension-only v2",
+      "patch": {
+        "apiVersion": 2,
+        "platform": null,
+        "platformExtension": {
+          "targets": [
+            {
+              "platformId": "VVo",
+              "authOrigins": [
+                "https://m.weibo.cn"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "id": "checkIn",
+              "title": "Check in",
+              "dailyTimeZone": "Asia/Shanghai"
+            }
+          ]
+        }
+      },
+      "schemaValid": true,
+      "hostValid": true
+    },
+    {
+      "name": "extension requires v2",
+      "patch": {
+        "apiVersion": 1,
+        "platformExtension": {
+          "targets": [
+            {
+              "platformId": "VVo",
+              "authOrigins": [
+                "https://m.weibo.cn"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "id": "checkIn",
+              "title": "Check in",
+              "dailyTimeZone": "Asia/Shanghai"
+            }
+          ]
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "extension rejects unsafe action path",
+      "patch": {
+        "apiVersion": 2,
+        "platformExtension": {
+          "targets": [
+            {
+              "platformId": "VVo",
+              "authOrigins": [
+                "https://m.weibo.cn"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "id": "check.in",
+              "title": "Check"
+            }
+          ]
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "extension requires targets",
+      "patch": {
+        "apiVersion": 2,
+        "platformExtension": {
+          "targets": [],
+          "actions": [
+            {
+              "id": "checkIn",
+              "title": "Check in",
+              "dailyTimeZone": "Asia/Shanghai"
+            }
+          ]
+        }
       },
       "schemaValid": false,
       "hostValid": false

@@ -98,6 +98,7 @@ internal fun AndroidPluginManagementScreen(
     onBack: () -> Unit,
     onSettings: (String) -> Unit,
     onCreateWithAI: () -> Unit = {},
+    onExtensions: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -252,6 +253,7 @@ internal fun AndroidPluginManagementScreen(
                 PluginManagementList(
                     state = state,
                     onSettings = onSettings,
+                    onExtensions = onExtensions,
                     onCancelPluginUpdate = { id -> scope.launchPresenterAction { presenter.cancelPluginUpdate(id) } },
                     onUninstall = { pendingUninstallId = it },
                     onUpdate = { pluginId -> scope.launchPresenterAction { presenter.inspectGitHubUpdate(pluginId) } },
@@ -430,6 +432,9 @@ internal fun PluginPermission.localizedDescription(): String {
     if (type == dev.dimension.flare.data.model.PluginPermissionType.MediaNetwork) {
         return stringResource(R.string.plugin_permission_media_network)
     }
+    if (type == dev.dimension.flare.data.model.PluginPermissionType.AccountHttpOrigin) {
+        return stringResource(R.string.plugin_permission_account_http_origin, platformId.orEmpty(), origin)
+    }
     if (type == dev.dimension.flare.data.model.PluginPermissionType.HttpOrigin) {
         return stringResource(R.string.plugin_permission_http_origin, origin)
     }
@@ -539,6 +544,7 @@ internal fun PluginManagementList(
     onUpdate: (String) -> Unit,
     onRetryRuntime: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onExtensions: (String) -> Unit = {},
 ) {
     LazyColumn(
         modifier = modifier,
@@ -641,6 +647,7 @@ internal fun PluginManagementList(
                     shapesIndex = index,
                     shapesCount = state.items.size,
                     onSettings = onSettings,
+                    onExtensions = onExtensions,
                     onCancelUpdate = onCancelPluginUpdate,
                     onUninstall = onUninstall,
                     onUpdate = onUpdate,
@@ -660,6 +667,7 @@ internal fun PluginItem(
     onCancelUpdate: (String) -> Unit,
     onUninstall: (String) -> Unit,
     onUpdate: (String) -> Unit,
+    onExtensions: (String) -> Unit = {},
 ) {
     val name = plugin.nameText.resolveText().ifBlank { stringResource(R.string.plugin_ai_untitled) }
     SegmentedListItem(
@@ -708,6 +716,7 @@ internal fun PluginItem(
                 busy = busy,
                 onUninstall = { onUninstall(plugin.pluginId) },
                 onSettings = if (plugin.hasSettings) ({ onSettings(plugin.pluginId) }) else null,
+                onExtensions = if (plugin.hasPlatformExtension) ({ onExtensions(plugin.pluginId) }) else null,
             )
         },
     )
@@ -719,6 +728,7 @@ internal fun PluginItemMenu(
     busy: Boolean,
     onUninstall: () -> Unit,
     onSettings: (() -> Unit)?,
+    onExtensions: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -726,6 +736,16 @@ internal fun PluginItemMenu(
             FAIcon(FontAwesomeIcons.Solid.EllipsisVertical, contentDescription = "${stringResource(R.string.more)}: $name")
         }
         FlareDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (onExtensions != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.plugin_extension_title)) },
+                    enabled = !busy,
+                    onClick = {
+                        expanded = false
+                        onExtensions()
+                    },
+                )
+            }
             if (onSettings != null) {
                 DropdownMenuItem(
                     text = { Text(stringResource(R.string.settings_title)) },

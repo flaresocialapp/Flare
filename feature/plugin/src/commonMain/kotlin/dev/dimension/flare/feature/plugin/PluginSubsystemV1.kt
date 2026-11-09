@@ -8,6 +8,7 @@ import dev.dimension.flare.feature.plugin.adapter.PluginPlatformSpecSourceV1
 import dev.dimension.flare.feature.plugin.authoring.PluginAuthoringServiceV1
 import dev.dimension.flare.feature.plugin.development.PluginDevelopmentSessionV1
 import dev.dimension.flare.feature.plugin.development.PluginDevelopmentStateV1
+import dev.dimension.flare.feature.plugin.extension.PluginExtensionServiceV1
 import dev.dimension.flare.feature.plugin.github.GitHubPluginClient
 import dev.dimension.flare.feature.plugin.host.createKtorPluginHttpTransport
 import dev.dimension.flare.feature.plugin.installer.PluginInstaller
@@ -69,6 +70,14 @@ public class PluginSubsystemV1 internal constructor(
             storage = storage,
         )
     public val installer: PluginInstaller = PluginInstaller(appFiles.fileSystem, stateStore)
+    internal val extensionState: PluginStorageV1 =
+        PluginStorageV1(
+            appFiles.fileSystem,
+            appFiles.directory(STORAGE_NAMESPACE) / "extension-host-state",
+        )
+    internal val extensions: PluginExtensionServiceV1 by lazy {
+        PluginExtensionServiceV1(this, koinGet<AccountService>(), koinGet<CoroutineScope>())
+    }
     public val github: GitHubPluginClient by lazy { GitHubPluginClient() }
 
     private val mutableRunning = MutableStateFlow(stateStore.running)

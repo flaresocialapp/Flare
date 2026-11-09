@@ -20,4 +20,6 @@ internal data class DbAccount(
         defaultValue = "0",
     )
     val sort_id: Long = 0L,
+    @ColumnInfo(defaultValue = "''")
+    val session_id: String = "",
 )

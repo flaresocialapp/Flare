@@ -20,6 +20,7 @@ import dev.dimension.flare.data.datasource.microblog.SearchOperation
 import dev.dimension.flare.data.datasource.microblog.datasource.NotificationDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.PinnableTimelineTabDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.PinnableTimelineTabSection
+import dev.dimension.flare.data.datasource.microblog.datasource.PlatformExtensionDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.PostDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.RelationDataSource
 import dev.dimension.flare.data.datasource.microblog.datasource.TimelineTabConfigurationDataSource
@@ -110,7 +111,12 @@ internal class VVODataSource(
     TimelineTabConfigurationDataSource,
     PinnableTimelineTabDataSource,
     PostDataSource,
+    PlatformExtensionDataSource,
     PostEventHandler.Handler {
+    override val extensionAuthOrigins: Set<String> = setOf("https://m.weibo.cn", "https://weibo.com")
+
+    override suspend fun extensionAuthHeaders(url: String): Map<String, String> = service.extensionAuthHeaders(url)
+
     private val imageCompressor: ImageCompressor by koinInject()
     private val service by lazy {
         VVOService(

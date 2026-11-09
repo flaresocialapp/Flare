@@ -2,6 +2,7 @@ package dev.dimension.flare.feature.plugin.manifest
 
 import dev.dimension.flare.feature.plugin.abi.PluginAbiV1
 import dev.dimension.flare.feature.plugin.wire.requireValid
+import kotlinx.datetime.TimeZone
 
 public data class ManifestValidationV1(
     val errors: List<ManifestIssueV1>,
@@ -43,7 +44,7 @@ public fun PluginManifestV1.validate(methodTable: PluginMethodTableV1? = null): 
     description?.let { validateText(it, "description", errors) }
 
     check(
-        platform != null || translation != null || settings != null,
+        platform != null || translation != null || settings != null || platformExtension != null,
         "manifest.empty",
         "manifest",
         "Plugin must provide a capability or settings page",
@@ -58,10 +59,10 @@ public fun PluginManifestV1.validate(methodTable: PluginMethodTableV1? = null): 
     }
 
     check(
-        (translation == null && settings == null) || apiVersion >= 2,
+        (translation == null && settings == null && platformExtension == null) || apiVersion >= 2,
         "manifest.features",
         "apiVersion",
-        "Translation and settings require Host API v2",
+        "Translation, settings and platform extensions require Host API v2",
     )
     translation?.let {
         check(it.apiVersion == 1, "translation.version", "translation.apiVersion", "Unsupported translation interface")
@@ -89,6 +90,46 @@ public fun PluginManifestV1.validate(methodTable: PluginMethodTableV1? = null): 
             "settings.entry",
             "Settings entry must be a packaged HTML file under settings/",
         )
+    }
+    platformExtension?.let { extension ->
+        check(extension.apiVersion == 1, "extension.version", "platformExtension.apiVersion", "Unsupported extension interface")
+        check(extension.targets.size in 1..8, "extension.targets", "platformExtension.targets", "Expected 1 to 8 targets")
+        check(
+            extension.targets
+                .map { it.platformId.lowercase() }
+                .distinct()
+                .size == extension.targets.size,
+            "extension.targets",
+            "platformExtension.targets",
+            "Duplicate platform targets",
+        )
+        extension.targets.forEachIndexed { index, target ->
+            val path = "platformExtension.targets[$index]"
+            check(ID.matches(target.platformId), "extension.platform", "$path.platformId", "Invalid platform ID")
+            check(target.authOrigins.size in 1..16, "extension.origins", "$path.authOrigins", "Expected 1 to 16 origins")
+            target.authOrigins.forEach { origin ->
+                check(origin.isExactHttpsOrigin(), "extension.origin", "$path.authOrigins", "Expected an exact HTTPS origin")
+            }
+        }
+        check(extension.actions.size in 1..16, "extension.actions", "platformExtension.actions", "Expected 1 to 16 actions")
+        validateUniqueIds(extension.actions.map { it.id }, "platformExtension.actions", errors)
+        extension.actions.forEachIndexed { index, action ->
+            val path = "platformExtension.actions[$index]"
+            check(
+                Regex("[A-Za-z][A-Za-z0-9_]{0,63}").matches(action.id) && action.id !in setOf("constructor", "prototype", "__proto__"),
+                "extension.action",
+                "$path.id",
+                "Invalid action ID",
+            )
+            validateText(action.title, "$path.title", errors)
+            action.description?.let { validateText(it, "$path.description", errors) }
+            check(
+                action.dailyTimeZone == null || runCatching { TimeZone.of(action.dailyTimeZone) }.isSuccess,
+                "extension.timezone",
+                "$path.dailyTimeZone",
+                "Invalid timezone",
+            )
+        }
     }
     platform?.let { platform ->
         check(PLATFORM_ID.matches(platform.id), "platform.id", "platform.id", "Invalid platform ID")
@@ -304,6 +345,7 @@ public fun PluginManifestV1.requiredMethods(): Set<String> =
             add("translation.translateDocumentJson")
             add("translation.translateBatchDocumentJson")
         }
+        platformExtension?.actions?.forEach { add("platformExtension.actions.${it.id}") }
     }
 
 private fun validateLogin(

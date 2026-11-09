@@ -32,8 +32,21 @@ internal class PluginHostGateway(
     ): String {
         require(argumentsJson.encodeToByteArray().size <= MAX_HOST_ARGUMENT_BYTES) { "Host arguments are too large" }
         return try {
+            if (apiVersion >= 2) context.accountHttp?.ensureActive()
             val value =
                 when (operation) {
+                    "account.http.request" -> {
+                        if (apiVersion < 2) throw PluginHostException("host.unsupported", "Account HTTP requires API v2")
+                        val access = context.accountHttp ?: throw PluginHostException("account.denied", "Account HTTP is unavailable")
+                        val request = PluginJsonV1.decodeFromString<HttpRequestV1>(argumentsJson)
+                        val response = http.execute(request, context, callTimeoutMillis, apiVersion, access)
+                        PluginJsonV1.encodeToJsonElement(
+                            dev.dimension.flare.feature.plugin.wire.HttpResponseV1
+                                .serializer(),
+                            response,
+                        )
+                    }
+
                     "http.request" -> {
                         val request = PluginJsonV1.decodeFromString<HttpRequestV1>(argumentsJson)
                         if (apiVersion >= 2) context.credential?.ensureActive()
@@ -124,6 +137,7 @@ internal class PluginHostGateway(
                         throw PluginHostException("host.unsupported", "Unknown Host operation")
                     }
                 }
+            if (apiVersion >= 2) context.accountHttp?.ensureActive()
             success(value)
         } catch (error: CancellationException) {
             throw error

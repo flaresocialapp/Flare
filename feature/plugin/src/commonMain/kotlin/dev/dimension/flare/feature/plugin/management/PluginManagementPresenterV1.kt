@@ -92,6 +92,7 @@ public data class PluginManagementItemV1(
     val availableUpdate: GitHubPluginVersionV1?,
     val authoring: AuthoredPlugin? = null,
     val hasSettings: Boolean = false,
+    val hasPlatformExtension: Boolean = false,
 )
 
 public data class PluginInstallReviewV1(
@@ -487,6 +488,7 @@ private fun InstalledPluginV1.toItem(
         sourceUrl = (source as? PluginInstallSourceV1.GitHub)?.url,
         availableUpdate = availableUpdate,
         hasSettings = manifest.settings != null,
+        hasPlatformExtension = manifest.platformExtension != null,
     )
 
 private fun PreparedPluginInstallV1.toReview(): PluginInstallReviewV1 =

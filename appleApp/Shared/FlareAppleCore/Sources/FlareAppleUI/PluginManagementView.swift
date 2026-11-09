@@ -21,6 +21,7 @@ public struct PluginManagementView: View {
     private var showsGitHubInstall: Bool { presenter.state.gitHubInstall != nil }
     @State private var gitHubURL = ""
     @State private var settingsPluginId: String?
+    @State private var extensionPluginId: String?
     @State private var pendingUninstallId: String?
     @State private var pendingUninstallName: String?
     #if os(macOS)
@@ -164,6 +165,9 @@ public struct PluginManagementView: View {
         .sheet(isPresented: Binding(get: { settingsPluginId != nil }, set: { if !$0 { settingsPluginId = nil } })) {
             if let settingsPluginId { PluginSettingsView(pluginId: settingsPluginId) }
         }
+        .sheet(isPresented: Binding(get: { extensionPluginId != nil }, set: { if !$0 { extensionPluginId = nil } })) {
+            if let extensionPluginId { PluginExtensionView(pluginId: extensionPluginId) }
+        }
         .task { await checkUpdates(forceRefresh: false) }
         .sheet(isPresented: Binding(
             get: { showsGitHubInstall },
@@ -269,6 +273,9 @@ public struct PluginManagementView: View {
 
     private func pluginMenu(_ plugin: PluginManagementItemV1, name: String, onUninstall: @escaping () -> Void) -> some View {
         Menu {
+            if plugin.hasPlatformExtension {
+                Button("plugin_extension_title") { extensionPluginId = plugin.pluginId }
+            }
             if plugin.hasSettings {
                 Button("settings_title") { settingsPluginId = plugin.pluginId }
             }
@@ -770,6 +777,9 @@ func pluginAuthoringLabel(_ phase: PluginAuthoringPhase) -> LocalizedStringKey {
 func pluginPermissionText(_ permission: PluginPermission) -> String {
     if permission.type == .mediaNetwork {
         return String(localized: "plugin_permission_media_network")
+    }
+    if permission.type == .accountHttpOrigin {
+        return String(format: String(localized: "plugin_permission_account_http_origin"), permission.platformId ?? "", permission.origin)
     }
     if permission.type == .httpOrigin {
         return String(format: String(localized: "plugin_permission_http_origin"), permission.origin)

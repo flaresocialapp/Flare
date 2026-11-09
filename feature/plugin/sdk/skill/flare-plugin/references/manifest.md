@@ -69,8 +69,8 @@ length in the Host rather than JSON Schema's Unicode code point count.
 | `translation` | Omitted or `null` | `{ "apiVersion": 1, "cache": { "storageNamespaces": ["options"] } }`; Host API v2 |
 | `settings` | Omitted or `null` | `{ "entry": "settings/index.html", "bridgeVersion": 1 }`; Host API v2 |
 
-Provide at least one of `platform`, `translation` or `settings`; any combination
-is allowed. Only `platform` or `translation` requires a background `plugin.js`.
+Provide at least one of `platform`, `translation`, `platformExtension` or `settings`; any combination
+is allowed. `platform`, `translation` and `platformExtension` require a background `plugin.js`.
 A settings-only package needs no platform, login methods or background registration.
 `translation.apiVersion` and `settings.bridgeVersion` are separate interface
 versions, currently 1 within Host API v2. See the
@@ -270,3 +270,6 @@ are exempt from the minimum attachment count.
 - Localized manifest keys absent from the default catalog.
 - Extra root properties such as `author`, `homepage`, `entry`, or a trust badge:
   API v1/v2 define no such manifest fields; put human-facing information in README.
+
+For `platformExtension` targets, action IDs, daily timezones and account authorization,
+read [existing-platform actions](platform-extensions.md). Extensions require Host API v2.

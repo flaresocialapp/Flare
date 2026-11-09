@@ -196,6 +196,17 @@ defineFlareSocialPlugin({ translation: translate });
 defineFlareTranslatePlugin({ translateDocumentJson: translate.translateDocumentJson });
 // @ts-expect-error Social capabilities are not translation methods.
 defineFlareTranslatePlugin({ ...translate, capabilities: {} });
+const extension: PlatformExtensionPluginDefinitionV1 = {
+  actions: { async checkIn(request, context) {
+    await flare.account.http.request({ url: "https://m.weibo.cn/api/config" });
+    const date: string = request.businessDate;
+    const target: string | null | undefined = context.targetPlatformId;
+    return { status: "completed", succeeded: date && target ? 1 : 0 };
+  } },
+};
+defineFlarePlatformExtensionPlugin(extension);
+// @ts-expect-error Account HTTP uses Host authentication.
+flare.account.http.request({ url: "https://m.weibo.cn/", cookies: [] });
 const host: FlareHostV1 = flare;
 void host.crypto.uuid();
 // @ts-expect-error Social plugins use the explicit registration entry point.

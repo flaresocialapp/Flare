@@ -17,6 +17,7 @@ enum MacWindowID {
 
 @main
 struct FlareApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     init() {
         configureKingfisherCache()
 
@@ -40,6 +41,9 @@ struct FlareApp: App {
             }
         }
         .defaultSize(width: 480, height: 600)
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            PluginRuntimeLifecycleFacadeV1().setForeground(active: phase == .active)
+        }
         .windowResizability(.contentSize)
         .windowSizeFitContent()
         .commands {

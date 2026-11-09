@@ -314,7 +314,7 @@ class PluginJavaScriptEngineTest {
                 ),
             )
             val missing = assertFails { engine.evaluate("__flareValidateRegistrationV1()", "missing.js") }
-            assertTrue(missing.message.orEmpty().contains("plugin.js did not call defineFlareSocialPlugin"), missing.message)
+            assertTrue(missing.message.orEmpty().contains("plugin.js did not register a plugin capability"), missing.message)
             assertEquals(
                 "true",
                 engine.evaluate("defineFlareSocialPlugin({}); String(__flareValidateRegistrationV1())", "register.js"),
@@ -332,7 +332,7 @@ class PluginJavaScriptEngineTest {
             val duplicate = assertFails { inspector.inspect("defineFlareSocialPlugin({}); defineFlareSocialPlugin({});") }
             assertTrue(duplicate.message.orEmpty().contains("defineFlareSocialPlugin may only be called once"), duplicate.message)
             val missing = assertFails { inspector.inspect("({});") }
-            assertTrue(missing.message.orEmpty().contains("plugin.js did not call defineFlareSocialPlugin"), missing.message)
+            assertTrue(missing.message.orEmpty().contains("plugin.js did not register a plugin capability"), missing.message)
             assertFails { inspector.inspect("definePlugin({});") }
             assertFails { inspector.inspect("eval('defineFlareSocialPlugin({})')") }
         }
@@ -409,6 +409,28 @@ class PluginJavaScriptEngineTest {
                 "Promise.resolve().then(() => defineFlareTranslatePlugin({}));",
             )) {
                 assertFails(source) { inspector.inspect(source, apiVersion = 2) }
+            }
+        }
+
+    @Test
+    fun extensionRegistrationCombinesWithOtherTypesAndRejectsDuplicateOrLateDefinitions() =
+        runBlocking<Unit> {
+            val inspector = PluginRegistrationInspector(engineFactory = { host -> createTestPluginJavaScriptEngine(host) })
+            val extension = "defineFlarePlatformExtensionPlugin({ actions: { checkIn() {} } });"
+            for (source in listOf(
+                extension,
+                extension + "defineFlareSocialPlugin({}); defineFlareTranslatePlugin({});",
+                "defineFlareSocialPlugin({});" + extension,
+            )) {
+                assertEquals(setOf("platformExtension.actions.checkIn"), inspector.inspect(source, 2).methods)
+            }
+            for (source in listOf(
+                extension + extension,
+                "defineFlarePlatformExtensionPlugin(null);",
+                "defineFlareSocialPlugin({ platformExtension: {} });",
+                "defineFlareSocialPlugin({}); __flareValidateRegistrationV1(); defineFlarePlatformExtensionPlugin({});",
+            )) {
+                assertFails(source) { inspector.inspect(source, 2) }
             }
         }
 

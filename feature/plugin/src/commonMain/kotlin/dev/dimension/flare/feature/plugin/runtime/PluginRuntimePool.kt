@@ -32,6 +32,12 @@ public data class PluginRuntimeKeyV1 private constructor(
     val accountEpoch: String? = null,
 ) {
     public companion object {
+        public fun extension(
+            pluginId: String,
+            packageHash: String,
+            accountId: String,
+        ): PluginRuntimeKeyV1 = create(pluginId, packageHash, PluginInvocationScopeV1.Extension, accountId)
+
         public fun plugin(
             pluginId: String,
             packageHash: String,
@@ -173,7 +179,7 @@ public class PluginRuntimePool(
         validate: (JsonElement) -> Unit,
     ): JsonElement {
         validateInvocation(plugin, key, context)
-        if (key.scope == PluginInvocationScopeV1.Detector) {
+        if (key.scope == PluginInvocationScopeV1.Detector || key.scope == PluginInvocationScopeV1.Extension) {
             return invokeTemporary(plugin, context, method, request, timeout, validate)
         }
         val holder =
@@ -341,6 +347,10 @@ public class PluginRuntimePool(
         }
         require(context.metadata.scope == key.scope) { "Invocation scope does not match Runtime key" }
         when (key.scope) {
+            PluginInvocationScopeV1.Extension -> {
+                require(key.identity == context.metadata.accountId && context.accountHttp != null) { "Extension Runtime key mismatch" }
+            }
+
             PluginInvocationScopeV1.Account -> {
                 require(
                     key.identity == accountIdentity(context.metadata.origin, requireNotNull(context.metadata.accountId), key.accountEpoch),

@@ -29,7 +29,7 @@ internal val PLUGIN_REGISTRATION_PRELUDE =
           if (owns(registered, type)) throw new Error(name + " may only be called once");
           if (sealed) throw new Error("Plugin registration is closed");
           if (value === null || typeof value !== "object" || isArray(value)) throw new Error("Invalid plugin registration");
-          if (type === "social" && owns(value, "translation")) throw new Error("Register translation with defineFlareTranslatePlugin");
+          if (type === "social" && (owns(value, "translation") || owns(value, "platformExtension"))) throw new Error("Use the dedicated registration entrypoint");
           const definition = deepFreeze(value);
           if (type === "social") {
             for (const key of keys(definition)) defineProperty(registration, key, { value: definition[key], enumerable: true });
@@ -42,8 +42,9 @@ internal val PLUGIN_REGISTRATION_PRELUDE =
       });
       define("defineFlareSocialPlugin", "social");
       define("defineFlareTranslatePlugin", "translation");
+      define("defineFlarePlatformExtensionPlugin", "platformExtension");
       const validate = () => {
-        if (count === 0) throw new Error("plugin.js did not call defineFlareSocialPlugin or defineFlareTranslatePlugin");
+        if (count === 0) throw new Error("plugin.js did not register a plugin capability");
         sealed = true;
         freeze(registration);
         return true;

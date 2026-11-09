@@ -76,7 +76,7 @@ internal class PluginSessionV1 {
         caller?.let(::track)
         state.update {
             if (!it.active) throw PluginSessionRetiredException()
-            if (caller != null &&
+            if (caller != null && !method.startsWith("platformExtension.actions.") &&
                 (method.substringAfterLast('.') in WRITE_OPERATIONS || method.startsWith("login.") || method.startsWith("media."))
             ) {
                 it.copy(writes = it.writes + caller)
