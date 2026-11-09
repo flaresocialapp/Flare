@@ -10,9 +10,12 @@ logging API; do not invent `flare.log` or assume a developer console is availabl
 
 | Symptom / message | Check and repair |
 | --- | --- |
-| No stable version tags | Public repo, stable SemVer tag, matching manifest.version; branches/prereleases are not install choices |
-| Missing required file / nested plugin | Put manifest.json, plugin.js, one supported assets/icon.<extension> at the tagged repository root |
-| Unknown field / unsupported schema | Compatible Hosts ignore extra fields; keep known field types correct and API/schema 1. Older Hosts require an app upgrade. The editor schema still flags unknown authoring properties |
+| No stable version tags | Public repo with a stable SemVer snapshot tag; plugin manifest.version is independent, branches/prereleases are not install choices |
+| Missing required file / nested plugin | Put manifest.json, plugin.js, and one supported assets/icon.<extension> in the selected directory; use ?path=/plugins/example for a subdirectory |
+| Plugin directory not found | Check the case-sensitive path in the latest stable tag, including committed build output; a directory present only on the default branch is insufficient |
+| Invalid plugin repository path | Use a relative path with forward slashes, encode spaces/reserved characters once, and provide one path parameter; remove dot/empty interior segments and backslashes |
+| New repository tag, no plugin update | Only changes to the selected plugin's manifest, script, icon or locales count; unchanged plugins keep their installed tag/SHA |
+| Unknown field / unsupported schema | Compatible Hosts ignore extra fields; use apiVersion 1 or 2 and schemaVersion 1 with correct field types. Older Hosts require an app upgrade. The editor schema still flags unknown authoring properties |
 | Missing method / incomplete capability | Compare full capability ID, required operation set, registration path, and login negotiation |
 | Host API called during registration / undefined global | Keep top-level work to definitions and synchronous registration; move HTTP/crypto into methods |
 | Platform ID already registered | Choose a distinct stable platform ID; do not impersonate a built-in platform |
@@ -81,7 +84,7 @@ requests/responses well below them.
 
 | Resource | Bound |
 | --- | --- |
-| GitHub source archive | 20 MiB compressed, 50 MiB uncompressed, 4096 entries |
+| GitHub source archive | Confirm above 20 MiB; hard limits: 200 MiB compressed, 512 MiB uncompressed, 50,000 entries |
 | Canonical plugin package | 20 MiB compressed, 50 MiB uncompressed, 256 files |
 | manifest / plugin.js / icon | 256 KiB / 4 MiB / 2 MiB |
 | Icon dimensions | 1..1024 for each dimension |

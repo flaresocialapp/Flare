@@ -6,6 +6,7 @@ import dev.dimension.flare.data.io.AppFileStore
 import dev.dimension.flare.data.model.ProxyRef
 import dev.dimension.flare.feature.plugin.PluginSubsystemV1
 import dev.dimension.flare.feature.plugin.github.GitHubPluginClient
+import dev.dimension.flare.feature.plugin.github.testGitHubTrees
 import dev.dimension.flare.feature.plugin.installer.PluginInstallWarningTypeV1
 import dev.dimension.flare.feature.plugin.installer.TestFppFactory
 import dev.dimension.flare.feature.plugin.lifecycle.PluginInstallSourceV1
@@ -17,7 +18,10 @@ import dev.dimension.flare.ui.model.createSampleUser
 import dev.dimension.flare.ui.model.withProxy
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.Url
+import io.ktor.http.headersOf
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -54,6 +58,8 @@ class PluginGitHubManagementTest {
     private var tags = listOf("v1.0.0" to FIRST_SHA)
     private val archives = mutableMapOf<String, ByteArray>()
     private var downloads = 0
+    private var treeRequests = 0
+    private var reportedArchiveSize: Long? = null
     private var blocked = false
     private val downloadStarted = CompletableDeferred<Unit>()
     private var catalogStarted: CompletableDeferred<Unit>? = null
@@ -75,6 +81,13 @@ class PluginGitHubManagementTest {
                         respond(tags.joinToString(",", "[", "]") { (tag, sha) -> """{"name":"$tag","commit":{"sha":"$sha"}}""" })
                     }
 
+                    "/git/trees/" in request.url.encodedPath -> {
+                        treeRequests++
+                        val trees = archives.flatMap { (sha, bytes) -> testGitHubTrees(bytes, sha).entries }.associate { it.toPair() }
+                        val response = trees[request.url.encodedPath.substringAfterLast('/')]
+                        if (response == null) respond("{}", HttpStatusCode.NotFound) else respond(response)
+                    }
+
                     "/zipball/" in request.url.encodedPath -> {
                         downloads++
                         if (blocked) {
@@ -82,7 +95,15 @@ class PluginGitHubManagementTest {
                             awaitCancellation()
                         }
                         val bytes = archives[request.url.encodedPath.substringAfterLast('/')]
-                        if (bytes == null) respond("", HttpStatusCode.NotFound) else respond(bytes)
+                        if (bytes == null) {
+                            respond("", HttpStatusCode.NotFound)
+                        } else {
+                            respond(
+                                bytes,
+                                headers =
+                                    reportedArchiveSize?.let { headersOf(HttpHeaders.ContentLength, it.toString()) } ?: headersOf(),
+                            )
+                        }
                     }
 
                     else -> {
@@ -396,7 +417,7 @@ class PluginGitHubManagementTest {
                 assertNull(presenter.state.value.pendingInstall)
                 assertEquals(1, downloads)
 
-                archives[SECOND_SHA] = archive("1.0.0")
+                archives[SECOND_SHA] = "invalid ZIP".encodeToByteArray()
                 assertFails { presenter.inspectGitHub(REPOSITORY_URL) }
                 assertNull(presenter.state.value.pendingInstall)
                 assertTrue(
@@ -492,7 +513,7 @@ class PluginGitHubManagementTest {
     fun rewrittenTagsAreOfferedAsExplicitReinstalls() =
         runBlocking {
             withPresenter { _, presenter -> install(presenter) }
-            archives[SECOND_SHA] = archive("1.0.0")
+            archives[SECOND_SHA] = archive("1.0.0", addedPermission = true)
             tags = listOf("v1.0.0" to SECOND_SHA)
             withPresenter { subsystem, presenter ->
                 presenter.checkUpdates()
@@ -549,8 +570,9 @@ class PluginGitHubManagementTest {
         }
 
     @Test
-    fun repositoryReplacementAndDeletedVersionsSilentlyClearUpdateCandidates() =
+    fun repositoryReplacementAndDeletedVersionsClearCandidatesAndReportIssues() =
         runBlocking {
+            archives[SECOND_SHA] = archive("1.1.0")
             withPresenter { _, presenter -> install(presenter) }
             tags = listOf("v1.1.0" to SECOND_SHA)
             withPresenter { _, presenter ->
@@ -562,9 +584,24 @@ class PluginGitHubManagementTest {
                 )
                 repositoryId = 999
                 presenter.checkUpdates()
+                assertTrue(
+                    presenter.state.value.issues
+                        .any { it.code == "update.failed" && it.pluginId == PLUGIN_ID },
+                )
                 assertNull(presenter.state.value.error)
                 assertFalse(presenter.state.value.busy)
                 assertNull(
+                    presenter.state.value.plugins
+                        .single()
+                        .availableUpdate,
+                )
+                repositoryId = 42
+                presenter.checkUpdates()
+                assertTrue(
+                    presenter.state.value.issues
+                        .none { it.code == "update.failed" },
+                )
+                assertNotNull(
                     presenter.state.value.plugins
                         .single()
                         .availableUpdate,
@@ -574,6 +611,10 @@ class PluginGitHubManagementTest {
             tags = emptyList()
             withPresenter { _, presenter ->
                 presenter.checkUpdates()
+                assertTrue(
+                    presenter.state.value.issues
+                        .any { it.code == "update.failed" && it.pluginId == PLUGIN_ID },
+                )
                 assertNull(presenter.state.value.error)
                 assertNull(
                     presenter.state.value.plugins
@@ -594,8 +635,9 @@ class PluginGitHubManagementTest {
         }
 
     @Test
-    fun updateChecksOnlyPublishAvailableUpdatesWithoutLoadingOrFailureMessages() =
+    fun updateChecksReportIssuesWithoutBlockingTheManagementPage() =
         runBlocking {
+            archives[SECOND_SHA] = archive("1.1.0")
             withPresenter { _, presenter ->
                 install(presenter)
                 tags = listOf("v1.1.0" to SECOND_SHA)
@@ -624,6 +666,10 @@ class PluginGitHubManagementTest {
                 catalogStatus = HttpStatusCode.TooManyRequests
                 presenter.checkUpdates()
                 assertFalse(presenter.state.value.busy)
+                assertTrue(
+                    presenter.state.value.issues
+                        .any { it.code == "update.failed" && it.pluginId == PLUGIN_ID },
+                )
                 assertNull(presenter.state.value.error)
                 assertNull(
                     presenter.state.value.plugins
@@ -742,6 +788,158 @@ class PluginGitHubManagementTest {
     private suspend fun install(presenter: PluginManagementPresenterV1) {
         presenter.inspectGitHub(REPOSITORY_URL)
         presenter.confirmInstall()
+    }
+
+    @Test
+    fun pluginsInOneRepositoryHaveIndependentVersionsUpdatesAndUninstalls() =
+        runBlocking {
+            tags = listOf("v9.0.0" to FIRST_SHA)
+            archives[FIRST_SHA] = multiPluginArchive("1.0.0", "3.2.0")
+            withPresenter { subsystem, presenter ->
+                presenter.inspectGitHub("$REPOSITORY_URL?path=/plugins/first")
+                presenter.confirmInstall()
+                presenter.inspectGitHub("$REPOSITORY_URL?path=/plugins/second")
+                presenter.confirmInstall()
+                val second =
+                    subsystem.stateStore.desired.value.plugins
+                        .getValue("$PLUGIN_ID.second")
+                assertEquals("3.2.0", second.version)
+                assertEquals("plugins/second", (second.source as PluginInstallSourceV1.GitHub).path)
+                assertEquals(
+                    "/plugins/second",
+                    Url(
+                        presenter.state.value.plugins
+                            .single { it.pluginId == second.pluginId }
+                            .sourceUrl!!,
+                    ).parameters["path"],
+                )
+
+                tags = listOf("v9.1.0" to SECOND_SHA)
+                archives[SECOND_SHA] = multiPluginArchive("1.1.0", "3.2.0")
+                val before = downloads
+                presenter.checkUpdates()
+                assertEquals(before, downloads)
+                assertNotNull(
+                    presenter.state.value.plugins
+                        .single { it.pluginId == "$PLUGIN_ID.first" }
+                        .availableUpdate,
+                )
+                assertNull(
+                    presenter.state.value.plugins
+                        .single { it.pluginId == second.pluginId }
+                        .availableUpdate,
+                )
+                val requests = treeRequests
+                presenter.checkUpdates()
+                assertEquals(requests, treeRequests)
+                assertEquals(
+                    second,
+                    subsystem.stateStore.desired.value.plugins
+                        .getValue(second.pluginId),
+                )
+                presenter.inspectGitHubUpdate("$PLUGIN_ID.first")
+                assertEquals("1.1.0", assertNotNull(presenter.state.value.pendingInstall).version)
+                presenter.confirmInstall()
+                assertEquals(
+                    second,
+                    subsystem.stateStore.desired.value.plugins
+                        .getValue(second.pluginId),
+                )
+                presenter.uninstall("$PLUGIN_ID.first")
+                assertEquals(setOf(second.pluginId), subsystem.running.value.plugins.keys)
+            }
+        }
+
+    @Test
+    fun samePackageAtANewerSnapshotDoesNotOfferUpdatesOrRewriteInstalledProvenance() =
+        runBlocking {
+            withPresenter { subsystem, presenter ->
+                install(presenter)
+                val installed =
+                    subsystem.stateStore.desired.value.plugins
+                        .getValue(PLUGIN_ID)
+                archives[SECOND_SHA] = archive("1.0.0")
+                tags = listOf("v8.0.0" to SECOND_SHA)
+                presenter.checkUpdates()
+                assertNull(
+                    presenter.state.value.plugins
+                        .single()
+                        .availableUpdate,
+                )
+                assertEquals(1, downloads)
+                assertEquals(
+                    installed,
+                    subsystem.stateStore.desired.value.plugins
+                        .getValue(PLUGIN_ID),
+                )
+                assertTrue(
+                    presenter.state.value.issues
+                        .isEmpty(),
+                )
+            }
+        }
+
+    @Test
+    fun largeRepositoryConfirmationIsScopedToThePinnedInstallAndCanBeCancelled() =
+        runBlocking {
+            reportedArchiveSize = 21L * 1024 * 1024
+            withPresenter { subsystem, presenter ->
+                presenter.inspectGitHub(REPOSITORY_URL)
+                assertTrue(presenter.state.value.needsRepositoryDownloadConfirmation)
+                assertNull(presenter.state.value.pendingInstall)
+                assertTrue(fileSystem.list(subsystem.stateStore.paths.staging).isEmpty())
+                presenter.cancelRepositoryDownload()
+                assertFalse(presenter.state.value.needsRepositoryDownloadConfirmation)
+                assertTrue(
+                    subsystem.stateStore.desired.value.plugins
+                        .isEmpty(),
+                )
+                assertFails { presenter.confirmRepositoryDownload() }
+                presenter.inspectGitHub(REPOSITORY_URL)
+                tags = listOf("v9.0.0" to SECOND_SHA)
+                archives[SECOND_SHA] = archive("3.0.0")
+                presenter.confirmRepositoryDownload()
+                assertFalse(presenter.state.value.needsRepositoryDownloadConfirmation)
+                assertEquals("1.0.0", assertNotNull(presenter.state.value.pendingInstall).version)
+                presenter.confirmInstall()
+                assertEquals(
+                    FIRST_SHA,
+                    (
+                        subsystem.stateStore.desired.value.plugins
+                            .getValue(PLUGIN_ID)
+                            .source as PluginInstallSourceV1.GitHub
+                    ).commitSha,
+                )
+                presenter.inspectGitHubUpdate(PLUGIN_ID)
+                assertTrue(presenter.state.value.needsRepositoryDownloadConfirmation)
+                presenter.cancelInstall()
+                assertFalse(presenter.state.value.needsRepositoryDownloadConfirmation)
+                assertEquals(
+                    "1.0.0",
+                    subsystem.running.value.plugins
+                        .getValue(PLUGIN_ID)
+                        .installed.version,
+                )
+                assertTrue(fileSystem.list(subsystem.stateStore.paths.staging).isEmpty())
+            }
+        }
+
+    private fun multiPluginArchive(
+        firstVersion: String,
+        secondVersion: String,
+    ): ByteArray {
+        val files =
+            listOf("first" to firstVersion, "second" to secondVersion).flatMap { (name, version) ->
+                val manifest =
+                    TestFppFactory.validManifest
+                        .replace(PLUGIN_ID, "$PLUGIN_ID.$name")
+                        .replace("TestPlugin", "TestPlugin_$name")
+                        .replace("\"version\": \"1.0.0\"", "\"version\": \"$version\"")
+                TestFppFactory.validEntries(manifest = manifest).map { (path, bytes) -> "root/plugins/$name/$path" to bytes }
+            }
+        val path = root / "multi.zip"
+        TestFppFactory.write(path, files)
+        return fileSystem.read(path) { readByteArray() }
     }
 
     private fun archive(

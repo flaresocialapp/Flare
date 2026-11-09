@@ -141,11 +141,30 @@ internal fun AndroidPluginManagementScreen(
             state = state,
             onInstall = { url -> scope.launchPresenterAction { presenter.inspectGitHub(url) } },
             onConfirm = { scope.launchPresenterAction { presenter.confirmInstall() } },
+            onConfirmDownload = { scope.launchPresenterAction { presenter.confirmRepositoryDownload() } },
+            onCancelDownload = { scope.launchPresenterAction { presenter.cancelRepositoryDownload() } },
             onUrlChanged = presenter::clearGitHubInstallError,
             onDismiss = { scope.launchPresenterAction { presenter.cancelInstall() } },
         )
     }
 
+    if (state.needsRepositoryDownloadConfirmation && state.gitHubInstall == null) {
+        AlertDialog(
+            onDismissRequest = { scope.launchPresenterAction { presenter.cancelRepositoryDownload() } },
+            title = { Text(stringResource(R.string.plugin_large_repository_title)) },
+            text = { Text(stringResource(R.string.plugin_large_repository_message)) },
+            confirmButton = {
+                TextButton(onClick = { scope.launchPresenterAction { presenter.confirmRepositoryDownload() } }) {
+                    Text(stringResource(R.string.plugin_continue_download))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { scope.launchPresenterAction { presenter.cancelRepositoryDownload() } }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
     state.pendingInstall?.takeIf { state.gitHubInstall == null }?.let { review ->
         PluginInstallReviewDialog(
             review = review,
@@ -422,21 +441,35 @@ internal fun GitHubInstallDialog(
     state: PluginManagementStateV1,
     onInstall: (String) -> Unit,
     onConfirm: () -> Unit,
+    onConfirmDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
     onUrlChanged: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     var url by remember { mutableStateOf("") }
     val install = state.gitHubInstall ?: return
     val review = state.pendingInstall
+    val largeRepository = state.needsRepositoryDownloadConfirmation
+    val dismiss = if (largeRepository) onCancelDownload else onDismiss
     AlertDialog(
-        onDismissRequest = { if (!install.busy) onDismiss() },
-        title = { Text(review?.let { "${it.name} ${it.version}" } ?: stringResource(R.string.plugin_install_github)) },
+        onDismissRequest = { if (!install.busy) dismiss() },
+        title = {
+            Text(
+                if (largeRepository) {
+                    stringResource(R.string.plugin_large_repository_title)
+                } else {
+                    review?.let { "${it.name} ${it.version}" } ?: stringResource(R.string.plugin_install_github)
+                },
+            )
+        },
         text = {
             Column(
                 modifier = Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (review == null) {
+                if (largeRepository) {
+                    Text(stringResource(R.string.plugin_large_repository_message))
+                } else if (review == null) {
                     OutlinedTextField(
                         value = url,
                         onValueChange = {
@@ -445,6 +478,7 @@ internal fun GitHubInstallDialog(
                         },
                         label = { Text(stringResource(R.string.plugin_github_repository)) },
                         placeholder = { Text("https://github.com/owner/repository") },
+                        supportingText = { Text(stringResource(R.string.plugin_github_path_hint)) },
                         singleLine = true,
                         enabled = !install.busy,
                     )
@@ -459,14 +493,22 @@ internal fun GitHubInstallDialog(
         },
         confirmButton = {
             Button(
-                enabled = !install.busy && (review != null || url.isNotBlank()),
-                onClick = { if (review == null) onInstall(url) else onConfirm() },
+                enabled = !install.busy && (largeRepository || review != null || url.isNotBlank()),
+                onClick = {
+                    if (largeRepository) {
+                        onConfirmDownload()
+                    } else if (review == null) {
+                        onInstall(url)
+                    } else {
+                        onConfirm()
+                    }
+                },
             ) {
-                Text(stringResource(R.string.plugin_confirm_install))
+                Text(stringResource(if (largeRepository) R.string.plugin_continue_download else R.string.plugin_confirm_install))
             }
         },
         dismissButton = {
-            TextButton(enabled = !install.busy, onClick = onDismiss) { Text(stringResource(android.R.string.cancel)) }
+            TextButton(enabled = !install.busy, onClick = dismiss) { Text(stringResource(android.R.string.cancel)) }
         },
     )
 }
@@ -531,7 +573,14 @@ internal fun PluginManagementList(
         state.issues.forEach { issue ->
             item(key = "issue:${issue.code}:${issue.pluginId}") {
                 MessageItem(
-                    title = pluginIssueMessage(issue.code),
+                    title =
+                        if (issue.code ==
+                            "update.failed"
+                        ) {
+                            "${issue.pluginId}: ${issue.message.take(512)}"
+                        } else {
+                            pluginIssueMessage(issue.code)
+                        },
                     isError = true,
                 )
             }

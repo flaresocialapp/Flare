@@ -75,8 +75,10 @@ For an existing plugin, recheck the behavior changed by the edit. State what ran
 and what still needs the target website or Flare UI; syntax checks and mocked
 responses do not prove live integration.
 
-Prefer GitHub distribution: one plugin at repository root, an already-built
-`plugin.js`, and a stable version tag matching `manifest.version`. Prepare files
+Prefer GitHub distribution: a complete plugin at repository root or a directory
+selected by `?path=/plugins/example`, an already-built `plugin.js`, and a stable
+SemVer repository snapshot tag. Each plugin has independent `manifest.version`
+and unique plugin/platform IDs. Prepare files
 and release instructions; create/push repositories, commits, or tags only within
 the user's current authorization. See [publishing](references/publishing.md) for
 immediate activation, uninstall cleanup, and the optional local `.fpp` path.

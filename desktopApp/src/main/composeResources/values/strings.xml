@@ -915,4 +915,8 @@
     <string name="visibility_friends_description">Only people who follow you and whom you follow can see this post</string>
     <string name="visibility_self">Only me</string>
     <string name="visibility_self_description">Only you can see this post</string>
+    <string name="plugin_large_repository_title">Download large repository?</string>
+    <string name="plugin_large_repository_message">This repository download exceeds 20 MiB and will use more data and storage. Continue downloading?</string>
+    <string name="plugin_continue_download">Continue download</string>
+    <string name="plugin_github_path_hint">For a plugin in a subdirectory, add ?path=/plugins/example to the URL.</string>
 </resources>

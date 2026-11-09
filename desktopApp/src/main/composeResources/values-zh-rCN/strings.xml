@@ -866,4 +866,8 @@
     <string name="visibility_friends_description">仅互相关注的好友可以看到此微博</string>
     <string name="visibility_self">仅自己可见</string>
     <string name="visibility_self_description">仅你自己可以看到此微博</string>
+    <string name="plugin_large_repository_title">下载较大的仓库？</string>
+    <string name="plugin_large_repository_message">此仓库下载超过 20 MiB，会使用更多流量和存储空间。是否继续下载？</string>
+    <string name="plugin_continue_download">继续下载</string>
+    <string name="plugin_github_path_hint">安装子目录中的插件时，在链接末尾添加 ?path=/plugins/example。</string>
 </resources>

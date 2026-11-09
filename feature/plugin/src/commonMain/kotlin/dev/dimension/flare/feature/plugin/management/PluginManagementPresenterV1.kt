@@ -9,6 +9,8 @@ import dev.dimension.flare.feature.plugin.development.PluginDevelopmentStateV1
 import dev.dimension.flare.feature.plugin.github.GitHubPluginCatalogV1
 import dev.dimension.flare.feature.plugin.github.GitHubPluginClient
 import dev.dimension.flare.feature.plugin.github.GitHubPluginVersionV1
+import dev.dimension.flare.feature.plugin.github.GitHubRepositorySizeConfirmationRequired
+import dev.dimension.flare.feature.plugin.github.stableGitHubVersion
 import dev.dimension.flare.feature.plugin.installer.PluginInstallWarningV1
 import dev.dimension.flare.feature.plugin.installer.PreparedPluginInstallV1
 import dev.dimension.flare.feature.plugin.installer.compareSemVer
@@ -36,7 +38,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import okio.Buffer
 import okio.Path.Companion.toPath
 import okio.Source
 import kotlin.native.HiddenFromObjC
@@ -52,6 +53,7 @@ public data class PluginManagementStateV1(
     val gitHubInstall: PluginGitHubInstallStateV1? = null,
     val development: PluginDevelopmentStateV1 = PluginDevelopmentStateV1(),
     val authoredPlugins: List<AuthoredPlugin> = emptyList(),
+    val needsRepositoryDownloadConfirmation: Boolean = false,
 ) {
     public val items: List<PluginManagementItemV1> =
         buildList {
@@ -113,8 +115,10 @@ public class PluginManagementPresenterV1(
     accounts: () -> AccountService = { koinGet() },
 ) {
     private val switcher by lazy { PluginRuntimeSwitcherV1(subsystem, registry(), accounts(), scope) }
-    private val updates = mutableMapOf<String, GitHubPluginVersionV1>()
+    private val updates = MutableStateFlow(emptyMap<String, GitHubPluginVersionV1>())
+    private val updateIssues = MutableStateFlow(emptyMap<String, PluginStateIssueV1>())
     private var preview: PreparedPluginInstallV1? = null
+    private var pendingDownload: PendingGitHubDownload? = null
     private val mutableState = MutableStateFlow(snapshot())
     public val state: StateFlow<PluginManagementStateV1> = mutableState.asStateFlow()
 
@@ -139,7 +143,7 @@ public class PluginManagementPresenterV1(
         scope.launch {
             observation.join()
             actionMutex.withLock {
-                if (preview != null) {
+                if (preview != null || pendingDownload != null) {
                     try {
                         withContext(operationDispatcher) { clearPreview() }
                     } catch (error: Exception) {
@@ -171,24 +175,32 @@ public class PluginManagementPresenterV1(
                 val installed =
                     subsystem.stateStore.desired.value.plugins.values
                         .filter { !it.removing && it.source is PluginInstallSourceV1.GitHub }
+                val refreshedRepositories = mutableSetOf<Long>()
                 installed.forEach { plugin ->
                     val source = plugin.source as PluginInstallSourceV1.GitHub
+                    var failure: PluginStateIssueV1? = null
                     val update =
                         try {
                             val catalog =
                                 github.catalog(
-                                    source.repository.url,
-                                    forceRefresh = forceRefresh,
+                                    source.url,
+                                    forceRefresh = forceRefresh && refreshedRepositories.add(source.repository.id),
                                     expectedRepositoryId = source.repository.id,
                                 )
                             updateCandidate(plugin, catalog)
                         } catch (error: Exception) {
                             if (error is CancellationException) throw error
+                            failure = PluginStateIssueV1("update.failed", plugin.pluginId, error.message ?: "Plugin update check failed")
                             null
                         }
                     actionMutex.withLock {
                         if (subsystem.stateStore.desired.value.plugins[plugin.pluginId] == plugin) {
-                            if (update == null) updates.remove(plugin.pluginId) else updates[plugin.pluginId] = update
+                            updates.update { if (update == null) it - plugin.pluginId else it + (plugin.pluginId to update) }
+                            if (failure == null) {
+                                updateIssues.update { it - plugin.pluginId }
+                            } else {
+                                updateIssues.update { it + (plugin.pluginId to requireNotNull(failure)) }
+                            }
                             refreshState()
                         }
                     }
@@ -202,7 +214,7 @@ public class PluginManagementPresenterV1(
             clearPreview()
             val installed = requireNotNull(subsystem.stateStore.desired.value.plugins[pluginId]) { "Plugin is no longer installed" }
             val source = installed.source as? PluginInstallSourceV1.GitHub ?: error("Plugin is not installed from GitHub")
-            val catalog = github.catalog(source.repository.url, forceRefresh = true, expectedRepositoryId = source.repository.id)
+            val catalog = github.catalog(source.url, forceRefresh = true, expectedRepositoryId = source.repository.id)
             val version = requireNotNull(updateCandidate(installed, catalog)) { "No GitHub update is available" }
             prepareGitHub(catalog, version, expectedPluginId = pluginId)
         }
@@ -212,11 +224,61 @@ public class PluginManagementPresenterV1(
         catalog: GitHubPluginCatalogV1,
         version: GitHubPluginVersionV1,
         expectedPluginId: String? = null,
-    ) {
-        val bytes = github.archive(catalog.repository, version)
-        val source = PluginInstallSourceV1.GitHub(catalog.repository, version.tag, version.commitSha)
-        val prepared = subsystem.installer.inspect(Buffer().write(bytes), source, expectedPluginId)
-        preview = prepared
+        allowLargeRepository: Boolean = false,
+    ) = subsystem.installer.withRepositoryDownload { archive ->
+        val fileSystem = subsystem.appFiles.fileSystem
+        try {
+            github.archive(catalog.repository, version, fileSystem, archive, allowLargeRepository)
+        } catch (_: GitHubRepositorySizeConfirmationRequired) {
+            pendingDownload = PendingGitHubDownload(catalog, version, expectedPluginId)
+            mutableState.update { it.copy(needsRepositoryDownloadConfirmation = true) }
+            return@withRepositoryDownload
+        }
+        val source = PluginInstallSourceV1.GitHub(catalog.repository, version.tag, version.commitSha, catalog.path)
+        val prepared = subsystem.installer.inspect(archive, source, expectedPluginId)
+        if (expectedPluginId != null &&
+            prepared.packageHash ==
+            subsystem.stateStore.desired.value.plugins[expectedPluginId]
+                ?.packageHash
+        ) {
+            subsystem.installer.discard(prepared)
+            updates.update { it - expectedPluginId }
+        } else {
+            preview = prepared
+        }
+    }
+
+    public suspend fun confirmRepositoryDownload() {
+        runAction(gitHubInstall = mutableState.value.gitHubInstall != null) {
+            val pending = requireNotNull(pendingDownload) { "No repository download is pending" }
+            pendingDownload = null
+            mutableState.update { it.copy(needsRepositoryDownloadConfirmation = false) }
+            prepareGitHub(pending.catalog, pending.version, pending.expectedPluginId, allowLargeRepository = true)
+        }
+    }
+
+    public suspend fun cancelRepositoryDownload() {
+        runAction(gitHubInstall = mutableState.value.gitHubInstall != null) {
+            pendingDownload = null
+            mutableState.update { it.copy(needsRepositoryDownloadConfirmation = false) }
+        }
+    }
+
+    private suspend fun updateCandidate(
+        installed: InstalledPluginV1,
+        catalog: GitHubPluginCatalogV1,
+    ): GitHubPluginVersionV1? {
+        val source = installed.source as PluginInstallSourceV1.GitHub
+        val latest = catalog.versions.first()
+        val candidate =
+            if (compareSemVer(latest.version, requireNotNull(stableGitHubVersion(source.tag))) > 0) {
+                latest
+            } else {
+                requireNotNull(catalog.versions.firstOrNull { it.tag == source.tag }) { "The installed GitHub tag is no longer available" }
+            }
+        if (candidate.commitSha == source.commitSha) return null
+        val fingerprint = github.packageFingerprint(catalog.repository, candidate, source.path)
+        return candidate.takeIf { fingerprint != subsystem.installer.packageFingerprint(installed) }
     }
 
     @HiddenFromObjC
@@ -251,7 +313,8 @@ public class PluginManagementPresenterV1(
                 "Delete the editable local plugin before installing another package with this ID"
             }
             subsystem.installer.commit(prepared, confirmed = true, activate = switcher::install)
-            updates.remove(prepared.pluginId)
+            updates.update { it - prepared.pluginId }
+            updateIssues.update { it - prepared.pluginId }
             preview = null
             mutableState.update { snapshot(it).copy(gitHubInstall = null) }
         }
@@ -279,7 +342,8 @@ public class PluginManagementPresenterV1(
             requireNotDeveloping(pluginId)
             val installed = requireNotNull(subsystem.stateStore.desired.value.plugins[pluginId]) { "Plugin is no longer installed" }
             switcher.uninstall(pluginId, installed.manifest.platform.id)
-            updates.remove(pluginId)
+            updates.update { it - pluginId }
+            updateIssues.update { it - pluginId }
             subsystem.installer.cleanup(subsystem.running.value.plugins.values)
         }
     }
@@ -324,10 +388,10 @@ public class PluginManagementPresenterV1(
                             subsystem.stateStore.paths
                                 .iconPath(installed.packageHash, installed.iconExtension)
                                 .toString(),
-                        availableUpdate = updates[installed.pluginId].takeUnless { installed.removing },
+                        availableUpdate = updates.value[installed.pluginId].takeUnless { installed.removing },
                     )
                 },
-            issues = subsystem.sourceIssues.value,
+            issues = subsystem.sourceIssues.value + updateIssues.value.values.filter { it.pluginId in desired.plugins },
             runtimeIssues =
                 subsystem.runtimePool.issues.value.values
                     .sortedBy(PluginRuntimeIssueV1::pluginId),
@@ -348,6 +412,8 @@ public class PluginManagementPresenterV1(
     private suspend fun clearPreview() {
         val previous = preview
         preview = null
+        pendingDownload = null
+        mutableState.update { it.copy(needsRepositoryDownloadConfirmation = false) }
         refreshState()
         if (previous != null) subsystem.installer.discard(previous)
     }
@@ -399,6 +465,12 @@ public class PluginManagementPresenterV1(
                 publish(busy = false)
             }
         }
+
+    private data class PendingGitHubDownload(
+        val catalog: GitHubPluginCatalogV1,
+        val version: GitHubPluginVersionV1,
+        val expectedPluginId: String?,
+    )
 }
 
 private fun InstalledPluginV1.toItem(
@@ -411,7 +483,7 @@ private fun InstalledPluginV1.toItem(
         nameText = manifest.name.toUiText(pluginId),
         version = version,
         iconPath = iconPath,
-        sourceUrl = (source as? PluginInstallSourceV1.GitHub)?.repository?.url,
+        sourceUrl = (source as? PluginInstallSourceV1.GitHub)?.url,
         availableUpdate = availableUpdate,
     )
 
@@ -427,16 +499,5 @@ private fun PreparedPluginInstallV1.toReview(): PluginInstallReviewV1 =
                 .map { (capability, operations) -> "$capability: ${operations.sorted().joinToString()}" },
         permissions = permissions.sortedWith(compareBy({ it.type.name }, { it.origin }, { it.cookieName.orEmpty() })),
         warnings = warnings,
-        sourceUrl = (source as? PluginInstallSourceV1.GitHub)?.repository?.url,
+        sourceUrl = (source as? PluginInstallSourceV1.GitHub)?.url,
     )
-
-private fun updateCandidate(
-    installed: InstalledPluginV1,
-    catalog: GitHubPluginCatalogV1,
-): GitHubPluginVersionV1? {
-    val source = installed.source as PluginInstallSourceV1.GitHub
-    catalog.versions.firstOrNull { compareSemVer(it.version, installed.version) > 0 }?.let { return it }
-    val current =
-        requireNotNull(catalog.versions.firstOrNull { it.tag == source.tag }) { "The installed GitHub tag is no longer available" }
-    return current.takeIf { it.commitSha != source.commitSha }
-}

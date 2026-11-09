@@ -6,6 +6,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.headersOf
 import kotlinx.coroutines.runBlocking
+import okio.FileSystem
+import okio.Path.Companion.toOkioPath
+import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertContentEquals
@@ -16,8 +19,57 @@ import kotlin.test.assertNull
 
 class GitHubPluginClientTest {
     @Test
+    fun pluginPathsAreNormalizedWithoutAllowingTraversalOrChangingRepositoryIdentity() {
+        val location = parseRepositoryUrl("https://github.com/Owner/Repo.git?path=/plugins/%E6%B5%8B%E8%AF%95%20feed/")
+        assertEquals(GitHubPluginLocation("Owner", "Repo", "plugins/测试 feed"), location)
+        assertEquals(location, parseRepositoryUrl(gitHubPluginUrl("https://github.com/Owner/Repo", location.path)))
+        assertEquals("", parseRepositoryUrl("https://github.com/owner/repo?path=/").path)
+        listOf(
+            "?path=/plugins/../escape",
+            "?path=/%2e%2e/escape",
+            "?path=/plugins//feed",
+            "?path=plugins%5Cfeed",
+            "?path=plugins%00feed",
+            "?path=C:/feed",
+            "?path=/first&path=/second",
+            "?path=/first&ref=main",
+        ).forEach { assertFailsWith<IllegalArgumentException>(it) { parseRepositoryUrl("https://github.com/owner/repo$it") } }
+        assertEquals("e69de29bb2d1d6434b8b29ae775ad8c2e48c5391", gitBlobHash(byteArrayOf()))
+    }
+
+    @Test
+    fun cachedCatalogsKeepDifferentPluginPathsSeparate() =
+        runBlocking {
+            var calls = 0
+            withClient(
+                MockEngine { request ->
+                    calls++
+                    respond(if (request.url.encodedPath.endsWith("/tags")) "[${tag("v1.0.0")}]" else METADATA)
+                },
+            ) { client ->
+                assertEquals("plugins/first", client.catalog("${REPOSITORY.url}?path=/plugins/first").path)
+                assertEquals("plugins/second", client.catalog("${REPOSITORY.url}?path=/plugins/second").path)
+                assertEquals("", client.catalog(REPOSITORY.url).path)
+                assertEquals(2, calls)
+            }
+        }
+
+    @Test
+    fun largeDownloadsRequireConfirmationWithAndWithoutAContentLength() =
+        runBlocking {
+            val bytes = ByteArray((dev.dimension.flare.feature.plugin.installer.FppLimits.REPOSITORY_CONFIRMATION_BYTES + 1).toInt())
+            listOf(false, true).forEach { knownLength ->
+                val headers = if (knownLength) headersOf(HttpHeaders.ContentLength, bytes.size.toString()) else headersOf()
+                withClient(MockEngine { respond(bytes, headers = headers) }) { client ->
+                    assertFailsWith<GitHubRepositorySizeConfirmationRequired> { downloadArchive(client) }
+                    assertEquals(bytes.size, downloadArchive(client, allowLargeRepository = true).size)
+                }
+            }
+        }
+
+    @Test
     fun repositoryUrlsCannotBecomeArbitraryNetworkRequests() {
-        assertEquals("Owner" to "Repo", parseRepositoryUrl(" https://github.com/Owner/Repo.git/ "))
+        assertEquals(GitHubPluginLocation("Owner", "Repo", ""), parseRepositoryUrl(" https://github.com/Owner/Repo.git/ "))
         listOf(
             "http://github.com/owner/repo",
             "https://github.com.evil/owner/repo",
@@ -134,7 +186,7 @@ class GitHubPluginClientTest {
                     }
                 },
             ) { client ->
-                assertContentEquals(archive, client.archive(REPOSITORY, VERSION))
+                assertContentEquals(archive, downloadArchive(client))
                 assertEquals("https://api.github.com/repos/owner/repo/zipball/$SHA", paths.first())
                 assertEquals(2, paths.size)
             }
@@ -150,7 +202,7 @@ class GitHubPluginClientTest {
                         respond("", HttpStatusCode.Found, headersOf(HttpHeaders.Location, location))
                     },
                 ) { client ->
-                    assertFails { client.archive(REPOSITORY, VERSION) }
+                    assertFails { downloadArchive(client) }
                     assertEquals(1, calls)
                 }
             }
@@ -160,7 +212,8 @@ class GitHubPluginClientTest {
     fun responseLimitsApplyWithAndWithoutContentLength() =
         runBlocking {
             withClient(MockEngine { respond("", headers = headersOf(HttpHeaders.ContentLength, "999999999")) }) { client ->
-                assertContains(assertFails { client.archive(REPOSITORY, VERSION) }.message.orEmpty(), "size limit")
+                assertContains(assertFails { downloadArchive(client) }.message.orEmpty(), "size limit")
+                assertContains(assertFails { downloadArchive(client, allowLargeRepository = true) }.message.orEmpty(), "size limit")
             }
             withClient(MockEngine { respond(ByteArray(2 * 1024 * 1024 + 1)) }) { client ->
                 assertContains(assertFails { client.catalog(REPOSITORY.url) }.message.orEmpty(), "size limit")
@@ -212,3 +265,18 @@ private const val SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 private val REPOSITORY = GitHubPluginRepositoryV1(42, "owner", "repo")
 private val VERSION = GitHubPluginVersionV1("v1.0.0", "1.0.0", SHA)
 private const val METADATA = """{"id":42,"name":"repo","owner":{"login":"owner"},"private":false}"""
+
+private suspend fun downloadArchive(
+    client: GitHubPluginClient,
+    allowLargeRepository: Boolean = false,
+): ByteArray {
+    val fileSystem = FileSystem.SYSTEM
+    val root = Files.createTempDirectory("github-archive-test").toOkioPath()
+    val destination = root / "source.zip"
+    try {
+        client.archive(REPOSITORY, VERSION, fileSystem, destination, allowLargeRepository)
+        return fileSystem.read(destination) { readByteArray() }
+    } finally {
+        fileSystem.deleteRecursively(root)
+    }
+}

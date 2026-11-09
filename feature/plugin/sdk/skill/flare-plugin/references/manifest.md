@@ -59,7 +59,7 @@ length in the Host rather than JSON Schema's Unicode code point count.
 | `schemaVersion` | `1` | Manifest schema, currently exactly 1 |
 | `apiVersion` | Required | Runtime ABI, 1 or 2; v2 is required for header/session extensions |
 | `id` | Required | Stable reverse-domain plugin ID; `[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+` |
-| `version` | Required | SemVer; use stable `major.minor.patch` for GitHub distribution |
+| `version` | Required | Plugin SemVer, independent of the repository snapshot tag and npm SDK version |
 | `defaultLocale` | `"en"` | BCP-47 locale tag |
 | `name` | Required | Manifest text |
 | `description` | Omitted | Manifest text |

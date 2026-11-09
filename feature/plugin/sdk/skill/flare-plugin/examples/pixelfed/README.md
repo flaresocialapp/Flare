@@ -36,7 +36,7 @@ for account access, reload boundaries, and restoring the installed version.
 ## Publish on GitHub and install
 
 Copy the contents of this directory to the root of your own public GitHub
-repository. Publish a stable tag `v0.1.0` matching `manifest.version`, then install
+repository. Publish a stable repository snapshot tag such as `v0.1.0`, then install
 the repository URL from Flare's plugin management. It becomes available immediately. The script
 is already built; a GitHub Release or uploaded `.fpp` asset is unnecessary.
 
@@ -45,8 +45,10 @@ platform ID before release. The sample's `Pixelfed` platform ID cannot coexist
 with another registered platform of the same name. Keep IDs stable after users
 install the fork. See [GitHub publication and updates](../../references/publishing.md).
 
-This example cannot be installed by passing the Flare monorepo URL or a GitHub
-subdirectory URL: each installation repository must contain one root plugin.
+Install from a stable snapshot of a repository containing this example. Use
+the repository URL plus
+`?path=/feature/plugin/sdk/skill/flare-plugin/examples/pixelfed` to select this
+example, or copy it into a standalone plugin repository.
 Actual server behavior may differ by Pixelfed version; report the instance and
 checks performed when claiming live compatibility.
 

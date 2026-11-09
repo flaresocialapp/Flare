@@ -1,6 +1,7 @@
 package dev.dimension.flare.feature.plugin.lifecycle
 
 import dev.dimension.flare.feature.plugin.github.GitHubPluginRepositoryV1
+import dev.dimension.flare.feature.plugin.github.gitHubPluginUrl
 import dev.dimension.flare.feature.plugin.manifest.PluginManifestV1
 import dev.dimension.flare.feature.plugin.runtime.PluginSessionV1
 import kotlinx.serialization.SerialName
@@ -43,7 +44,10 @@ public sealed interface PluginInstallSourceV1 {
         val repository: GitHubPluginRepositoryV1,
         val tag: String,
         val commitSha: String,
-    ) : PluginInstallSourceV1
+        val path: String = "",
+    ) : PluginInstallSourceV1 {
+        public val url: String get() = gitHubPluginUrl(repository.url, path)
+    }
 }
 
 public data class RunningPluginV1(

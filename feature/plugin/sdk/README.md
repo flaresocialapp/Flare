@@ -56,7 +56,7 @@ as generated output; edit the TS source and rebuild instead of editing both copi
 
 For manual template copies, replace the example IDs and names before use. For
 `npx` projects, keep the generated IDs. Read the
-[complete developer guide](https://github.com/DimensionDev/Flare/tree/feature/plugin/feature/plugin/sdk/skill/flare-plugin)
+[complete developer guide](https://github.com/flaresocialapp/Flare/tree/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin)
 for authentication, Host APIs, capabilities, and Wire data mapping.
 
 ## Develop and debug in Flare
@@ -96,16 +96,16 @@ for authentication, Host APIs, capabilities, and Wire data mapping.
 Finish active writes before reloading; credential-schema changes may require
 logging in again. Keep Flare pointed at the project root, where the build writes
 `plugin.js`. Flare loads that classic script and does not execute TS or build tools.
-See [development and testing details](https://github.com/DimensionDev/Flare/blob/feature/plugin/feature/plugin/sdk/skill/flare-plugin/references/testing.md#develop-locally-in-desktop).
+See [development and testing details](https://github.com/flaresocialapp/Flare/blob/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin/references/testing.md#develop-locally-in-desktop).
 
 ## Publish and install through GitHub (recommended)
 
-1. Create a public GitHub repository. Its tagged root must contain `manifest.json`,
+1. Create a public GitHub repository. Its selected plugin directory must contain `manifest.json`,
    the ready-to-run `plugin.js`, exactly one supported `assets/icon.<extension>`,
    and optional `locales/*.json`. Update the project README with the actual website,
    login instructions, supported features, and verification results. Flare reads
-   these files directly; commit any compiled output at the root before tagging.
-2. Run `npm run build`, then commit both source and the resulting root `plugin.js`.
+   these files directly; commit compiled output in the plugin directory before tagging.
+2. Run `npm run build`, then commit both source and `plugin.js` in the plugin directory.
    The generated `.gitignore` excludes dependencies, temporary files and `.fpp`
    archives, while retaining `plugin.js`. Commit the `package-lock.json` created
    by `npm install`; use `npm ci` on later clean checkouts. For a new project and an empty GitHub
@@ -123,8 +123,8 @@ See [development and testing details](https://github.com/DimensionDev/Flare/blob
 
    Use your existing Git setup if the project is already a repository. Keep real
    credentials, private fixtures, `node_modules`, and build caches out of Git.
-3. Set a stable `manifest.version` and push a matching tag. The generated version
-   is `0.1.0`, so the first release can use:
+3. Set the plugin's SemVer `manifest.version` and publish a stable repository
+   snapshot tag. These versions are independent; the first snapshot can use:
 
    ```sh
    git tag v0.1.0
@@ -132,19 +132,29 @@ See [development and testing details](https://github.com/DimensionDev/Flare/blob
    ```
 
    Commit and push any version edit before tagging. npm SDK versions are separate
-   from your plugin's version. Flare ignores prerelease plugin tags; pushing only
+   from your plugin's version. Flare ignores prerelease repository tags; pushing only
    a branch does not create an installable version. A GitHub Release and `.fpp`
    upload are unnecessary.
 4. Stop development, then open **Settings → Plugins → Add → Install from GitHub**
-   on any supported Flare platform. Enter `https://github.com/OWNER/REPO`, load the
-   latest stable version, and review its source and permissions before confirming.
+   on any supported Flare platform. Enter `https://github.com/OWNER/REPO`
+   (append `?path=/plugins/example` for a subdirectory) and click **Install**.
+   Flare selects the latest stable repository snapshot automatically; review
+   the plugin's source and permissions before confirming.
    Installation takes effect immediately. Add/log in to the plugin account and
    verify its behavior on that device.
 5. For updates, increment `manifest.version`, commit and push, then publish a new
-   matching stable tag. Keep plugin/platform IDs unchanged. In Flare, check for
-   updates and review/confirm the offered version; app restart is unnecessary.
+   stable repository snapshot tag. Keep plugin/platform IDs and directory
+   unchanged. In Flare, check for updates and review/confirm the offered version;
+   app restart is unnecessary.
 
-See [GitHub publication and update rules](https://github.com/DimensionDev/Flare/blob/feature/plugin/feature/plugin/sdk/skill/flare-plugin/references/publishing.md).
+Several plugins can share one repository. Each directory must contain a complete
+plugin with unique plugin/platform IDs. Install a subdirectory using
+`https://github.com/OWNER/REPO?path=/plugins/example`; omit `path` for root.
+The latest stable tag selects the repository snapshot, while each plugin keeps
+its own manifest version. Unchanged runtime files do not offer updates.
+Downloads over 20 MiB ask for confirmation; see the publishing guide for limits.
+
+See [GitHub publication and update rules](https://github.com/flaresocialapp/Flare/blob/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin/references/publishing.md).
 
 ## Optional: package and install a local file
 
@@ -182,7 +192,7 @@ Keep these development files outside the optional `.fpp` staging directory.
 Flare treats `$schema` as editor metadata and never downloads it. With an older
 Flare build that rejects this field, remove it and use a VS Code `json.schemas`
 association in workspace settings instead. See the
-[manifest editor guide](https://github.com/DimensionDev/Flare/blob/feature/plugin/feature/plugin/sdk/skill/flare-plugin/references/manifest.md#json-schema-and-editor-support)
+[manifest editor guide](https://github.com/flaresocialapp/Flare/blob/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin/references/manifest.md#json-schema-and-editor-support)
 and [VS Code schema settings](https://code.visualstudio.com/docs/languages/json#_json-schemas-and-settings).
 
 For an existing project, install editor types:
@@ -211,7 +221,7 @@ scripts must bundle their own runtime dependencies without Node or browser APIs.
 The self-contained skill is in `skill/flare-plugin/` in both the source and npm
 package. Copy that **entire directory** into your agent's skill directory; copying
 only `SKILL.md` loses its types, references, templates, and examples. Follow the
-[skill installation guide](https://github.com/DimensionDev/Flare/blob/feature/plugin/feature/plugin/sdk/skill/flare-plugin/README.md#install-the-skill)
+[skill installation guide](https://github.com/flaresocialapp/Flare/blob/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin/README.md#install-the-skill)
 for Codex or Claude Code, including project scope, verification, and updates.
 All documentation is in English. The complete Pixelfed adapter is bundled at
 `skill/flare-plugin/examples/pixelfed/`. The offline
