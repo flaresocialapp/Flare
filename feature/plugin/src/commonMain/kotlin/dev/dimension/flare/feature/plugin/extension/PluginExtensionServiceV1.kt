@@ -1,16 +1,20 @@
 package dev.dimension.flare.feature.plugin.extension
 
 import dev.dimension.flare.common.Locale
-import dev.dimension.flare.data.datasource.microblog.datasource.PlatformExtensionDataSource
+import dev.dimension.flare.data.datasource.microblog.AccountHttpRequest
+import dev.dimension.flare.data.datasource.microblog.capabilities
 import dev.dimension.flare.data.repository.AccountMicroblogDataSource
 import dev.dimension.flare.data.repository.AccountService
+import dev.dimension.flare.data.repository.RequireReLoginException
 import dev.dimension.flare.feature.plugin.PluginSubsystemV1
+import dev.dimension.flare.feature.plugin.abi.PluginAbiV1
 import dev.dimension.flare.feature.plugin.abi.PluginJsonV1
 import dev.dimension.flare.feature.plugin.host.PluginAccountHttpAccess
 import dev.dimension.flare.feature.plugin.host.PluginCallTimeoutV1
 import dev.dimension.flare.feature.plugin.host.PluginInvocationContextV1
 import dev.dimension.flare.feature.plugin.host.platformUuid
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
+import dev.dimension.flare.feature.plugin.manifest.PluginExtensionActionV1
 import dev.dimension.flare.feature.plugin.manifest.PluginManifestV1
 import dev.dimension.flare.feature.plugin.manifest.toUiText
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeKeyV1
@@ -32,9 +36,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
@@ -65,7 +70,7 @@ internal class PluginExtensionServiceV1(
     private val runtimePool: PluginRuntimePool = subsystem.runtimePool,
 ) {
     private val mutex = Mutex()
-    private val available = MutableStateFlow<List<AccountMicroblogDataSource>>(emptyList())
+    private val available = MutableStateFlow(AccountSnapshot())
     private val records = MutableStateFlow<Map<String, StoredPluginExtensionsV1>>(emptyMap())
     private val active = MutableStateFlow<Map<String, ActiveRun>>(emptyMap())
     private val errors = MutableStateFlow<Set<String>>(emptySet())
@@ -79,18 +84,21 @@ internal class PluginExtensionServiceV1(
                 visible.active &&
                     running.plugins.values.any { it.installed.manifest.platformExtension != null }
             }.flatMapLatest { enabled ->
-                if (!enabled) {
-                    flowOf(emptyList())
-                } else {
-                    accounts.allAccountServicesFlow().catch { error ->
-                        if (error is CancellationException) throw error
-                        reportAccountFailure()
-                        emit(emptyList())
-                    }
+                flow<List<AccountMicroblogDataSource>?> {
+                    emit(null)
+                    if (enabled) emitAll(accounts.allAccountServicesFlow())
+                }.catch { error ->
+                    if (error is CancellationException) throw error
+                    reportAccountFailure()
+                    emit(emptyList())
                 }
             }.onEach { current ->
-                available.value = current.filter { it.dataSource is PlatformExtensionDataSource }
-                cancelInvalidRuns()
+                if (current == null) {
+                    available.update { it.copy(loading = true) }
+                } else {
+                    available.value = AccountSnapshot(current.filter { it.dataSource.capabilities.accountHttp != null }, loading = false)
+                    cancelInvalidRuns()
+                }
             }.launchIn(scope)
         subsystem.running
             .onEach { running ->
@@ -110,11 +118,13 @@ internal class PluginExtensionServiceV1(
     }
 
     fun observe(pluginId: String): Flow<PluginExtensionStateV1> =
-        combine(subsystem.running, available, records, active, errors) { running, accounts, stored, jobs, failures ->
+        combine(subsystem.running, available, records, active, errors) { running, accountSnapshot, stored, jobs, failures ->
             val plugin = running.plugins[pluginId]
             val manifest = plugin?.installed?.manifest
             val extension = manifest?.platformExtension
             val data = stored[pluginId] ?: StoredPluginExtensionsV1()
+            val loading = extension != null && (accountSnapshot.loading || (pluginId !in stored && pluginId !in failures))
+            val accounts = if (loading) emptyList() else accountSnapshot.accounts
             PluginExtensionStateV1(
                 name =
                     manifest?.name?.toUiText(pluginId) ?: UiText.Raw(pluginId),
@@ -126,18 +136,19 @@ internal class PluginExtensionServiceV1(
                             it.title.toUiText(pluginId),
                             it.description?.toUiText(pluginId),
                             it.dailyTimeZone,
+                            it.platformIds,
                         )
                     },
                 accounts =
                     accounts.mapNotNull { account ->
-                        val target = extension?.targets?.singleOrNull { it.platformId == account.platformId } ?: return@mapNotNull null
-                        val adapter = account.dataSource as PlatformExtensionDataSource
-                        if (!adapter.extensionAuthOrigins.containsAll(target.authOrigins)) return@mapNotNull null
+                        if (extension == null) return@mapNotNull null
+                        if (extension.actions.none { it.appliesTo(account.platformId) }) return@mapNotNull null
+                        val origins = account.extensionOrigins(manifest) ?: return@mapNotNull null
                         val grant = data.grants.singleOrNull { it.matches(account, requireNotNull(manifest)) }
                         PluginExtensionAccountItemV1(
                             account.accountKey.toString(),
                             account.platformId,
-                            target.authOrigins.sorted(),
+                            origins.sorted(),
                             account.reviewToken(plugin),
                             grant?.id,
                             grant?.automaticActions.orEmpty(),
@@ -146,6 +157,7 @@ internal class PluginExtensionServiceV1(
                 runs = data.runs.filter { run -> data.grants.any { it.id == run.accountId } }.reversed(),
                 runningAccounts = data.grants.filter { it.executionKey(pluginId) in jobs }.mapTo(mutableSetOf()) { it.id },
                 error = pluginId in failures,
+                loading = loading,
             )
         }
 
@@ -156,18 +168,24 @@ internal class PluginExtensionServiceV1(
     ) {
         mutex.withLock {
             val plugin = plugin(pluginId)
-            val account = available.value.single { it.accountKey.toString() == accountKey }
+            val account = available.value.accounts.single { it.accountKey.toString() == accountKey }
             check(authorizationToken == account.reviewToken(plugin)) { "Authorization review expired" }
             check(accounts.isSessionActive(account.accountKey, account.sessionId)) { "Account session expired" }
             val manifest = plugin.installed.manifest
-            val target = requireNotNull(manifest.platformExtension).targets.single { it.platformId == account.platformId }
-            check((account.dataSource as PlatformExtensionDataSource).extensionAuthOrigins.containsAll(target.authOrigins)) {
-                "Unsupported authentication origin"
-            }
+            check(account.extensionOrigins(manifest) != null) { "Unsupported authentication origin" }
             val data = load(pluginId)
             require(data.grants.count { it.accountKey != accountKey } < 64) { "Too many account grants" }
             val grant =
-                PluginExtensionGrantV1(platformUuid(), accountKey, account.platformId, account.sessionId, manifest.extensionPermissions())
+                PluginExtensionGrantV1(
+                    platformUuid(),
+                    accountKey,
+                    account.platformId,
+                    account.sessionId,
+                    manifest.extensionPermissions(),
+                    sourceAuthorizationRevision =
+                        account.dataSource.capabilities.accountHttp
+                            ?.authorizationRevision,
+                )
             save(pluginId, data.copy(grants = data.grants.filterNot { it.accountKey == accountKey } + grant))
             active.value[grant.executionKey(pluginId)]?.job?.cancel()
         }
@@ -207,6 +225,7 @@ internal class PluginExtensionServiceV1(
             require(action.dailyTimeZone != null) { "This action has no daily schedule" }
             val data = load(pluginId)
             val grant = data.grants.single { it.id == accountId }
+            require(action.appliesTo(grant.platformId)) { "Action is unavailable for this platform" }
             requireCurrent(plugin, grant)
             val updated =
                 grant.copy(
@@ -296,7 +315,7 @@ internal class PluginExtensionServiceV1(
             for (grant in data.grants) {
                 for (action in extension.actions) {
                     if (!foreground.value.active) return
-                    if (action.id !in grant.automaticActions) continue
+                    if (action.id !in grant.automaticActions || !action.appliesTo(grant.platformId)) continue
                     try {
                         coroutineScope { execute(plugin.installed.pluginId, grant.id, action.id, true, ExecutionLease(plugin, visibility)) }
                     } catch (error: CancellationException) {
@@ -336,7 +355,7 @@ internal class PluginExtensionServiceV1(
     }
 
     private suspend fun Flow<List<AccountMicroblogDataSource>>.collectFirstAccounts() {
-        available.value = first().filter { it.dataSource is PlatformExtensionDataSource }
+        available.value = AccountSnapshot(first().filter { it.dataSource.capabilities.accountHttp != null }, loading = false)
     }
 
     suspend fun run(
@@ -358,16 +377,20 @@ internal class PluginExtensionServiceV1(
         val execution = prepareExecution(pluginId, accountId, actionId, automatic, lease) ?: return
         val key = execution.key
         var result = PluginExtensionResultV1(PluginExtensionResultStatusV1.Interrupted)
+        val authenticationRequired = MutableStateFlow(false)
+
+        suspend fun <T> trackAuthenticationFailure(block: suspend () -> T): T =
+            try {
+                block()
+            } catch (error: RequireReLoginException) {
+                authenticationRequired.value = true
+                throw error
+            }
         try {
-            val adapter = execution.account.dataSource as PlatformExtensionDataSource
-            val target =
-                requireNotNull(execution.plugin.installed.manifest.platformExtension).targets.single {
-                    it.platformId ==
-                        execution.account.platformId
-                }
+            val adapter = requireNotNull(execution.account.dataSource.capabilities.accountHttp)
             val access =
                 object : PluginAccountHttpAccess {
-                    override val origins = target.authOrigins.intersect(adapter.extensionAuthOrigins)
+                    override val origins = requireNotNull(execution.account.extensionOrigins(execution.plugin.installed.manifest))
 
                     override suspend fun ensureActive() {
                         currentCoroutineContext().ensureActive()
@@ -379,41 +402,52 @@ internal class PluginExtensionServiceV1(
                             throw CancellationException("Extension authorization expired")
                         }
                         execution.plugin.session.ensureActive()
+                        trackAuthenticationFailure { adapter.ensureActive() }
                     }
 
-                    override suspend fun headers(url: String): Map<String, String> {
+                    override suspend fun authenticate(request: AccountHttpRequest): Map<String, String> {
                         ensureActive()
-                        return adapter.extensionAuthHeaders(url).also { ensureActive() }
+                        return trackAuthenticationFailure { adapter.authenticate(request) }.also { ensureActive() }
                     }
                 }
-            result =
-                runtimePool.invoke(
-                    plugin = execution.plugin,
-                    key = PluginRuntimeKeyV1.extension(pluginId, execution.plugin.installed.packageHash, accountId),
-                    context =
-                        PluginInvocationContextV1.extension(
-                            pluginId,
-                            execution.plugin.installed.packageHash,
-                            execution.plugin.installed.manifest.platform
-                                ?.id
-                                .orEmpty(),
-                            execution.account.platformId,
-                            accountId,
-                            execution.account.accountKey,
-                            execution.plugin.installed.manifest.permissions.httpOrigins,
-                            Locale.language,
-                            access,
-                        ),
-                    method = "platformExtension.actions.$actionId",
-                    request = PluginExtensionRequestV1(actionId, execution.attempt.businessDate, if (automatic) "automatic" else "manual"),
-                    requestSerializer = PluginExtensionRequestV1.serializer(),
-                    responseSerializer = PluginExtensionResultV1.serializer(),
-                    timeout = PluginCallTimeoutV1.Extended,
-                    validate = { it.requireValid() },
-                )
-            access.ensureActive()
+            adapter.withAuthorization {
+                result =
+                    runtimePool.invoke(
+                        plugin = execution.plugin,
+                        key = PluginRuntimeKeyV1.extension(pluginId, execution.plugin.installed.packageHash, accountId),
+                        context =
+                            PluginInvocationContextV1.extension(
+                                pluginId,
+                                execution.plugin.installed.packageHash,
+                                execution.plugin.installed.manifest.platform
+                                    ?.id
+                                    .orEmpty(),
+                                execution.account.platformId,
+                                accountId,
+                                execution.account.accountKey,
+                                execution.plugin.installed.manifest.permissions.httpOrigins,
+                                Locale.language,
+                                access,
+                                accountOrigin = adapter.accountOrigin,
+                            ),
+                        method = "platformExtension.actions.$actionId",
+                        request =
+                            PluginExtensionRequestV1(
+                                actionId,
+                                execution.attempt.businessDate,
+                                if (automatic) "automatic" else "manual",
+                            ),
+                        requestSerializer = PluginExtensionRequestV1.serializer(),
+                        responseSerializer = PluginExtensionResultV1.serializer(),
+                        timeout = PluginCallTimeoutV1.Extended,
+                        validate = { it.requireValid() },
+                    )
+                access.ensureActive()
+            }
         } catch (error: CancellationException) {
             throw error
+        } catch (_: RequireReLoginException) {
+            result = PluginExtensionResultV1(PluginExtensionResultStatusV1.AuthenticationRequired)
         } catch (_: Exception) {
             result = PluginExtensionResultV1(PluginExtensionResultStatusV1.Failed)
         } finally {
@@ -421,9 +455,12 @@ internal class PluginExtensionServiceV1(
                 mutex.withLock {
                     try {
                         if (subsystem.running.value.plugins[pluginId] === execution.plugin) {
+                            if (authenticationRequired.value && result.status != PluginExtensionResultStatusV1.Interrupted) {
+                                result = result.copy(status = PluginExtensionResultStatusV1.AuthenticationRequired)
+                            }
                             val data = load(pluginId)
                             val pause =
-                                result.status in
+                                authenticationRequired.value || result.status in
                                     setOf(
                                         PluginExtensionResultStatusV1.AuthenticationRequired,
                                         PluginExtensionResultStatusV1.UserActionRequired,
@@ -489,6 +526,7 @@ internal class PluginExtensionServiceV1(
                     val account = requireCurrent(plugin, grant)
                     ensureLease(pluginId, lease)
                     val action = requireNotNull(plugin.installed.manifest.platformExtension).actions.single { it.id == actionId }
+                    require(action.appliesTo(grant.platformId)) { "Action is unavailable for this platform" }
                     val date =
                         now()
                             .toLocalDateTime(
@@ -538,7 +576,7 @@ internal class PluginExtensionServiceV1(
     ): AccountMicroblogDataSource {
         check(grant.permissions == plugin.installed.manifest.extensionPermissions()) { "Extension permissions changed" }
         val account =
-            available.value.singleOrNull { grant.matches(it, plugin.installed.manifest) } ?: error("Account authorization expired")
+            available.value.accounts.singleOrNull { grant.matches(it, plugin.installed.manifest) } ?: error("Account authorization expired")
         check(accounts.isSessionActive(account.accountKey, grant.sessionId)) { "Account authorization expired" }
         return account
     }
@@ -548,7 +586,11 @@ internal class PluginExtensionServiceV1(
             val pluginId = key.substringBefore('/')
             val plugin = subsystem.running.value.plugins[pluginId]
             val grant = records.value[pluginId]?.grants?.singleOrNull { it.executionKey(pluginId) == key }
-            if (plugin == null || grant == null || available.value.none { grant.matches(it, plugin.installed.manifest) }) run.job.cancel()
+            if (plugin == null || grant == null ||
+                available.value.accounts.none { grant.matches(it, plugin.installed.manifest) }
+            ) {
+                run.job.cancel()
+            }
         }
     }
 
@@ -599,6 +641,11 @@ internal class PluginExtensionServiceV1(
         val active: Boolean,
     )
 
+    private data class AccountSnapshot(
+        val accounts: List<AccountMicroblogDataSource> = emptyList(),
+        val loading: Boolean = true,
+    )
+
     private data class ExecutionLease(
         val plugin: RunningPluginV1?,
         val visibility: ForegroundState,
@@ -624,7 +671,11 @@ private fun PluginExtensionGrantV1.matches(
     manifest: PluginManifestV1,
 ): Boolean =
     accountKey == account.accountKey.toString() && platformId == account.platformId && sessionId == account.sessionId &&
-        permissions == manifest.extensionPermissions()
+        permissions == manifest.extensionPermissions() &&
+        sourceAuthorizationRevision ==
+        account.dataSource.capabilities.accountHttp
+            ?.authorizationRevision &&
+        account.extensionOrigins(manifest) != null
 
 private fun PluginManifestV1.extensionPermissions(): String =
     buildList {
@@ -635,6 +686,7 @@ private fun PluginManifestV1.extensionPermissions(): String =
         platformExtension?.actions?.sortedBy { it.id }?.forEach {
             add(it.id)
             add(it.dailyTimeZone.orEmpty())
+            if (it.platformIds.isNotEmpty()) add(JsonArray(it.platformIds.sorted().map(::JsonPrimitive)).toString())
         }
         addAll(permissions.httpOrigins.sorted())
         add(permissions.mediaNetwork.toString())
@@ -650,6 +702,10 @@ private fun AccountMicroblogDataSource.reviewToken(plugin: RunningPluginV1): Str
             sessionId,
             plugin.installed.packageHash,
             plugin.installed.manifest.extensionPermissions(),
+            dataSource.capabilities.accountHttp
+                ?.authorizationRevision
+                .orEmpty(),
+            extensionOrigins(plugin.installed.manifest)?.sorted().orEmpty().joinToString(),
         ).map(::JsonPrimitive),
     ).toString()
         .encodeUtf8()
@@ -670,3 +726,15 @@ private fun PluginExtensionGrantV1.executionKey(pluginId: String): String =
             .encodeUtf8()
             .sha256()
             .hex()
+
+private fun PluginExtensionActionV1.appliesTo(platformId: String): Boolean = platformIds.isEmpty() || platformId in platformIds
+
+private fun AccountMicroblogDataSource.extensionOrigins(manifest: PluginManifestV1): Set<String>? {
+    val target = manifest.platformExtension?.targets?.singleOrNull { it.platformId == platformId } ?: return null
+    val capability = dataSource.capabilities.accountHttp ?: return null
+    val requested =
+        target.authOrigins.mapTo(linkedSetOf()) {
+            if (it == PluginAbiV1.ACCOUNT_ORIGIN) capability.accountOrigin ?: return null else it
+        }
+    return requested.takeIf { capability.origins.containsAll(it) }
+}

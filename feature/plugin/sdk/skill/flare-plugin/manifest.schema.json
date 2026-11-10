@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Flare plugin manifest — API v1/v2",
+  "title": "Flare plugin manifest \u2014 API v1/v2",
   "description": "Editor assistance for manifest structure and static rules. Flare remains authoritative for registration, unique IDs, origin approval, locale catalogs, cross-field values and runtime behavior. The Host never fetches the $schema URL.",
   "type": "object",
   "additionalProperties": false,
@@ -874,6 +874,24 @@
           },
           "default": [],
           "uniqueItems": true
+        },
+        "authOrigins": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Exact canonical HTTPS origin; no path, credentials, wildcard, or trailing slash. Flare checks DNS/port normalization.",
+                "pattern": "^(?:https://[a-z0-9.-]+(?::[0-9]{1,5})?)(?![\\s\\S])"
+              },
+              {
+                "const": "$accountOrigin"
+              }
+            ]
+          },
+          "default": []
         }
       },
       "required": [
@@ -907,6 +925,10 @@
               "maxItems": 0
             },
             "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "authOrigins": {
               "type": "array",
               "maxItems": 0
             }
@@ -950,6 +972,10 @@
               "maxItems": 0
             },
             "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "authOrigins": {
               "type": "array",
               "maxItems": 0
             }
@@ -999,6 +1025,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1042,6 +1072,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1080,6 +1114,10 @@
             "relationActions": {
               "type": "array",
               "minItems": 1
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           },
           "required": [
@@ -1117,6 +1155,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1145,6 +1187,10 @@
               }
             },
             "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "authOrigins": {
               "type": "array",
               "maxItems": 0
             }
@@ -1245,6 +1291,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1311,6 +1361,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1347,6 +1401,10 @@
               "maxItems": 0
             },
             "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "authOrigins": {
               "type": "array",
               "maxItems": 0
             }
@@ -1394,6 +1452,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1426,6 +1488,10 @@
               "maxItems": 0
             },
             "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "authOrigins": {
               "type": "array",
               "maxItems": 0
             }
@@ -1505,6 +1571,9 @@
         },
         "flare.datasource.timeline-page/v1": {
           "$ref": "#/definitions/capability-timeline-page"
+        },
+        "flare.datasource.account-http/v1": {
+          "$ref": "#/definitions/capability-account-http"
         }
       },
       "additionalProperties": {
@@ -2026,9 +2095,16 @@
                 "maxItems": 16,
                 "uniqueItems": true,
                 "items": {
-                  "type": "string",
-                  "description": "Exact canonical HTTPS origin; no path, credentials, wildcard, or trailing slash. Flare checks DNS/port normalization.",
-                  "pattern": "^(?:https://[a-z0-9.-]+(?::[0-9]{1,5})?)(?![\\s\\S])"
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "description": "Exact canonical HTTPS origin; no path, credentials, wildcard, or trailing slash. Flare checks DNS/port normalization.",
+                      "pattern": "^(?:https://[a-z0-9.-]+(?::[0-9]{1,5})?)(?![\\s\\S])"
+                    },
+                    {
+                      "const": "$accountOrigin"
+                    }
+                  ]
                 }
               }
             }
@@ -2078,6 +2154,18 @@
                 "minLength": 1,
                 "maxLength": 128,
                 "description": "IANA timezone for once-per-date foreground execution. Host validates availability."
+              },
+              "platformIds": {
+                "type": "array",
+                "maxItems": 8,
+                "uniqueItems": true,
+                "default": [],
+                "description": "Applicable declared target platform IDs. Omitted or empty means all targets; Host validates target membership.",
+                "items": {
+                  "type": "string",
+                  "description": "Case-sensitive identifier beginning with a letter.",
+                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_.-]{0,127})(?![\\s\\S])"
+                }
               }
             }
           }
@@ -2113,8 +2201,67 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
+        }
+      ]
+    },
+    "capability-account-http": {
+      "type": "object",
+      "description": "API v2 account authentication provider. Returned authentication headers stay inside the Host.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/capability"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "operations": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "authenticate"
+              ],
+              "properties": {
+                "authenticate": {
+                  "$ref": "#/definitions/operation"
+                }
+              }
+            },
+            "authOrigins": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "Exact canonical HTTPS origin; no path, credentials, wildcard, or trailing slash. Flare checks DNS/port normalization.",
+                    "pattern": "^(?:https://[a-z0-9.-]+(?::[0-9]{1,5})?)(?![\\s\\S])"
+                  },
+                  {
+                    "const": "$accountOrigin"
+                  }
+                ]
+              }
+            },
+            "notificationFilters": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "authOrigins"
+          ]
         }
       ]
     }
@@ -2222,7 +2369,8 @@
             "properties": {
               "capabilities": {
                 "properties": {
-                  "flare.datasource.timeline-page/v1": false
+                  "flare.datasource.timeline-page/v1": false,
+                  "flare.datasource.account-http/v1": false
                 },
                 "type": "object"
               }

@@ -23,6 +23,7 @@ class DataSourceCapabilitySetTest {
         assertNotNull(dataSource.capabilities.search)
         assertNotNull(dataSource.capabilities.profile)
         assertNotNull(dataSource.capabilities.compose)
+        assertNotNull(dataSource.capabilities.accountHttp)
         assertNull(dataSource.capabilities.post)
         assertEquals(dataSource.accountKey, dataSource.accountKeyOrNull)
     }
@@ -35,6 +36,7 @@ class DataSourceCapabilitySetTest {
         assertNull(dataSource.capabilities.search)
         assertNull(dataSource.capabilities.profile)
         assertNull(dataSource.capabilities.compose)
+        assertNull(dataSource.capabilities.accountHttp)
         assertEquals(dataSource.accountKey, dataSource.accountKeyOrNull)
     }
 }
@@ -42,7 +44,12 @@ class DataSourceCapabilitySetTest {
 private open class LegacyDataSource :
     EmptyDataSource(),
     UserDataSource,
+    AccountHttpCapability,
     ComposeDataSource {
+    override val origins = setOf("https://social.example")
+
+    override suspend fun authenticate(request: AccountHttpRequest): Map<String, String> = emptyMap()
+
     override val accountKey: MicroBlogKey = MicroBlogKey("alice", "social.example")
     override val userHandler: UserHandler
         get() = error("Not used")

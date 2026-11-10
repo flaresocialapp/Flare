@@ -108,13 +108,27 @@ public fun PluginManifestV1.validate(methodTable: PluginMethodTableV1? = null): 
             check(ID.matches(target.platformId), "extension.platform", "$path.platformId", "Invalid platform ID")
             check(target.authOrigins.size in 1..16, "extension.origins", "$path.authOrigins", "Expected 1 to 16 origins")
             target.authOrigins.forEach { origin ->
-                check(origin.isExactHttpsOrigin(), "extension.origin", "$path.authOrigins", "Expected an exact HTTPS origin")
+                check(
+                    origin == PluginAbiV1.ACCOUNT_ORIGIN || origin.isExactHttpsOrigin(),
+                    "extension.origin",
+                    "$path.authOrigins",
+                    "Expected an exact HTTPS origin or account origin",
+                )
             }
         }
         check(extension.actions.size in 1..16, "extension.actions", "platformExtension.actions", "Expected 1 to 16 actions")
         validateUniqueIds(extension.actions.map { it.id }, "platformExtension.actions", errors)
         extension.actions.forEachIndexed { index, action ->
             val path = "platformExtension.actions[$index]"
+            check(
+                action.platformIds.size <= 8 &&
+                    action.platformIds.all { id ->
+                        extension.targets.any { it.platformId == id }
+                    },
+                "extension.action.platforms",
+                "$path.platformIds",
+                "Action platforms must be declared targets",
+            )
             check(
                 Regex("[A-Za-z][A-Za-z0-9_]{0,63}").matches(action.id) && action.id !in setOf("constructor", "prototype", "__proto__"),
                 "extension.action",
@@ -165,6 +179,30 @@ public fun PluginManifestV1.validate(methodTable: PluginMethodTableV1? = null): 
             val knownOperations = PluginAbiV1.knownCapabilityOperations[capabilityId] ?: return@forEach
             check(declaration.operations.size <= 32, "capability.operations", path, "Too many operations")
             if (declaration.operations.isNotEmpty() && declaration.operations.keys.none { it in knownOperations }) return@forEach
+            if (capabilityId == PluginAbiV1.Capabilities.ACCOUNT_HTTP) {
+                check(apiVersion >= 2, "capability.version", path, "Account HTTP requires plugin API v2")
+                check(
+                    declaration.authOrigins.size in 1..16,
+                    "capability.auth.origins",
+                    "$path.authOrigins",
+                    "Expected 1 to 16 authentication origins",
+                )
+                declaration.authOrigins.forEach { origin ->
+                    check(
+                        origin == PluginAbiV1.ACCOUNT_ORIGIN || origin.isExactHttpsOrigin(),
+                        "capability.auth.origin",
+                        "$path.authOrigins",
+                        "Expected an exact HTTPS origin or account origin",
+                    )
+                }
+            } else {
+                check(
+                    declaration.authOrigins.isEmpty(),
+                    "capability.config",
+                    "$path.authOrigins",
+                    "Authentication origins are only valid for account HTTP",
+                )
+            }
             check(declaration.operations.isNotEmpty(), "capability.empty", path, "Capability has no operations")
             check(
                 declaration.operations.keys.containsAll(PluginAbiV1.requiredCapabilityOperations.getValue(capabilityId)),

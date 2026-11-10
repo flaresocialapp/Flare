@@ -1,6 +1,6 @@
 ---
 name: flare-plugin
-description: Create, extend, debug, and prepare GitHub distribution for Flare Plugin API v1/v2 plugins. Use when implementing a website adapter, editing a Flare plugin manifest or classic JavaScript entrypoint, extending existing built-in accounts, adding text translation, plugin storage or an offline settings page, adding login or datasource capabilities, or diagnosing Flare plugin installation and runtime errors.
+description: Create, extend, debug, and prepare GitHub distribution for Flare Plugin API v1/v2 plugins. Use when implementing a website adapter, editing a Flare plugin manifest or classic JavaScript entrypoint, extending existing built-in or plugin-provided accounts, adding text translation, plugin storage or an offline settings page, adding login or datasource capabilities, or diagnosing Flare plugin installation and runtime errors.
 ---
 
 # Flare Plugin
@@ -35,10 +35,12 @@ to the user's plugin repository.
    has a different contract, establish its version before generating code; there
    is no implied released-app minimum version in this skill.
 
-For operations on existing built-in accounts and daily foreground tasks, read
+For operations on existing built-in or plugin-provided accounts and daily foreground tasks, read
 [platform extensions](references/platform-extensions.md). Verify the website protocol
 and use the Host account-authorization flow; implement the action with
 `defineFlarePlatformExtensionPlugin` and `flare.account.http.request`.
+For a social plugin to supply authentication to other plugins, follow that
+reference's `flare.datasource.account-http/v1` provider contract.
 
 For text translation, generic storage, combined plugins or offline settings pages, read
 [storage, translation and settings](references/storage-and-settings.md). Use API v2,

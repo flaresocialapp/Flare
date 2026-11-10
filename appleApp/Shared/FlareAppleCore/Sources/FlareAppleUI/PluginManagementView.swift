@@ -779,7 +779,9 @@ func pluginPermissionText(_ permission: PluginPermission) -> String {
         return String(localized: "plugin_permission_media_network")
     }
     if permission.type == .accountHttpOrigin {
-        return String(format: String(localized: "plugin_permission_account_http_origin"), permission.platformId ?? "", permission.origin)
+        let origin = permission.origin == "$accountOrigin"
+            ? String(localized: "plugin_permission_account_origin_label") : permission.origin
+        return String(format: String(localized: "plugin_permission_account_http_origin"), permission.platformId ?? "", origin)
     }
     if permission.type == .httpOrigin {
         return String(format: String(localized: "plugin_permission_http_origin"), permission.origin)

@@ -159,7 +159,8 @@ may add its first platform. Settings-only plugins do not need a synthetic platfo
 | Credential payload format becomes incompatible | Increment credentialSchemaVersion; existing accounts require relogin, with no plugin migration hook |
 | Timeline IDs/parameters change incompatibly | Consider timelineSchemaVersion; it changes timeline identities and retires old specs. Explain that existing selections may need reconfiguration |
 | Capabilities removed | Running capabilities are filtered by the new manifest |
-| Operations newly declared compared with the account's saved manifest | Current Host admits those new operations without re-negotiating login; do not assume a new login will gate them |
+| Ordinary datasource operations newly declared compared with the account's saved manifest | Current Host admits those new operations without re-negotiating login; do not assume a new login will gate them |
+| Add `flare.datasource.account-http/v1` | This account-authentication capability requires explicit login negotiation; existing accounts log in again before other plugins can request access |
 | Previously declared operation was not negotiated for the account | It remains unavailable unless account negotiation changes |
 | Package hash changes | Account adapter invalidates cached content when refreshing its persisted package snapshot |
 | Additive fields, detail types, item/media/action variants, capabilities or operations | Compatible Hosts ignore unsupported extensions; known content keeps its behavior and validation. Unknown detail/navigation types are inert, with no URL fallback |

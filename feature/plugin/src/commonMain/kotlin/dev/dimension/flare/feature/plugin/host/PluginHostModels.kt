@@ -1,5 +1,6 @@
 package dev.dimension.flare.feature.plugin.host
 
+import dev.dimension.flare.data.datasource.microblog.AccountHttpRequest
 import dev.dimension.flare.data.model.ProxyRef
 import dev.dimension.flare.feature.plugin.manifest.isValidLocaleTag
 import dev.dimension.flare.model.MicroBlogKey
@@ -34,7 +35,7 @@ public interface PluginAccountHttpAccess {
 
     public suspend fun ensureActive()
 
-    public suspend fun headers(url: String): Map<String, String>
+    public suspend fun authenticate(request: AccountHttpRequest): Map<String, String>
 }
 
 @Serializable
@@ -107,6 +108,7 @@ public class PluginInvocationContextV1 private constructor(
             httpOrigins: Set<String>,
             locale: String,
             access: PluginAccountHttpAccess,
+            accountOrigin: String? = null,
         ): PluginInvocationContextV1 {
             val base = plugin(pluginId, packageHash, httpOrigins, locale, platformId)
             require(ID.matches(targetPlatformId) && accountId.isNotBlank() && accountId.length <= 512) { "Invalid extension identity" }
@@ -114,6 +116,7 @@ public class PluginInvocationContextV1 private constructor(
                 metadata =
                     base.metadata.copy(
                         scope = PluginInvocationScopeV1.Extension,
+                        origin = accountOrigin?.let(PluginUrlPolicy::requireOrigin).orEmpty(),
                         accountId = accountId,
                         targetPlatformId = targetPlatformId,
                     ),

@@ -433,7 +433,15 @@ internal fun PluginPermission.localizedDescription(): String {
         return stringResource(R.string.plugin_permission_media_network)
     }
     if (type == dev.dimension.flare.data.model.PluginPermissionType.AccountHttpOrigin) {
-        return stringResource(R.string.plugin_permission_account_http_origin, platformId.orEmpty(), origin)
+        val displayOrigin =
+            if (origin ==
+                PluginAbiV1.ACCOUNT_ORIGIN
+            ) {
+                stringResource(R.string.plugin_permission_account_origin_label)
+            } else {
+                origin
+            }
+        return stringResource(R.string.plugin_permission_account_http_origin, platformId.orEmpty(), displayOrigin)
     }
     if (type == dev.dimension.flare.data.model.PluginPermissionType.HttpOrigin) {
         return stringResource(R.string.plugin_permission_http_origin, origin)

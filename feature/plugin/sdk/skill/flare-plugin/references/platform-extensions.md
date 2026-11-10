@@ -1,7 +1,8 @@
 # Existing-platform actions
 
 Use Host API v2 and `defineFlarePlatformExtensionPlugin({ actions: { actionId } })`
-to add operations to existing built-in accounts. This registration may coexist
+to add operations to existing accounts, including platforms supplied by other
+plugins. This registration may coexist
 with social, translation and settings capabilities; call each entrypoint once
 synchronously. Extensions do not own or replace a platform and cannot intercept
 timelines or inject post/profile menus.
@@ -22,7 +23,11 @@ timelines or inject post/profile menus.
 
 Declare 1–8 unique targets and 1–16 unique actions. Action IDs begin with a letter
 and contain only letters, numbers and underscores (at most 64 characters);
-prototype names are reserved. Target origins are exact canonical HTTPS origins,
+prototype names are reserved. Optional `actions[].platformIds` restricts an action
+to a subset of declared target platform IDs; omitted or empty means every target.
+The Host filters each account's tasks and checks this restriction for both manual
+and automatic execution. Target origins are exact canonical HTTPS origins or
+`$accountOrigin`, resolved to the selected account's HTTPS origin,
 1–16 per platform. Titles and optional descriptions support normal localized
 plugin text. Omit `dailyTimeZone` for manual-only actions; a supplied IANA timezone
 must be recognized by the Host. Every action requires `plugin.js` and its matching
@@ -30,15 +35,18 @@ must be recognized by the Host. Every action requires `plugin.js` and its matchi
 
 ## Authorization and HTTP
 
-On native iOS, Android and macOS, **More → Platform actions** lists compatible
+On native iOS, Android and macOS, **More → Plugin tasks** lists compatible
 accounts. Users grant each account explicitly and independently enable each daily
-action. A platform must supply a native authentication adapter. Initially Weibo
-`VVo` supports `https://m.weibo.cn` and `https://weibo.com`; no other built-in or
-plugin-owned platform automatically grants authentication access. All requested
-origins must be supported by the platform.
+action. A platform must explicitly supply the account HTTP capability. Initially
+the built-in Weibo `VVo` supports `https://m.weibo.cn` and `https://weibo.com`.
+Plugin platforms can opt in as described below. All requested origins must be
+supported by the platform; the Host never falls back to unauthenticated requests.
 
 Inside an action, `context.scope` is `extension`, `context.targetPlatformId` is
 the target platform, and `context.accountId` is an opaque per-plugin grant handle.
+`context.origin` is the selected account's HTTPS origin when supplied by its
+provider, so an extension can construct URLs for different instances. This does
+not add that origin to `context.approvedOrigins` or ordinary `flare.http` access.
 The normal `context.platformId` remains the package's own social-platform ID or
 an empty string. Do not assume the grant handle is a website UID. Re-granting an
 account generates a new handle. Never rely on globals for persistent state.
@@ -46,7 +54,8 @@ account generates a new handle. Never rely on globals for persistent state.
 Use `flare.account.http.request(request)` for authenticated requests. Host
 authentication is injected only for this action's target origins, with the target
 account's proxy and active-session checks on every request and redirect hop.
-Request cookies/authorization overrides are rejected. Authentication headers and
+Request cookies/authorization overrides are rejected. Automatic redirects stay
+on the same origin and authenticate each hop again. Authentication headers and
 `Set-Cookie` response headers are not exposed to JavaScript; response bodies are
 available to the plugin. Origin permission permits arbitrary account operations
 at those origins, including writes; it does not restrict the plugin to its action
@@ -64,9 +73,97 @@ HTTP only; account grants and execution are controlled by native UI.
 
 Logout/removal/re-login revokes the old session, including an in-flight action.
 Ordinary credential refresh preserves the session. Adding targets, authentication
-origins, action IDs, schedules or ordinary HTTP permissions requires a new account
+origins, action IDs, per-action platform assignments, schedules or ordinary HTTP permissions requires a new account
 grant. Installation/update also discloses authenticated origins. A stale native
 authorization review is rejected after account/session or package changes.
+
+## Supplying authentication from a social plugin
+
+The provider uses Host API v2 and declares this account-only capability inside
+`platform.capabilities`, alongside its normal displayable capabilities:
+
+```json
+{
+  "flare.datasource.account-http/v1": {
+    "operations": { "authenticate": {} },
+    "authOrigins": ["$accountOrigin"]
+  }
+}
+```
+
+`authOrigins` contains 1–16 exact HTTPS origins or `$accountOrigin`. Include
+`"flare.datasource.account-http/v1": ["authenticate"]` in the login result's
+negotiated capabilities for accounts that support it. It is unavailable to guests
+and does not count as a displayable capability or create its own UI entry.
+Existing accounts must log in again to enable a newly added account HTTP
+capability; ordinary datasource operations retain their additive upgrade rules.
+
+Implement it within the provider's single social registration:
+
+```js
+defineFlareSocialPlugin({
+  capabilities: {
+    accountHttp: {
+      async authenticate(request, context) {
+        const credential = await flare.credential.read();
+        // Refresh or sign according to this platform's protocol.
+        return { Authorization: "Bearer " + credential.token };
+      }
+    }
+  }
+});
+```
+
+The Host invokes this handler in the **provider's own account scope**, with its
+own storage, credential APIs, HTTP permissions and proxy. `request` contains the
+uppercase `method`, validated `url`, caller headers including the final
+`Content-Type`, and optional/null `bodyBase64`. The latter is the exact encoded
+request body, including form escaping and multipart boundaries; it is not JSON
+to re-serialize. Authenticated bodies are limited to 2 MiB after encoding.
+No body is sent when `bodyBase64` is absent/null. Use these fields for signatures
+when required. Return a string-to-string map of authentication headers; the Host
+injects them without returning them to the consuming plugin.
+
+Headers must be unique ignoring case, at most 32 headers and 64 KiB combined
+with caller headers, with no CR/LF/NUL. Providers cannot set routing, framing or
+content headers (`Host`, `Connection`, `Keep-Alive`, `Content-Length`, `Content-Type`,
+`Transfer-Encoding`, `TE`, `Trailer`, `Upgrade`), `Set-Cookie`, `Set-Cookie2`,
+`Proxy-*` or `Sec-*`. `Cookie`, `Authorization`, `Referer` and platform-specific
+authentication headers are allowed. Header names returned by the provider are
+also filtered from the consumer's response headers. Response bodies remain
+visible to the consumer; origin grants permit arbitrary operations at that origin.
+The authentication handler cannot recursively call `flare.account.http`.
+If authentication cannot be refreshed, throw `flare.error` with code
+`AuthenticationRequired`. The consuming request rejects with the sanitized Host
+error `account.authentication-required`. The Host records authentication failure
+and pauses automatic execution even if the consumer leaves the error uncaught or
+returns a different status. Consumers can return
+`{ status: "authentication-required" }` explicitly when handling this error.
+
+A separate consumer can target both Weibo and that provider without registering
+another social platform:
+
+```json
+{
+  "targets": [
+    { "platformId": "VVo", "authOrigins": ["https://m.weibo.cn"] },
+    { "platformId": "ExampleProvider", "authOrigins": ["$accountOrigin"] }
+  ],
+  "actions": [
+    { "id": "weiboDaily", "title": "Weibo task", "platformIds": ["VVo"] },
+    { "id": "providerDaily", "title": "Provider task", "platformIds": ["ExampleProvider"] }
+  ]
+}
+```
+
+This is the `platformExtension` object, not a complete manifest. Consumers keep
+using `flare.account.http.request`; they receive neither the provider's credential
+nor its storage. Both plugins and the selected account must remain active for the
+whole execution. Stopping, removing, updating or reloading the provider cancels
+dependent work. Replacing its package/runtime requires a new consumer account
+grant, including after disable/enable; ordinary app restarts and credential
+refreshes preserve grants. Removing the consumer leaves the source account intact.
+Authorization dialogs show the resolved concrete origins and reject stale reviews.
 
 ## Execution and results
 

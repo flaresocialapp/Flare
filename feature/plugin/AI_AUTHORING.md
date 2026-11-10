@@ -110,6 +110,10 @@ No SDK download or remote cache is used. The complete external SDK and skill at
 `sdk/skill/flare-plugin/`, including publishing tools and Pixelfed, remain intact.
 
 Existing-platform actions use `defineFlarePlatformExtensionPlugin` and require
-explicit account grants in the native **Platform actions** page, including locally
-AI-authored plugins. Authoring tools cannot grant built-in accounts or run their
+explicit account grants in the native **Plugin tasks** page, including locally
+AI-authored plugins. Targets can be built-in platforms or other plugins' social
+platforms that explicitly provide `flare.datasource.account-http/v1`. Use per-action
+`platformIds` when different targets need different handlers. The Host invokes
+source authentication in its own account scope and never shares credentials or
+storage with the consumer. Authoring tools cannot grant accounts or run their
 actions. See the [extension contract](sdk/skill/flare-plugin/references/platform-extensions.md).

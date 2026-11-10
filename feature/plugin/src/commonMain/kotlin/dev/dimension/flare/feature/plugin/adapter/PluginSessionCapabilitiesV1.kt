@@ -42,6 +42,7 @@ internal class PluginSessionCapabilitiesV1(
         val ACCOUNT_CAPABILITIES =
             setOf(
                 Capabilities.COMPOSE,
+                Capabilities.ACCOUNT_HTTP,
                 Capabilities.RELATION,
                 Capabilities.NOTIFICATION,
                 Capabilities.LIST,

@@ -205,6 +205,14 @@ const extension: PlatformExtensionPluginDefinitionV1 = {
   } },
 };
 defineFlarePlatformExtensionPlugin(extension);
+defineFlareSocialPlugin({ capabilities: { accountHttp: {
+  async authenticate(request, context) {
+    const method: string = request.method;
+    const body: string | null | undefined = request.bodyBase64;
+    const credential = await flare.credential.read();
+    return { Authorization: "Bearer " + String(credential), "X-Method": method };
+  },
+} } });
 // @ts-expect-error Account HTTP uses Host authentication.
 flare.account.http.request({ url: "https://m.weibo.cn/", cookies: [] });
 const host: FlareHostV1 = flare;

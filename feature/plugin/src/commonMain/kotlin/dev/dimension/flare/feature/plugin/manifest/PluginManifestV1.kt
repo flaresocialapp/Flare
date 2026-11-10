@@ -67,6 +67,7 @@ public data class CapabilityManifestV1(
     val operations: Map<String, CapabilityOperationManifestV1>,
     val notificationFilters: Set<NotificationFilterKindV1> = emptySet(),
     val relationActions: Set<RelationActionKindV1> = emptySet(),
+    val authOrigins: Set<String> = emptySet(),
 )
 
 @Serializable
@@ -254,6 +255,8 @@ public data class PluginExtensionActionV1(
     val description: PluginTextV1? = null,
     /** When present, foreground catch-up may run once per date in this timezone. */
     val dailyTimeZone: String? = null,
+    /** Empty means all declared targets, preserving existing v2 packages. */
+    val platformIds: Set<String> = emptySet(),
 )
 
 /** Social-only adapters call this after filtering plugins with no social platform. */

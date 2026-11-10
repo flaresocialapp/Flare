@@ -1825,6 +1825,188 @@
       },
       "schemaValid": false,
       "hostValid": false
+    },
+    {
+      "name": "v2 account HTTP provider",
+      "patch": {
+        "apiVersion": 2,
+        "platform": {
+          "capabilities": {
+            "flare.datasource.account-http/v1": {
+              "operations": {
+                "authenticate": {}
+              },
+              "authOrigins": [
+                "$accountOrigin",
+                "https://api.example.org"
+              ]
+            }
+          }
+        }
+      },
+      "schemaValid": true,
+      "hostValid": true
+    },
+    {
+      "name": "account HTTP provider requires v2",
+      "patch": {
+        "platform": {
+          "capabilities": {
+            "flare.datasource.account-http/v1": {
+              "operations": {
+                "authenticate": {}
+              },
+              "authOrigins": [
+                "$accountOrigin",
+                "https://api.example.org"
+              ]
+            }
+          }
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "account HTTP provider requires origins",
+      "patch": {
+        "apiVersion": 2,
+        "platform": {
+          "capabilities": {
+            "flare.datasource.account-http/v1": {
+              "operations": {
+                "authenticate": {}
+              }
+            }
+          }
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "account HTTP provider rejects foreign capability configuration",
+      "patch": {
+        "apiVersion": 2,
+        "platform": {
+          "capabilities": {
+            "flare.datasource.account-http/v1": {
+              "operations": {
+                "authenticate": {}
+              },
+              "authOrigins": [
+                "$accountOrigin",
+                "https://api.example.org"
+              ],
+              "relationActions": [
+                "follow"
+              ]
+            }
+          }
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "account HTTP provider rejects insecure origins",
+      "patch": {
+        "apiVersion": 2,
+        "platform": {
+          "capabilities": {
+            "flare.datasource.account-http/v1": {
+              "operations": {
+                "authenticate": {}
+              },
+              "authOrigins": [
+                "http://api.example.org"
+              ]
+            }
+          }
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "extension actions can target individual platforms",
+      "patch": {
+        "apiVersion": 2,
+        "platformExtension": {
+          "targets": [
+            {
+              "platformId": "VVo",
+              "authOrigins": [
+                "https://m.weibo.cn"
+              ]
+            },
+            {
+              "platformId": "ExamplePlatform",
+              "authOrigins": [
+                "$accountOrigin"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "id": "checkIn",
+              "title": "Check in",
+              "platformIds": [
+                "VVo"
+              ]
+            },
+            {
+              "id": "other",
+              "title": "Other",
+              "platformIds": [
+                "ExamplePlatform"
+              ]
+            }
+          ]
+        }
+      },
+      "schemaValid": true,
+      "hostValid": true
+    },
+    {
+      "name": "extension action rejects undeclared platforms",
+      "patch": {
+        "apiVersion": 2,
+        "platformExtension": {
+          "targets": [
+            {
+              "platformId": "VVo",
+              "authOrigins": [
+                "https://m.weibo.cn"
+              ]
+            },
+            {
+              "platformId": "ExamplePlatform",
+              "authOrigins": [
+                "$accountOrigin"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "id": "checkIn",
+              "title": "Check in",
+              "platformIds": [
+                "MissingPlatform"
+              ]
+            },
+            {
+              "id": "other",
+              "title": "Other",
+              "platformIds": [
+                "ExamplePlatform"
+              ]
+            }
+          ]
+        }
+      },
+      "schemaValid": true,
+      "hostValid": false
     }
   ]
 }

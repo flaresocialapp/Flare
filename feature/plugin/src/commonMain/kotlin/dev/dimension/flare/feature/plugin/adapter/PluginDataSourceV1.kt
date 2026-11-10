@@ -1,6 +1,8 @@
 package dev.dimension.flare.feature.plugin.adapter
 
 import dev.dimension.flare.common.FileItem
+import dev.dimension.flare.data.datasource.microblog.AccountHttpCapability
+import dev.dimension.flare.data.datasource.microblog.AccountHttpRequest
 import dev.dimension.flare.data.datasource.microblog.AuthenticatedMicroblogDataSource
 import dev.dimension.flare.data.datasource.microblog.ComposeConfig
 import dev.dimension.flare.data.datasource.microblog.ComposeData
@@ -42,6 +44,7 @@ import dev.dimension.flare.feature.plugin.host.PluginInvocationContextV1
 import dev.dimension.flare.feature.plugin.host.PluginUrlPolicy
 import dev.dimension.flare.feature.plugin.host.accountHost
 import dev.dimension.flare.feature.plugin.host.platformUuid
+import dev.dimension.flare.feature.plugin.host.validateAuthenticationHeaders
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.manifest.ProfileTabManifestV1
 import dev.dimension.flare.feature.plugin.manifest.TimelineManifestV1
@@ -95,6 +98,8 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.encodeToString
 
 /** Lazy proxy: construction reads only the Host-owned credential envelope and never starts a JavaScript engine. */
@@ -146,6 +151,14 @@ internal class PluginDataSourceV1 private constructor(
 
     override val capabilitySet: DataSourceCapabilitySet by lazy {
         DataSourceCapabilitySet(
+            accountHttp =
+                if (plugin.installed.manifest.apiVersion >= 2 &&
+                    capabilities.canExpose(PluginAbiV1.Capabilities.ACCOUNT_HTTP)
+                ) {
+                    AccountHttpAdapter()
+                } else {
+                    null
+                },
             timelinePage =
                 if (plugin.installed.manifest.apiVersion >= 2 &&
                     capabilities.canExpose(PluginAbiV1.Capabilities.TIMELINE_PAGE)
@@ -661,6 +674,34 @@ internal class PluginDataSourceV1 private constructor(
             load,
             mapper::timelineItem,
         )
+
+    private inner class AccountHttpAdapter : AccountHttpCapability {
+        override val accountOrigin = origin
+        override val authorizationRevision = "${plugin.installed.pluginId}:${plugin.installed.packageHash}:${plugin.generation}"
+        private val allowedOrigins =
+            requireNotNull(
+                plugin.installed.manifest.platform,
+            ).capabilities.getValue(PluginAbiV1.Capabilities.ACCOUNT_HTTP).authOrigins.mapTo(linkedSetOf()) {
+                if (it == PluginAbiV1.ACCOUNT_ORIGIN) origin else it
+            }
+        override val origins: Set<String> get() = if (plugin.session.isActive) allowedOrigins else emptySet()
+
+        override suspend fun ensureActive() = invoker.ensureActive()
+
+        override suspend fun <T> withAuthorization(block: suspend () -> T): T = invoker.withAuthorization(block)
+
+        override suspend fun authenticate(request: AccountHttpRequest): Map<String, String> {
+            PluginUrlPolicy.requireRequestUrl(request.url, origins)
+            return invoker.invoke(
+                capabilityId = PluginAbiV1.Capabilities.ACCOUNT_HTTP,
+                operation = "authenticate",
+                request = request,
+                requestSerializer = AccountHttpRequest.serializer(),
+                responseSerializer = MapSerializer(String.serializer(), String.serializer()),
+                validate = ::validateAuthenticationHeaders,
+            )
+        }
+    }
 
     private inner class ComposeCapabilityAdapter :
         ComposeDataSource,

@@ -79,7 +79,18 @@ internal class IsolatedPluginRuntime(
                 }
                 if (plugin.installed.manifest.apiVersion >= 2) context.accountHttp?.ensureActive()
                 val requestJson = request.toString()
-                require(requestJson.encodeToByteArray().size <= MAX_INVOCATION_REQUEST_BYTES) { "Plugin request is too large" }
+                val authentication = method == "capabilities.accountHttp.authenticate"
+                require(
+                    !authentication ||
+                        (
+                            context.metadata.scope == dev.dimension.flare.feature.plugin.host.PluginInvocationScopeV1.Account &&
+                                context.metadata.credentialAvailable
+                        ),
+                ) { "Account authentication requires an account context" }
+                val requestLimit = if (authentication) MAX_AUTHENTICATION_REQUEST_BYTES else MAX_INVOCATION_REQUEST_BYTES
+                require(requestJson.encodeToByteArray().size <= requestLimit) {
+                    "Plugin request is too large"
+                }
                 if (poisoned) throw PluginRuntimeFatalException(IllegalStateException("Runtime generation is retired"), false)
                 val invocationJob = currentCoroutineContext()[Job]
                 try {
@@ -240,6 +251,7 @@ private fun decodeResult(
 
 private const val INITIALIZATION_TIMEOUT_MILLIS = 2_000L
 private const val MAX_INVOCATION_REQUEST_BYTES = 1024 * 1_024
+private const val MAX_AUTHENTICATION_REQUEST_BYTES = 5 * 1_024 * 1_024
 private const val MAX_INVOCATION_RESPONSE_BYTES = 5 * 1_024 * 1_024
 private val METHOD_PATH = Regex("[A-Za-z][A-Za-z0-9_-]*(?:\\.[A-Za-z][A-Za-z0-9_-]*)+")
 

@@ -5,10 +5,12 @@ These local references match the running Flare build. Read them with
 Paths in links are relative to their document. Only read the contracts relevant
 to the requested work instead of loading every document into the conversation.
 
-For operations on existing built-in accounts and daily foreground tasks, read
+For operations on existing built-in or plugin-provided accounts and daily foreground tasks, read
 [platform extensions](references/platform-extensions.md). Verify the website protocol
 and use the Host account-authorization flow; implement the action with
 `defineFlarePlatformExtensionPlugin` and `flare.account.http.request`.
+For a social plugin to supply authentication to other plugins, follow that
+reference's `flare.datasource.account-http/v1` provider contract.
 
 ## Workflow
 

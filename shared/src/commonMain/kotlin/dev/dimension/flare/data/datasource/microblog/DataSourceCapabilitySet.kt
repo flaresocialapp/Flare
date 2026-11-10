@@ -39,6 +39,7 @@ public data class DataSourceCapabilitySet(
     public val gallery: GalleryDataSource? = null,
     public val tabCatalog: TabCatalogCapability? = null,
     public val timelinePage: TimelinePageDataSource? = null,
+    public val accountHttp: AccountHttpCapability? = null,
 )
 
 @HiddenFromObjC
@@ -173,5 +174,6 @@ private fun MicroblogDataSource.legacyCapabilitySet(): DataSourceCapabilitySet {
             } else {
                 null
             },
+        accountHttp = this as? AccountHttpCapability,
     )
 }

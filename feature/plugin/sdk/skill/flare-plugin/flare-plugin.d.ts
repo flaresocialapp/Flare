@@ -8,7 +8,10 @@
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
-/** Deeply frozen per-call Host metadata. Globals are disposable; social origin is normalized HTTPS. Plugin scope has empty platformId/origin when absent. */
+/** Deeply frozen per-call Host metadata. Globals are disposable; social origin is normalized HTTPS.
+ * Extension origin is the selected account's origin when its provider supplies one; ordinary HTTP permissions stay separate.
+ * Plugin scope has empty platformId/origin when absent.
+ */
 interface PluginInvocationContextV1 {
   readonly pluginId: string;
   readonly platformId: string;
@@ -17,7 +20,7 @@ interface PluginInvocationContextV1 {
   readonly origin: string;
   /** Present for account and extension calls; extension handles are opaque and do not expose credentials. */
   readonly accountId?: string;
-  /** Extension scope: target built-in platform; accountId is a plugin-scoped opaque grant handle. */
+  /** Extension scope: target built-in or plugin-provided platform; accountId is a plugin-scoped opaque grant handle. */
   readonly targetPlatformId?: string | null;
   readonly locale: string;
   /** HTTP allowlist: httpOrigins expands login/account/guest; authOrigins expands login only. Detector uses its candidate origin only. */
@@ -69,6 +72,14 @@ interface PlatformExtensionResultV1 {
   skipped?: number;
   failed?: number;
 }
+/** API v2 provider callback. Returned headers stay inside the Host. */
+interface AccountHttpAuthenticationRequestV1 {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  /** Exact encoded request bytes, including multipart boundaries. At most 2 MiB before base64 encoding. */
+  bodyBase64?: string | null;
+}
 interface PlatformExtensionPluginDefinitionV1 {
   actions: Record<string, (request: PlatformExtensionRequestV1, context: PluginInvocationContextV1) => MaybePromise<PlatformExtensionResultV1>>;
 }
@@ -77,6 +88,7 @@ interface SocialPluginDefinitionV1 {
   detector?: { detect(request: DetectorRequestV1, context: PluginInvocationContextV1): MaybePromise<DetectorResultV1> };
   login?: Record<string, LoginServiceV1>;
   capabilities?: {
+    accountHttp?: { authenticate(request: AccountHttpAuthenticationRequestV1, context: PluginInvocationContextV1): MaybePromise<Record<string, string>> };
     /** API v2: transient native lists, independent of home timelines and tabCatalog. */
     timelinePage?: { load(request: TimelinePageLoadRequestV2, context: PluginInvocationContextV1): MaybePromise<PageV1<TimelineItemV1>> };
     timeline?: { page(request: TimelinePageRequestV1, context: PluginInvocationContextV1): MaybePromise<PageV1<TimelineItemV1>> };
@@ -706,5 +718,5 @@ declare const flare: FlareHostV1;
 /** Register this text-translation provider once; may coexist with a social registration. */
 declare function defineFlareTranslatePlugin(plugin: TranslatePluginDefinitionV1): void;
 
-/** Register actions for existing built-in accounts once; may coexist with other plugin definitions. */
+/** Register actions for existing built-in or plugin-provided accounts once; may coexist with other plugin definitions. */
 declare function defineFlarePlatformExtensionPlugin(plugin: PlatformExtensionPluginDefinitionV1): void;

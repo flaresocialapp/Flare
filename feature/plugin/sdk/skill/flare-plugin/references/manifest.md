@@ -153,6 +153,12 @@ must be nonempty when `page` is declared. Values: `all`, `mention`, `comment`,
 nonempty. Values: `follow`, `block`, `mute`. Both default to empty and are static
 arrays; placing them on another capability is invalid.
 
+Host API v2 `flare.datasource.account-http/v1` requires `authenticate` and
+`authOrigins`: 1–16 unique exact HTTPS origins or `$accountOrigin`. Other known
+capabilities cannot declare authentication origins. It is account-only and must
+be negotiated at login; it is not a displayable entry. See
+[account HTTP providers](platform-extensions.md#supplying-authentication-from-a-social-plugin).
+
 ### Timelines and profile tabs
 
 | Field | Timeline default | Profile-tab default |
@@ -276,5 +282,6 @@ are exempt from the minimum attachment count.
 - Extra root properties such as `author`, `homepage`, `entry`, or a trust badge:
   API v1/v2 define no such manifest fields; put human-facing information in README.
 
-For `platformExtension` targets, action IDs, daily timezones and account authorization,
+For `platformExtension` targets (including other plugins' platforms), action IDs,
+optional per-action `platformIds`, daily timezones and account authorization,
 read [existing-platform actions](platform-extensions.md). Extensions require Host API v2.

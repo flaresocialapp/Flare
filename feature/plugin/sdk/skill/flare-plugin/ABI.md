@@ -451,7 +451,7 @@ keep their original selection and completion behavior.
 
 Host API v2 adds independent `translation` and offline `settings` declarations and generic plugin-scoped storage. Read [storage, translation and settings](references/storage-and-settings.md) for the exact contract, namespace revision dependencies, page SDK and lifecycle. API v1 social plugins keep their behavior; the unreleased v2 also includes its HTTP/session extensions. Background code registers each provided type with `defineFlareSocialPlugin` or `defineFlareTranslatePlugin`.
 
-For actions on existing built-in accounts, use `defineFlarePlatformExtensionPlugin`.
+For actions on existing built-in or plugin-provided accounts, use `defineFlarePlatformExtensionPlugin`.
 Read the [platform extension contract](references/platform-extensions.md) for account
 grants, authenticated HTTP, scheduling and structured results.
 

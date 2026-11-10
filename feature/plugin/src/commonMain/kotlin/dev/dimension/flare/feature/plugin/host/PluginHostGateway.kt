@@ -1,5 +1,6 @@
 package dev.dimension.flare.feature.plugin.host
 
+import dev.dimension.flare.data.repository.RequireReLoginException
 import dev.dimension.flare.feature.plugin.abi.PluginJsonV1
 import dev.dimension.flare.feature.plugin.storage.PluginStorageAccessV1
 import dev.dimension.flare.feature.plugin.storage.PluginStorageChangesV1
@@ -39,7 +40,12 @@ internal class PluginHostGateway(
                         if (apiVersion < 2) throw PluginHostException("host.unsupported", "Account HTTP requires API v2")
                         val access = context.accountHttp ?: throw PluginHostException("account.denied", "Account HTTP is unavailable")
                         val request = PluginJsonV1.decodeFromString<HttpRequestV1>(argumentsJson)
-                        val response = http.execute(request, context, callTimeoutMillis, apiVersion, access)
+                        val response =
+                            try {
+                                http.execute(request, context, callTimeoutMillis, apiVersion, access)
+                            } catch (_: RequireReLoginException) {
+                                throw PluginHostException("account.authentication-required", "Account authentication requires login")
+                            }
                         PluginJsonV1.encodeToJsonElement(
                             dev.dimension.flare.feature.plugin.wire.HttpResponseV1
                                 .serializer(),

@@ -113,7 +113,7 @@ internal fun EntryProviderScope<NavKey>.settingsSelectEntryBuilder(
     entry<Route.Settings.PluginExtensions>(
         metadata = ListDetailSceneStrategy.detailPane(sceneKey = "Settings"),
     ) {
-        PluginExtensionScreen(pluginId = it.pluginId, onBack = onBack)
+        PluginExtensionScreen(pluginId = it.pluginId, onBack = onBack, onLogin = { navigate(Route.ServiceSelect.Selection) })
     }
 
     entry<Route.Settings.PluginSettings>(

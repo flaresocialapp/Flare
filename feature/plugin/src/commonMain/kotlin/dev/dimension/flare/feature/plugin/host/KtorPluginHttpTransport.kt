@@ -71,6 +71,14 @@ public class KtorPluginHttpTransport(
 
 private fun PluginTransportBodyV1.toOutgoingContent(): OutgoingContent =
     when (this) {
+        is PluginTransportBodyV1.Bytes -> {
+            object : OutgoingContent.ByteArrayContent() {
+                override val contentType = ContentType.parse(this@toOutgoingContent.contentType)
+
+                override fun bytes() = value
+            }
+        }
+
         is PluginTransportBodyV1.Text -> {
             TextContent(value, ContentType.parse(contentType))
         }
@@ -96,20 +104,27 @@ private class StreamingMultipartContent(
 
     @OptIn(InternalAPI::class)
     override suspend fun writeTo(channel: ByteWriteChannel) {
+        write { channel.writeFully(it) }
+    }
+
+    suspend fun write(append: suspend (ByteArray) -> Unit) {
+        suspend fun text(value: String) {
+            append(value.encodeToByteArray())
+        }
         parts.forEach { part ->
-            channel.writeUtf8("--$boundary\r\n")
+            text("--$boundary\r\n")
             when (part) {
                 is PluginTransportMultipartPartV1.Text -> {
-                    channel.writeUtf8("Content-Disposition: form-data; name=\"${part.name}\"\r\n")
-                    part.contentType?.let { channel.writeUtf8("Content-Type: $it\r\n") }
-                    channel.writeUtf8("\r\n${part.value}\r\n")
+                    text("Content-Disposition: form-data; name=\"${part.name}\"\r\n")
+                    part.contentType?.let { text("Content-Type: $it\r\n") }
+                    text("\r\n${part.value}\r\n")
                 }
 
                 is PluginTransportMultipartPartV1.Asset -> {
-                    channel.writeUtf8(
+                    text(
                         "Content-Disposition: form-data; name=\"${part.name}\"; filename=\"${part.fileName}\"\r\n",
                     )
-                    channel.writeUtf8("Content-Type: ${part.contentType}\r\n\r\n")
+                    text("Content-Type: ${part.contentType}\r\n\r\n")
                     var copied = 0L
                     part.value.openSource().buffer().use { source ->
                         val buffer = Buffer()
@@ -118,20 +133,42 @@ private class StreamingMultipartContent(
                             if (read == -1L) break
                             copied += read
                             require(copied <= part.value.size) { "Asset is larger than declared" }
-                            channel.writeFully(buffer.readByteArray(read))
+                            append(buffer.readByteArray(read))
                         }
                     }
                     require(copied == part.value.size) { "Asset size changed during upload" }
-                    channel.writeUtf8("\r\n")
+                    text("\r\n")
                 }
             }
         }
-        channel.writeUtf8("--$boundary--\r\n")
+        text("--$boundary--\r\n")
     }
 }
 
-private suspend fun ByteWriteChannel.writeUtf8(value: String) {
-    writeFully(value.encodeToByteArray())
+internal suspend fun PluginTransportBodyV1.materializeForAuthentication(): PluginTransportBodyV1.Bytes {
+    val content = toOutgoingContent()
+    val bytes =
+        when (content) {
+            is OutgoingContent.ByteArrayContent -> {
+                content.bytes()
+            }
+
+            is StreamingMultipartContent -> {
+                val buffer = Buffer()
+                content.write { bytes ->
+                    require(buffer.size + bytes.size <= MAX_AUTHENTICATED_BODY_BYTES) { "Authenticated body is too large" }
+                    buffer.write(bytes)
+                }
+                buffer.readByteArray()
+            }
+
+            else -> {
+                error("Unsupported authenticated body")
+            }
+        }
+    require(bytes.size <= MAX_AUTHENTICATED_BODY_BYTES) { "Authenticated body is too large" }
+    return PluginTransportBodyV1.Bytes(bytes, requireNotNull(content.contentType).toString())
 }
 
 private const val COPY_BUFFER_BYTES = 8_192L
+private const val MAX_AUTHENTICATED_BODY_BYTES = 2 * 1_024 * 1_024

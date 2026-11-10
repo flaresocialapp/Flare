@@ -245,6 +245,44 @@ class PluginAccountV1Test {
     }
 
     @Test
+    fun accountHttpRequiresExplicitNegotiationWhenAddedByAnUpdate() {
+        val original = plugin(setOf("detail"), apiVersion = 2)
+        val account = credential(original, previous = setOf("detail"), negotiated = setOf("detail"))
+        val manifest = original.installed.manifest
+        val capability = PluginAbiV1.Capabilities.ACCOUNT_HTTP
+        val updatedPlatform =
+            manifest.socialPlatform.copy(
+                capabilities =
+                    manifest.socialPlatform.capabilities + (
+                        capability to
+                            CapabilityManifestV1(
+                                operations = mapOf("authenticate" to CapabilityOperationManifestV1()),
+                                authOrigins = setOf(PluginAbiV1.ACCOUNT_ORIGIN),
+                            )
+                    ),
+            )
+        val updated = original.copy(installed = original.installed.copy(manifest = manifest.copy(platform = updatedPlatform)))
+        assertFalse(capability in account.effectiveCapabilities(updated))
+        val previouslyDeclined =
+            account.copy(
+                snapshot =
+                    account.snapshot.copy(
+                        manifestCapabilities = account.snapshot.manifestCapabilities + (capability to setOf("authenticate")),
+                    ),
+            )
+        assertFalse(capability in previouslyDeclined.effectiveCapabilities(updated))
+        val success =
+            LoginSuccessV1(
+                accountId = account.snapshot.accountId,
+                origin = account.snapshot.origin,
+                credential = account.credential,
+                profile = account.snapshot.profile,
+                capabilities = account.snapshot.negotiatedCapabilities + (capability to setOf("authenticate")),
+            )
+        assertEquals(setOf("authenticate"), updated.accountCredential(success).effectiveCapabilities(updated)[capability])
+    }
+
+    @Test
     fun newManifestOperationIsAvailableWithoutRequiringRelogin() {
         val plugin = plugin(setOf("detail", "context"))
         val account = credential(plugin, previous = setOf("detail"), negotiated = setOf("detail"))

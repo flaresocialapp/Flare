@@ -34,6 +34,17 @@ internal class PluginAccountInvokerV1(
     private val accountKey: MicroBlogKey?,
     private val context: suspend (locale: String, assets: Map<String, PluginAsset>) -> PluginInvocationContextV1,
 ) {
+    suspend fun ensureActive() {
+        plugin.session.ensureActive()
+        context(Locale.language, emptyMap()).credential?.ensureActive()
+    }
+
+    suspend fun <T> withAuthorization(block: suspend () -> T): T =
+        plugin.session.invoke("capabilities.accountHttp.authorize") {
+            ensureActive()
+            block().also { ensureActive() }
+        }
+
     fun <Wire : Any> timelineLoader(
         capability: String,
         operation: String,

@@ -147,7 +147,8 @@ internal fun PluginAccountCredentialV1.effectiveCapabilities(plugin: RunningPlug
             val previousManifest = snapshot.manifestCapabilities[capability].orEmpty()
             val negotiated = snapshot.negotiatedCapabilities[capability].orEmpty()
             declaration.operations.keys.filterTo(linkedSetOf()) { operation ->
-                operation !in previousManifest || operation in negotiated
+                operation in negotiated ||
+                    (capability != PluginAbiV1.Capabilities.ACCOUNT_HTTP && operation !in previousManifest)
             }
         }.filterValues(Set<String>::isNotEmpty)
         .let(PluginAbiV1::knownCapabilities)

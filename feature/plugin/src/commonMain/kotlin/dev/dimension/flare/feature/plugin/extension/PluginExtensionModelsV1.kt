@@ -1,8 +1,13 @@
 package dev.dimension.flare.feature.plugin.extension
 
+import dev.dimension.flare.ui.model.UiAccount
+import dev.dimension.flare.ui.model.UiProfile
 import dev.dimension.flare.ui.model.UiText
+import dev.dimension.flare.ui.render.UiDateTime
+import dev.dimension.flare.ui.render.toUi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlin.time.Instant
 
 @Serializable
 public enum class PluginExtensionResultStatusV1 {
@@ -56,6 +61,7 @@ public data class PluginExtensionActionItemV1(
     val title: UiText,
     val description: UiText?,
     val dailyTimeZone: String?,
+    val platformIds: Set<String> = emptySet(),
 )
 
 public data class PluginExtensionAccountItemV1(
@@ -65,6 +71,8 @@ public data class PluginExtensionAccountItemV1(
     val authorizationToken: String,
     val accountId: String?,
     val automaticActions: Set<String>,
+    val account: UiAccount? = null,
+    val profile: UiProfile? = null,
 )
 
 @Serializable
@@ -76,7 +84,9 @@ public data class PluginExtensionRunV1(
     val startedAtMillis: Long,
     val finishedAtMillis: Long? = null,
     val result: PluginExtensionResultV1 = PluginExtensionResultV1(PluginExtensionResultStatusV1.Interrupted),
-)
+) {
+    public val startedAt: UiDateTime get() = Instant.fromEpochMilliseconds(startedAtMillis).toUi()
+}
 
 public data class PluginExtensionStateV1(
     val name: UiText = UiText.Raw(""),
@@ -86,6 +96,7 @@ public data class PluginExtensionStateV1(
     val runs: List<PluginExtensionRunV1> = emptyList(),
     val runningAccounts: Set<String> = emptySet(),
     val error: Boolean = false,
+    val loading: Boolean = false,
 )
 
 @Serializable
@@ -96,6 +107,7 @@ internal data class PluginExtensionGrantV1(
     val sessionId: String,
     val permissions: String,
     val automaticActions: Set<String> = emptySet(),
+    val sourceAuthorizationRevision: String? = null,
 )
 
 @Serializable

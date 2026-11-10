@@ -1,19 +1,121 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "plugin_extension_no_history" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No tasks have run yet."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "还没有运行记录。"
+          }
+        }
+      }
+    },
+    "plugin_extension_automatic_description" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try once each day when you open or return to Flare. Retry failed or interrupted tasks manually. Timezone: %1$@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "每天打开或返回 Flare 时尝试一次。失败或中断后需手动重试。时区：%1$@。"
+          }
+        }
+      }
+    },
+    "plugin_extension_revoke_message" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This plugin will no longer be able to use %1$@. Automatic tasks for this account will also be turned off."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此插件将无法再使用 %1$@，该账号的自动任务也会关闭。"
+          }
+        }
+      }
+    },
+    "plugin_extension_revoke_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Remove account access?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "取消账号授权？"
+          }
+        }
+      }
+    },
+    "plugin_extension_authorized" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Access allowed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已允许使用"
+          }
+        }
+      }
+    },
+    "plugin_extension_authorize_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Allow this plugin to use the account?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "允许插件使用此账号？"
+          }
+        }
+      }
+    },
     "plugin_extension_title" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Platform actions"
+            "value" : "Plugin tasks"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "平台操作"
+            "value" : "插件任务"
           }
         }
       }
@@ -24,13 +126,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Authorize account"
+            "value" : "Allow access"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "授权账号"
+            "value" : "允许使用"
           }
         }
       }
@@ -41,13 +143,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Revoke authorization"
+            "value" : "Remove account access"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "撤销授权"
+            "value" : "取消账号授权"
           }
         }
       }
@@ -58,13 +160,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Allow this plugin to use %1$@ to make authenticated requests to:\n%2$@\n\nThis can include account changes such as posting and following. Automatic execution is enabled separately."
+            "value" : "Allow this plugin to act as %1$@ on these websites:\n%2$@\n\nThe plugin may use this account to post, follow people, or make other account changes. Automatic running must be turned on separately."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "允许此插件使用 %1$@，向以下网站发送已登录请求：\n%2$@\n\n这些请求可能包含发帖、关注等账号操作。自动执行需要单独开启。"
+            "value" : "允许此插件以 %1$@ 的身份访问以下网站：\n%2$@\n\n插件可能用此账号发帖、关注或进行其他账号操作。自动运行需要你单独开启。"
           }
         }
       }
@@ -75,13 +177,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Actions run while Flare is in the foreground. Daily actions run on the next foreground opportunity, once per date in their timezone. Failed or interrupted attempts need a manual retry."
+            "value" : "Tasks run only while you are using Flare."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "操作仅在 Flare 处于前台时执行。每日任务按指定时区，在进入前台时择机执行，每天自动尝试一次。失败或中断后需手动重试。"
+            "value" : "任务仅在使用 Flare 时运行。"
           }
         }
       }
@@ -92,13 +194,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No compatible accounts are available. Sign in to a supported platform first."
+            "value" : "No accounts are available yet. Sign in to a platform supported by this plugin first."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "没有兼容的账号，请先登录此插件支持的平台。"
+            "value" : "还没有可用账号，请先登录此插件支持的平台。"
           }
         }
       }
@@ -109,13 +211,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Run daily when foregrounded (%1$@)"
+            "value" : "Run automatically each day"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "每日进入前台时执行（%1$@）"
+            "value" : "每天自动运行"
           }
         }
       }
@@ -132,7 +234,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "立即执行"
+            "value" : "立即运行"
           }
         }
       }
@@ -143,13 +245,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Recent runs"
+            "value" : "Run history"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "最近执行"
+            "value" : "运行记录"
           }
         }
       }
@@ -166,7 +268,7 @@
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "正在执行…"
+            "value" : "正在运行…"
           }
         }
       }
@@ -194,13 +296,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Already completed"
+            "value" : "Already completed; no need to run again"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "此前已完成"
+            "value" : "已完成，无需重复运行"
           }
         }
       }
@@ -228,13 +330,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Failed; retry manually"
+            "value" : "Could not finish; retry manually"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "执行失败，请手动重试"
+            "value" : "运行失败，请手动重试"
           }
         }
       }
@@ -245,13 +347,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Sign in again; automatic execution paused"
+            "value" : "Sign in again; automatic running is off"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要重新登录，自动执行已暂停"
+            "value" : "请重新登录账号；自动运行已关闭"
           }
         }
       }
@@ -262,13 +364,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Manual verification required; automatic execution paused"
+            "value" : "Your attention is needed; automatic running is off"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "需要人工验证，自动执行已暂停"
+            "value" : "需要你手动处理；自动运行已关闭"
           }
         }
       }
@@ -296,13 +398,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Interrupted; verify the remote result before retrying"
+            "value" : "Interrupted; check whether the task finished before trying again"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "执行中断，重试前请确认远端结果"
+            "value" : "运行已中断，重试前请先确认任务是否已完成"
           }
         }
       }

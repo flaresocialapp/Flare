@@ -1,7 +1,7 @@
 # Existing-platform action example
 
 This Host API v2 package adds a read-only login-session check for an authorized
-built-in Weibo (`VVo`) account. Install it, open **More → Platform actions**, grant
+built-in Weibo (`VVo`) account. Install it, open **More → Plugin tasks**, grant
 an account, and select **Run now**. Daily foreground execution is optional and
 uses `Asia/Shanghai` dates. The `/api/config` request matches Flare's current Weibo
 implementation; this example has not been verified with a real account.
@@ -14,4 +14,8 @@ verify the website's endpoints, CSRF requirements and already-completed response
 before implementing its action. Store target lists and per-target checkpoints
 through plugin storage; use `context.accountId` to separate account state.
 
-See [the extension contract](../../references/platform-extensions.md).
+For other plugins' platforms, the source social plugin must opt in with
+`flare.datasource.account-http/v1`; consumers keep using the same account HTTP
+API. The [extension contract](../../references/platform-extensions.md) includes
+the provider registration, `$accountOrigin` targets, per-platform actions and
+the rules for reauthorization after source updates.

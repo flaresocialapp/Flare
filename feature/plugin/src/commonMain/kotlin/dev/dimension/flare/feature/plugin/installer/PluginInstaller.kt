@@ -511,6 +511,9 @@ private fun buildWarnings(
 
 internal fun PluginManifestV1.sensitivePermissions(): Set<PluginPermission> =
     buildSet {
+        platform?.capabilities?.get(PluginAbiV1.Capabilities.ACCOUNT_HTTP)?.authOrigins?.forEach {
+            add(PluginPermission(PluginPermissionType.AccountHttpOrigin, it, platformId = requireNotNull(platform).id))
+        }
         platformExtension?.targets?.forEach { target ->
             target.authOrigins.forEach { add(PluginPermission(PluginPermissionType.AccountHttpOrigin, it, platformId = target.platformId)) }
         }

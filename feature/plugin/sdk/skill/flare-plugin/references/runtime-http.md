@@ -121,6 +121,13 @@ Older Hosts ignore the new manifest field and continue rejecting extra origins;
 check this context before invoking features that require the grant and report a
 typed Unsupported error if unavailable.
 
+Host API v2 platform-extension actions use `flare.account.http.request` for
+Host-authenticated requests to a separately authorized account, including accounts
+provided by another plugin. This channel hides authentication response headers
+and limits encoded bodies to 2 MiB. Social providers opt in with
+`flare.datasource.account-http/v1`. See [platform extensions](platform-extensions.md)
+for origin grants, full-request authentication and source lifecycle rules.
+
 Automatic redirects support only GET/HEAD, up to five, staying on the current
 origin even if another origin is approved. API v2 `redirect: "manual"` returns
 the current response before automatic redirect checks, including a POST 3xx.

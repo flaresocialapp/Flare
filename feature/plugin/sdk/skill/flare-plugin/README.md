@@ -232,6 +232,6 @@ Flare reads the selected directory in the latest stable repository snapshot. Add
 Rules have one canonical reference; the skill links to it when needed. Recipe
 fragments explain adaptation points and are not separate installable plugins.
 
-For operations on existing built-in accounts, including optional daily foreground
+For operations on existing built-in or plugin-provided accounts, including optional daily foreground
 actions, read [platform extensions](references/platform-extensions.md) and the
 [read-only Weibo example](examples/platform-extension/README.md).
