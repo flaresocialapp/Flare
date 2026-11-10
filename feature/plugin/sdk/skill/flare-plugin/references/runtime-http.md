@@ -2,7 +2,9 @@
 
 ## Execution environment
 
-Flare evaluates one self-contained classic `plugin.js` in an isolated runtime:
+For background capabilities, Flare evaluates one self-contained classic
+`plugin.js` in an isolated runtime. Settings-only packages need no background
+runtime. Offline pages use the [separate settings SDK and browser boundary](storage-and-settings.md#offline-settings-page).
 
 | Host target | JavaScript engine |
 | --- | --- |
@@ -17,7 +19,9 @@ Engine versions on Apple and Android follow the OS/provider. Use portable
 JavaScript and test on each target; newer syntax, `Intl` data, stack traces and
 engine-specific globals are not a cross-platform compatibility guarantee.
 
-Register exactly once with `defineFlareSocialPlugin`. Use standard JavaScript data handling
+Register each provided type once, synchronously: `defineFlareSocialPlugin` for
+social services and `defineFlareTranslatePlugin` for text translation. A combined
+package calls both in either order. Use standard JavaScript data handling
 and the frozen `flare` Host facade. Browser/Node facilities (`fetch`, DOM,
 `localStorage`, `require`, `process`, `Buffer`, browser URL helpers, timers) are
 not part of the plugin contract. Do not assume them from your build environment.
@@ -28,15 +32,17 @@ If authoring with a bundler, commit its self-contained classic-script output as
 
 Initialization is also evaluated during installation, without Host services.
 Define constants/functions and register synchronously at top level. HTTP,
-credential, crypto, and locale calls belong inside registered invocations.
+storage, credential, crypto, and locale calls belong inside registered invocations.
 Requests and contexts are deeply frozen. Copy data before modifying it.
 
-Runtime scopes are detector attempt, login flow, account, and guest origin.
+Runtime scopes are detector attempt, login flow, account, guest origin, and plugin.
 Calls in one runtime serialize. Globals may cache derived data but are not
 persistent storage. Login begin/resume can use different runtime generations;
 OAuth state that your code needs belongs in `pendingPayload`; API v2 WebCookie
-checks can also return a pendingPayload for the next check. There are no
-lifecycle hooks or general-purpose storage API.
+checks can also return a pendingPayload for the next check. API v2 supplies
+[plugin-owned storage](storage-and-settings.md#opaque-plugin-storage), shared
+between background capabilities and settings pages. Plugins own its data schema
+and migrations; there are no lifecycle or migration callbacks.
 An unmarked exception, invalid Wire response, timeout, cancellation, or memory
 failure retires that generation. See [recovery](troubleshooting.md).
 
@@ -57,7 +63,9 @@ return result; // returned only after persistence; a failed replacement fails th
 ```
 
 Caught errors remain caught. A returned/awaited `flare.error(...)` remains a typed
-plugin error; other returned/awaited failures (including `throw null` or rejected
+plugin error. Host storage errors retain their code as typed Validation/Remote
+errors; see [storage error handling](troubleshooting.md#typed-errors).
+Other returned/awaited failures (including `throw null` or rejected
 `undefined`) retire the runtime. Detached failures may have no diagnostic.
 
 Host deadlines and cancellation still stop waiting for a result, cancel invocation
@@ -68,14 +76,17 @@ There is no uniform per-runtime heap/stack cap or heap-based pool eviction. The
 system/provider still imposes its own limits. Android isolates share a sandbox
 process: its death can invalidate multiple runtimes, which are recreated on later
 calls. Failed operations are not automatically replayed. Keep computation bounded
-and persistent state in the Host's existing credential/account APIs.
+and persistent state in plugin storage or the account credential API as appropriate.
 
 ## Invocation context
 
 `pluginId`, `platformId`, and `packageHash` identify the running package.
-`scope` is `detector`, `login`, `account`, or `guest`; `origin` is the normalized
-selected HTTPS origin. `accountId` is supplied for account invocations, not new
-login or guest calls. `locale`, `approvedOrigins`, `credentialAvailable`, and
+`scope` is `detector`, `login`, `account`, `guest`, or `plugin`. In social scopes,
+`origin` is the normalized selected HTTPS origin. In plugin scope, `origin` is
+an empty string and there is no account identity, credential access or asset
+handle; `platformId` is empty when no social platform is declared. Use an
+explicit approved URL for translation HTTP. `accountId` is supplied only for
+account invocations. `locale`, `approvedOrigins`, `credentialAvailable`, and
 `assetHandles` describe this call. Treat them as Host-owned values; do not
 construct a different account identity or widen permissions from remote data.
 
@@ -88,6 +99,7 @@ construct a different account identity or widen permissions from remote data.
 | Relogin | Selected origin + authOrigins + httpOrigins | Unavailable | Existing account |
 | Account | Verified account origin + httpOrigins | Current account only | Account |
 | Guest | Selected guest origin + httpOrigins | Unavailable | Global |
+| Plugin translation / settings HTTP | httpOrigins only | Unavailable | Global |
 
 Supply absolute HTTPS request URLs without URL credentials or fragments. Same
 hostname with a different scheme/port is a different origin. Declare an API or
@@ -108,6 +120,13 @@ Account identity and proxy routing still use the selected account origin.
 Older Hosts ignore the new manifest field and continue rejecting extra origins;
 check this context before invoking features that require the grant and report a
 typed Unsupported error if unavailable.
+
+Host API v2 platform-extension actions use `flare.account.http.request` for
+Host-authenticated requests to a separately authorized account, including accounts
+provided by another plugin. This channel hides authentication response headers
+and limits encoded bodies to 2 MiB. Social providers opt in with
+`flare.datasource.account-http/v1`. See [platform extensions](platform-extensions.md)
+for origin grants, full-request authentication and source lifecycle rules.
 
 Automatic redirects support only GET/HEAD, up to five, staying on the current
 origin even if another origin is approved. API v2 `redirect: "manual"` returns
@@ -229,11 +248,15 @@ as bytes from JavaScript. The Host streams the asset.
 
 ## Credentials, crypto, and locale
 
+This section describes the background `flare` facade. Settings pages expose
+only storage and restricted HTTP through `connectSettings()`; they have no
+credential, crypto or Host locale methods.
+
 `await flare.credential.read()` returns only the current account's JSON payload.
 `await flare.credential.replace(next)` atomically replaces the **whole** payload
 and resolves true. Merge retained refresh-token/client fields yourself when
 necessary. Initial login returns `credential` in `LoginSuccessV1` instead; neither
-detector nor login nor guest has credential access. An account cannot read or
+detector nor login nor guest nor plugin scope has credential access. An account cannot read or
 replace another account's credential.
 
 For API v2, `await flare.credential.read({withRevision:true})` returns

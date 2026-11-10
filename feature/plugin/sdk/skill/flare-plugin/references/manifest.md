@@ -5,7 +5,8 @@ fields; comments and trailing commas remain invalid. Known fields and enum
 spellings are case-sensitive and retain their validation.
 Defaults below apply when a field is omitted; use omission for optional fields
 rather than sending null for non-nullable values. Start from the complete
-[template manifest](../assets/github-template/manifest.json).
+[social template manifest](../assets/github-template/manifest.json), or the
+[translation/settings example](../examples/translation-settings/manifest.json).
 
 ## JSON Schema and editor support
 
@@ -57,14 +58,24 @@ length in the Host rather than JSON Schema's Unicode code point count.
 | --- | --- | --- |
 | `$schema` | Omitted | Editor schema URL/path only; never loaded by Flare |
 | `schemaVersion` | `1` | Manifest schema, currently exactly 1 |
-| `apiVersion` | Required | Runtime ABI, 1 or 2; v2 is required for header/session extensions and temporary timeline pages |
+| `apiVersion` | Required | Host API, 1 or 2; storage, translation, settings, platform actions, header/session extensions and temporary timeline pages require v2 |
 | `id` | Required | Stable reverse-domain plugin ID; `[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+` |
 | `version` | Required | Plugin SemVer, independent of the repository snapshot tag and npm SDK version |
 | `defaultLocale` | `"en"` | BCP-47 locale tag |
 | `name` | Required | Manifest text |
 | `description` | Omitted | Manifest text |
 | `permissions` | `{}` | Permission object below |
-| `platform` | Required | Exactly one platform object |
+| `platform` | Omitted or `null` | One social platform object, when providing social capabilities |
+| `translation` | Omitted or `null` | `{ "apiVersion": 1, "cache": { "storageNamespaces": ["options"] } }`; Host API v2 |
+| `settings` | Omitted or `null` | `{ "entry": "settings/index.html", "bridgeVersion": 1 }`; Host API v2 |
+
+Provide at least one of `platform`, `translation`, `platformExtension` or `settings`; any combination
+is allowed. `platform`, `translation` and `platformExtension` require a background `plugin.js`.
+A settings-only package needs no platform, login methods or background registration.
+`translation.apiVersion` and `settings.bridgeVersion` are separate interface
+versions, currently 1 within Host API v2. See the
+[storage, translation and settings contract](storage-and-settings.md) for cache
+dependency semantics, page resource rules and a minimal settings-only manifest.
 
 Manifest text is either a nonblank string or `{ "key": "plugin.name", "fallback":
 "Example" }`. Every localized key used by the manifest must exist in the default
@@ -76,7 +87,7 @@ runtime `WireTextV1`; see [localization](recipes.md#localization).
 | Field | Default | Meaning |
 | --- | --- | --- |
 | `authOrigins` | `[]` | Up to 16 additional exact HTTPS origins for login, e.g. `https://login.example.org` |
-| `httpOrigins` | `[]` | Up to 16 additional exact HTTPS origins for HTTP requests during login, account, and guest calls |
+| `httpOrigins` | `[]` | Up to 16 exact HTTPS origins for plugin-scoped translation/settings HTTP, or additional origins for login/account/guest HTTP |
 | `mediaNetwork` | `false` | Allows automatic remote media loading, including avatars, HTML images, audio/video, and covers |
 
 Auth and HTTP origins have no paths, trailing slash, query, fragment, wildcard, or URL
@@ -89,6 +100,10 @@ allows destinations across websites, including CDNs/federated servers; it does
 not expand the HTTP API. See [origin rules](runtime-http.md#origins-and-permissions).
 
 ## Platform object
+
+This object and the social declarations below apply only when `platform` is
+provided. A plugin that has owned a platform ID retains that identity if a later
+version omits the platform; see [update compatibility](publishing.md#updates-and-compatibility).
 
 | Field | Required / default | Contract |
 | --- | --- | --- |
@@ -137,6 +152,12 @@ must be nonempty when `page` is declared. Values: `all`, `mention`, `comment`,
 `like`. `relationActions` belongs on the relation declaration and must be
 nonempty. Values: `follow`, `block`, `mute`. Both default to empty and are static
 arrays; placing them on another capability is invalid.
+
+Host API v2 `flare.datasource.account-http/v1` requires `authenticate` and
+`authOrigins`: 1–16 unique exact HTTPS origins or `$accountOrigin`. Other known
+capabilities cannot declare authentication origins. It is account-only and must
+be negotiated at login; it is not a displayable entry. See
+[account HTTP providers](platform-extensions.md#supplying-authentication-from-a-social-plugin).
 
 ### Timelines and profile tabs
 
@@ -260,3 +281,7 @@ are exempt from the minimum attachment count.
 - Localized manifest keys absent from the default catalog.
 - Extra root properties such as `author`, `homepage`, `entry`, or a trust badge:
   API v1/v2 define no such manifest fields; put human-facing information in README.
+
+For `platformExtension` targets (including other plugins' platforms), action IDs,
+optional per-action `platformIds`, daily timezones and account authorization,
+read [existing-platform actions](platform-extensions.md). Extensions require Host API v2.

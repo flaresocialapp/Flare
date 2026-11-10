@@ -73,6 +73,10 @@ internal object TranslationProvider {
         aiCompletionService: AiCompletionService,
     ): TranslationEngine =
         when (val provider = settings.translateConfig.provider) {
+            is AppSettings.TranslateConfig.Provider.Plugin -> {
+                PluginTranslationEngine(provider.pluginId)
+            }
+
             AppSettings.TranslateConfig.Provider.AI -> {
                 AiTranslationEngine(
                     config = settings.aiConfig,
@@ -788,4 +792,24 @@ internal object GoogleWebTranslationWhitespaceSupport {
             append(trailingWhitespace)
         }
     }
+}
+
+private class PluginTranslationEngine(
+    private val pluginId: String,
+) : TranslationEngine {
+    override suspend fun translateDocumentJson(
+        sourceTemplate: String,
+        sourceJson: String,
+        targetLanguage: String,
+        prompt: String,
+    ): String? = service().translate(pluginId, sourceTemplate, sourceJson, targetLanguage, prompt, batch = false)
+
+    override suspend fun translateBatchDocumentJson(
+        sourceJson: String,
+        sourceDocument: PreTranslationBatchDocument,
+        targetLanguage: String,
+        prompt: String,
+    ): String? = service().translate(pluginId, null, sourceJson, targetLanguage, prompt, batch = true)
+
+    private fun service(): PluginTranslationService = checkNotNull(pluginTranslationServiceOrNull()) { "Plugin translation is unavailable" }
 }

@@ -57,6 +57,11 @@ public data class AppSettings(
         @Serializable
         public sealed interface Provider {
             @Serializable
+            public data class Plugin(
+                val pluginId: String,
+            ) : Provider
+
+            @Serializable
             @SerialName("AI")
             public data object AI : Provider
 

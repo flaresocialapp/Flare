@@ -40,6 +40,7 @@ import dev.dimension.flare.feature.plugin.abi.PluginAbiV1
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.manifest.NotificationFilterKindV1
 import dev.dimension.flare.feature.plugin.manifest.RelationActionKindV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.manifest.toUiText
 import dev.dimension.flare.feature.plugin.wire.ArticleV1
 import dev.dimension.flare.feature.plugin.wire.BooleanResultV1
@@ -181,7 +182,7 @@ internal class PluginExtraCapabilitiesV1(
         private val loader =
             object : RelationLoader {
                 override val supportedTypes: Set<RelationActionType> =
-                    plugin.installed.manifest.platform.capabilities
+                    plugin.installed.manifest.socialPlatform.capabilities
                         .getValue(PluginAbiV1.Capabilities.RELATION)
                         .relationActions
                         .mapTo(linkedSetOf(), RelationActionKindV1::toHost)
@@ -245,7 +246,7 @@ internal class PluginExtraCapabilitiesV1(
         NotificationDataSource,
         MicroblogDataSource by base {
         override val supportedNotificationFilter: List<NotificationFilter> =
-            plugin.installed.manifest.platform.capabilities
+            plugin.installed.manifest.socialPlatform.capabilities
                 .getValue(PluginAbiV1.Capabilities.NOTIFICATION)
                 .notificationFilters
                 .map(NotificationFilterKindV1::toHost)
@@ -456,7 +457,7 @@ internal class PluginExtraCapabilitiesV1(
         private val newerCursors = MutableStateFlow<Map<MicroBlogKey, String?>>(emptyMap())
         internal val loader =
             object : DirectMessageLoader {
-                override val platformId: String = plugin.installed.manifest.platform.id
+                override val platformId: String = plugin.installed.manifest.socialPlatform.id
 
                 override suspend fun loadRooms(
                     pageSize: Int,
@@ -764,7 +765,7 @@ internal class PluginExtraCapabilitiesV1(
             listOf(
                 PinnableTimelineTabSection(
                     title =
-                        plugin.installed.manifest.platform.name
+                        plugin.installed.manifest.socialPlatform.name
                             .toUiText(plugin.installed.pluginId),
                     data =
                         Pager(

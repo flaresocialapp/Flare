@@ -1,4 +1,4 @@
-/** Flare Social Plugin API v1/v2. Ambient editor types; do not import at runtime.
+/** Flare Plugin API v1/v2. Ambient editor types; do not import at runtime.
  * See ABI.md and references/ for validation, defaults, and operation dependencies.
  * Optional service members do not relax a declared capability's required method set.
  * Compatible Hosts ignore additive fields, unsupported capabilities/operations,
@@ -8,15 +8,20 @@
 type JsonPrimitive = string | number | boolean | null;
 type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
-/** Deeply frozen per-call Host metadata. Globals are disposable; origin is normalized HTTPS. */
+/** Deeply frozen per-call Host metadata. Globals are disposable; social origin is normalized HTTPS.
+ * Extension origin is the selected account's origin when its provider supplies one; ordinary HTTP permissions stay separate.
+ * Plugin scope has empty platformId/origin when absent.
+ */
 interface PluginInvocationContextV1 {
   readonly pluginId: string;
   readonly platformId: string;
   readonly packageHash: string;
-  readonly scope: "detector" | "login" | "account" | "guest";
+  readonly scope: "detector" | "login" | "account" | "guest" | "plugin" | "extension";
   readonly origin: string;
-  /** Present for account calls; login and guest calls do not expose an account credential. */
+  /** Present for account and extension calls; extension handles are opaque and do not expose credentials. */
   readonly accountId?: string;
+  /** Extension scope: target built-in or plugin-provided platform; accountId is a plugin-scoped opaque grant handle. */
+  readonly targetPlatformId?: string | null;
   readonly locale: string;
   /** HTTP allowlist: httpOrigins expands login/account/guest; authOrigins expands login only. Detector uses its candidate origin only. */
   readonly approvedOrigins: readonly string[];
@@ -24,7 +29,26 @@ interface PluginInvocationContextV1 {
   readonly assetHandles: readonly string[];
 }
 
-/** Register once, synchronously. Run Host API calls only inside these methods.
+interface TranslationTokenV1 { id: number; kind: "Translatable" | "Locked"; text: string }
+interface TranslationBlockV1 { id: number; tokens: TranslationTokenV1[] }
+interface TranslationDocumentV1 { version?: number | null; targetLanguage?: string | null; blocks: TranslationBlockV1[] }
+interface TranslationBatchPayloadV1 {
+  content?: TranslationDocumentV1 | null;
+  contentWarning?: TranslationDocumentV1 | null;
+  title?: TranslationDocumentV1 | null;
+  description?: TranslationDocumentV1 | null;
+}
+interface TranslationBatchItemV1 {
+  entityKey: string;
+  status?: "Completed" | "Skipped";
+  payload?: TranslationBatchPayloadV1 | null;
+  reason?: string | null;
+}
+interface TranslationBatchDocumentV1 { version?: number; targetLanguage?: string; items: TranslationBatchItemV1[] }
+interface TranslationRequestV1 { sourceTemplate: string; sourceJson: string; targetLanguage: string; prompt: string }
+interface BatchTranslationRequestV1 { sourceJson: string; sourceDocument: TranslationBatchDocumentV1; targetLanguage: string; prompt: string }
+
+/** Register each provided type once, synchronously. Run Host API calls only inside these methods.
  * Manifest operation names, registration paths, and login negotiation must agree.
  * Await or return all work whose failure must fail the invocation. The Host drains
  * started Host tasks, but detached Promise rejections do not fail the returned chain.
@@ -32,10 +56,39 @@ interface PluginInvocationContextV1 {
  * or QuickJS (Compose Desktop). No uniform heap/stack cap or busy-loop interruption.
  * @see references/capabilities.md
  */
-interface PluginDefinitionV1 {
+interface TranslatePluginDefinitionV1 {
+  translateDocumentJson(request: TranslationRequestV1, context: PluginInvocationContextV1): MaybePromise<string | null>;
+  translateBatchDocumentJson(request: BatchTranslationRequestV1, context: PluginInvocationContextV1): MaybePromise<string | null>;
+}
+
+interface PlatformExtensionRequestV1 {
+  actionId: string;
+  businessDate: string;
+  trigger: "manual" | "automatic";
+}
+interface PlatformExtensionResultV1 {
+  status: "completed" | "already-completed" | "partial" | "failed" | "authentication-required" | "user-action-required" | "skipped";
+  succeeded?: number;
+  skipped?: number;
+  failed?: number;
+}
+/** API v2 provider callback. Returned headers stay inside the Host. */
+interface AccountHttpAuthenticationRequestV1 {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  /** Exact encoded request bytes, including multipart boundaries. At most 2 MiB before base64 encoding. */
+  bodyBase64?: string | null;
+}
+interface PlatformExtensionPluginDefinitionV1 {
+  actions: Record<string, (request: PlatformExtensionRequestV1, context: PluginInvocationContextV1) => MaybePromise<PlatformExtensionResultV1>>;
+}
+
+interface SocialPluginDefinitionV1 {
   detector?: { detect(request: DetectorRequestV1, context: PluginInvocationContextV1): MaybePromise<DetectorResultV1> };
   login?: Record<string, LoginServiceV1>;
   capabilities?: {
+    accountHttp?: { authenticate(request: AccountHttpAuthenticationRequestV1, context: PluginInvocationContextV1): MaybePromise<Record<string, string>> };
     /** API v2: transient native lists, independent of home timelines and tabCatalog. */
     timelinePage?: { load(request: TimelinePageLoadRequestV2, context: PluginInvocationContextV1): MaybePromise<PageV1<TimelineItemV1>> };
     timeline?: { page(request: TimelinePageRequestV1, context: PluginInvocationContextV1): MaybePromise<PageV1<TimelineItemV1>> };
@@ -52,6 +105,9 @@ interface PluginDefinitionV1 {
     tabCatalog?: { page(request: PageRequestV1, context: PluginInvocationContextV1): MaybePromise<PageV1<TimelineSectionV1>> };
   };
 }
+
+/** Social registration shape retained for existing SDK consumers. */
+type PluginDefinitionV1 = SocialPluginDefinitionV1;
 
 /** Key this service by the manifest login method ID.
  * OAuth: begin -> externalBrowser/success, resume -> success.
@@ -622,8 +678,16 @@ interface PluginErrorV1 {
   remoteCode?: string;
 }
 
+interface PluginStorageSnapshotV1 { values: Record<string, JsonValue>; revision: string }
+interface PluginStorageV1 {
+  read(keys?: string[]): Promise<PluginStorageSnapshotV1>;
+  write(changes: { set?: Record<string, JsonValue>; remove?: string[] }, options?: { expectedRevision?: string }): Promise<{ revision: string }>;
+}
 interface FlareHostV1 {
+  readonly storage: { open(namespace: string): PluginStorageV1 };
   readonly http: { request(request: HttpRequestV1): Promise<HttpResponseV1> };
+  /** API v2, authorized extension scope only. Host injects authentication for the approved target origins. */
+  readonly account: { readonly http: { request(request: Omit<HttpRequestV1, "authorization" | "cookies">): Promise<HttpResponseV1> } };
   /** Available only in account scope. replace atomically replaces the whole JSON payload. */
   readonly credential: {
     read(): Promise<JsonValue>;
@@ -648,5 +712,11 @@ interface FlareHostV1 {
 type MaybePromise<T> = T | Promise<T>;
 
 /** Register this social plugin once when its classic script is evaluated. */
-declare function defineFlareSocialPlugin(plugin: PluginDefinitionV1): void;
+declare function defineFlareSocialPlugin(plugin: SocialPluginDefinitionV1): void;
 declare const flare: FlareHostV1;
+
+/** Register this text-translation provider once; may coexist with a social registration. */
+declare function defineFlareTranslatePlugin(plugin: TranslatePluginDefinitionV1): void;
+
+/** Register actions for existing built-in or plugin-provided accounts once; may coexist with other plugin definitions. */
+declare function defineFlarePlatformExtensionPlugin(plugin: PlatformExtensionPluginDefinitionV1): void;

@@ -6,6 +6,8 @@ import dev.dimension.flare.common.CacheData
 import dev.dimension.flare.common.FileItem
 import dev.dimension.flare.common.MemCacheable
 import dev.dimension.flare.common.decodeJson
+import dev.dimension.flare.data.datasource.microblog.AccountHttpCapability
+import dev.dimension.flare.data.datasource.microblog.AccountHttpRequest
 import dev.dimension.flare.data.datasource.microblog.AuthenticatedMicroblogDataSource
 import dev.dimension.flare.data.datasource.microblog.ComposeConfig
 import dev.dimension.flare.data.datasource.microblog.ComposeData
@@ -110,7 +112,13 @@ internal class VVODataSource(
     TimelineTabConfigurationDataSource,
     PinnableTimelineTabDataSource,
     PostDataSource,
+    AccountHttpCapability,
     PostEventHandler.Handler {
+    override val accountOrigin = "https://m.weibo.cn"
+    override val origins: Set<String> = setOf("https://m.weibo.cn", "https://weibo.com")
+
+    override suspend fun authenticate(request: AccountHttpRequest): Map<String, String> = service.extensionAuthHeaders(request.url)
+
     private val imageCompressor: ImageCompressor by koinInject()
     private val service by lazy {
         VVOService(

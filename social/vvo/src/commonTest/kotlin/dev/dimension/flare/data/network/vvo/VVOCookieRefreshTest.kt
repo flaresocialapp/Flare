@@ -37,6 +37,38 @@ import kotlin.time.Duration.Companion.milliseconds
 @OptIn(ExperimentalCoroutinesApi::class)
 class VVOCookieRefreshTest {
     @Test
+    fun extensionAuthenticationRejectsForeignOriginsAndUsesRefreshedCookie() =
+        runTest {
+            val current = MutableStateFlow(VVoCredential("MLOGIN=1; SUB=old; XSRF-TOKEN=csrf"))
+            var requests = 0
+            val service =
+                VVOService(
+                    credentialFlow = current,
+                    refreshCookieWhenStale = true,
+                    onCredentialRefreshed = { current.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory {
+                            requests++
+                            setCookieResponse("SUB=new; Path=/; Domain=.weibo.cn; HttpOnly")
+                        },
+                )
+            for (url in listOf(
+                "https://other.example/path",
+                "http://m.weibo.cn/path",
+                "https://m.weibo.cn:444/path",
+                "https://user@m.weibo.cn/path",
+            )) {
+                kotlin.test.assertFailsWith<IllegalArgumentException> { service.extensionAuthHeaders(url) }
+            }
+            assertEquals(0, requests)
+            val headers = service.extensionAuthHeaders("https://m.weibo.cn/api/config")
+            assertEquals("MLOGIN=1; SUB=new; XSRF-TOKEN=csrf", headers[HttpHeaders.Cookie])
+            assertEquals("csrf", headers["X-XSRF-TOKEN"])
+            assertEquals("https://m.weibo.cn/", headers[HttpHeaders.Referrer])
+            assertEquals(1, requests)
+        }
+
+    @Test
     fun configRefreshesStaleCookieBeforeRequestAndPersistsCredential() =
         runTest {
             val oldCookie = "MLOGIN=1; SUB=old-sub; XSRF-TOKEN=old-xsrf"

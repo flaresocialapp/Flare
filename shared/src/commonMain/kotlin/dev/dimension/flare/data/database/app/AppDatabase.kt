@@ -25,7 +25,7 @@ import dev.dimension.flare.data.database.app.dao.SearchHistoryDao
         dev.dimension.flare.data.database.app.model.DbSearchHistory::class,
         dev.dimension.flare.data.database.app.model.DbRssSources::class,
     ],
-    version = 12,
+    version = 13,
     autoMigrations = [
         AutoMigration(
             from = 3,
@@ -69,6 +69,12 @@ internal abstract class AppDatabase : RoomDatabase() {
     abstract fun rssSourceDao(): RssSourceDao
 
     companion object {
+        val MIGRATION_12_13 =
+            object : Migration(12, 13) {
+                override suspend fun migrate(connection: SQLiteConnection) {
+                    connection.executeSQL("ALTER TABLE DbAccount ADD COLUMN session_id TEXT NOT NULL DEFAULT ''")
+                }
+            }
         val MIGRATION_8_9 =
             object : Migration(8, 9) {
                 override suspend fun migrate(connection: SQLiteConnection) {

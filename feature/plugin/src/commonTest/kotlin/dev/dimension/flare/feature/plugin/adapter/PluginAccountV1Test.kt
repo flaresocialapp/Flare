@@ -11,6 +11,7 @@ import dev.dimension.flare.feature.plugin.manifest.CapabilityOperationManifestV1
 import dev.dimension.flare.feature.plugin.manifest.PluginManifestV1
 import dev.dimension.flare.feature.plugin.manifest.PluginPlatformManifestV1
 import dev.dimension.flare.feature.plugin.manifest.PluginTextV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.wire.AccountPluginSnapshotV1
 import dev.dimension.flare.feature.plugin.wire.ComposeConfigV2
 import dev.dimension.flare.feature.plugin.wire.LoginSuccessV1
@@ -153,9 +154,9 @@ class PluginAccountV1Test {
                         manifest =
                             manifest.copy(
                                 platform =
-                                    manifest.platform.copy(
+                                    manifest.socialPlatform.copy(
                                         capabilities =
-                                            manifest.platform.capabilities +
+                                            manifest.socialPlatform.capabilities +
                                                 (
                                                     "flare.datasource.novel/v1" to
                                                         CapabilityManifestV1(mapOf("read" to CapabilityOperationManifestV1()))
@@ -195,7 +196,7 @@ class PluginAccountV1Test {
         assertEquals(expected, restored.snapshot.manifestCapabilities)
         assertEquals(expected, restored.snapshot.negotiatedCapabilities)
         assertEquals(expected, restored.effectiveCapabilities(plugin))
-        val session = PluginSessionCapabilitiesV1(manifest.platform.capabilities, success.capabilities, authenticated = true)
+        val session = PluginSessionCapabilitiesV1(manifest.socialPlatform.capabilities, success.capabilities, authenticated = true)
         assertEquals(false, session.hasOperation(PluginAbiV1.Capabilities.POST, "future"))
         assertEquals(false, session.canExpose("flare.datasource.novel/v1"))
     }
@@ -241,6 +242,44 @@ class PluginAccountV1Test {
                 null,
             )
         }
+    }
+
+    @Test
+    fun accountHttpRequiresExplicitNegotiationWhenAddedByAnUpdate() {
+        val original = plugin(setOf("detail"), apiVersion = 2)
+        val account = credential(original, previous = setOf("detail"), negotiated = setOf("detail"))
+        val manifest = original.installed.manifest
+        val capability = PluginAbiV1.Capabilities.ACCOUNT_HTTP
+        val updatedPlatform =
+            manifest.socialPlatform.copy(
+                capabilities =
+                    manifest.socialPlatform.capabilities + (
+                        capability to
+                            CapabilityManifestV1(
+                                operations = mapOf("authenticate" to CapabilityOperationManifestV1()),
+                                authOrigins = setOf(PluginAbiV1.ACCOUNT_ORIGIN),
+                            )
+                    ),
+            )
+        val updated = original.copy(installed = original.installed.copy(manifest = manifest.copy(platform = updatedPlatform)))
+        assertFalse(capability in account.effectiveCapabilities(updated))
+        val previouslyDeclined =
+            account.copy(
+                snapshot =
+                    account.snapshot.copy(
+                        manifestCapabilities = account.snapshot.manifestCapabilities + (capability to setOf("authenticate")),
+                    ),
+            )
+        assertFalse(capability in previouslyDeclined.effectiveCapabilities(updated))
+        val success =
+            LoginSuccessV1(
+                accountId = account.snapshot.accountId,
+                origin = account.snapshot.origin,
+                credential = account.credential,
+                profile = account.snapshot.profile,
+                capabilities = account.snapshot.negotiatedCapabilities + (capability to setOf("authenticate")),
+            )
+        assertEquals(setOf("authenticate"), updated.accountCredential(success).effectiveCapabilities(updated)[capability])
     }
 
     @Test
@@ -503,7 +542,7 @@ class PluginAccountV1Test {
             snapshot =
                 AccountPluginSnapshotV1(
                     pluginId = plugin.installed.pluginId,
-                    platformId = plugin.installed.manifest.platform.id,
+                    platformId = plugin.installed.manifest.socialPlatform.id,
                     packageHash = plugin.installed.packageHash,
                     origin = "https://example.social",
                     accountId = "me",
@@ -516,7 +555,7 @@ class PluginAccountV1Test {
                         ),
                     manifestCapabilities = mapOf(capability to previous),
                     negotiatedCapabilities = mapOf(capability to negotiated),
-                    credentialSchemaVersion = plugin.installed.manifest.platform.credentialSchemaVersion,
+                    credentialSchemaVersion = plugin.installed.manifest.socialPlatform.credentialSchemaVersion,
                 ),
             credential = JsonObject(emptyMap()),
         )

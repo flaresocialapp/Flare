@@ -109,6 +109,16 @@ internal sealed interface Route : NavKey {
         data object Plugins : Settings
 
         @Serializable
+        data class PluginExtensions(
+            val pluginId: String,
+        ) : Settings
+
+        @Serializable
+        data class PluginSettings(
+            val pluginId: String,
+        ) : Settings
+
+        @Serializable
         data object AppearanceTheme : Settings
 
         @Serializable

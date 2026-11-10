@@ -15,9 +15,13 @@ public struct PluginManagementView: View {
     @State private var facade: PluginAppleFacadeV1
     @State private var presenter: KotlinPresenter<PluginManagementStateV1>
     @State private var importsPlugin = false
+    @State private var checkingUpdates = false
+    private var isRefreshing: Bool { presenter.state.busy || checkingUpdates }
     private let onCreateWithAI: () -> Void
     private var showsGitHubInstall: Bool { presenter.state.gitHubInstall != nil }
     @State private var gitHubURL = ""
+    @State private var settingsPluginId: String?
+    @State private var extensionPluginId: String?
     @State private var pendingUninstallId: String?
     @State private var pendingUninstallName: String?
     #if os(macOS)
@@ -33,6 +37,16 @@ public struct PluginManagementView: View {
 
     public var body: some View {
         List {
+            #if os(macOS)
+            if isRefreshing {
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .accessibilityLabel(Text("Refresh"))
+            }
+            #endif
             Section {
                 #if os(macOS)
                 GroupBox {
@@ -104,12 +118,27 @@ public struct PluginManagementView: View {
                 }
             }
         }
+        .refreshable {
+            await checkUpdates()
+        }
         .navigationTitle("settings_plugins_title")
         #if os(macOS)
         // The Settings window reserves its toolbar for pane selection.
         .safeAreaInset(edge: .top) {
             HStack(spacing: 8) {
                 Spacer()
+                Button {
+                    Task { await checkUpdates() }
+                } label: {
+                    Label {
+                        Text("Refresh")
+                    } icon: {
+                        Image(fontAwesome: .arrowsRotate)
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .help("Refresh")
+                .disabled(isRefreshing || !presenter.state.plugins.contains { $0.sourceUrl != nil })
                 addActions
                 maintenanceMenu.menuStyle(.borderedButton)
             }
@@ -127,20 +156,19 @@ public struct PluginManagementView: View {
             }
         }
         #endif
-        .overlay {
-            if presenter.state.busy {
-                ProgressView()
-                    .padding()
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-            }
-        }
         .fileImporter(
             isPresented: $importsPlugin,
             allowedContentTypes: [UTType(filenameExtension: "fpp") ?? .data],
             allowsMultipleSelection: false,
             onCompletion: importPlugin
         )
-        .task { try? await facade.checkUpdates(forceRefresh: false) }
+        .sheet(isPresented: Binding(get: { settingsPluginId != nil }, set: { if !$0 { settingsPluginId = nil } })) {
+            if let settingsPluginId { PluginSettingsView(pluginId: settingsPluginId) }
+        }
+        .sheet(isPresented: Binding(get: { extensionPluginId != nil }, set: { if !$0 { extensionPluginId = nil } })) {
+            if let extensionPluginId { PluginExtensionView(pluginId: extensionPluginId) }
+        }
+        .task { await checkUpdates(forceRefresh: false) }
         .sheet(isPresented: Binding(
             get: { showsGitHubInstall },
             set: { visible in
@@ -220,6 +248,14 @@ public struct PluginManagementView: View {
         }
     }
 
+    @MainActor
+    private func checkUpdates(forceRefresh: Bool = true) async {
+        guard !isRefreshing else { return }
+        checkingUpdates = true
+        defer { checkingUpdates = false }
+        try? await facade.checkUpdates(forceRefresh: forceRefresh)
+    }
+
     private var betaNotice: some View {
         HStack(alignment: .top, spacing: 12) {
             Image(fontAwesome: .circleInfo)
@@ -235,8 +271,14 @@ public struct PluginManagementView: View {
         .padding(.vertical, 4)
     }
 
-    private func pluginMenu(name: String, onUninstall: @escaping () -> Void) -> some View {
+    private func pluginMenu(_ plugin: PluginManagementItemV1, name: String, onUninstall: @escaping () -> Void) -> some View {
         Menu {
+            if plugin.hasPlatformExtension {
+                Button("plugin_extension_title") { extensionPluginId = plugin.pluginId }
+            }
+            if plugin.hasSettings {
+                Button("settings_title") { settingsPluginId = plugin.pluginId }
+            }
             Button(role: .destructive, action: onUninstall) {
                 Label {
                     Text("plugin_uninstall")
@@ -268,7 +310,7 @@ public struct PluginManagementView: View {
         let name = plugin.nameText.text.isEmpty ? String(localized: "plugin_ai_untitled") : plugin.nameText.text
         let subtitle = plugin.authoring.map {
             String(format: String(localized: "plugin_ai_source_revision"), $0.revision)
-        } ?? "\(plugin.platformId) · \(plugin.version)"
+        } ?? "\(plugin.platformId.isEmpty ? plugin.pluginId : plugin.platformId) · \(plugin.version)"
         let busy = presenter.state.busy || (plugin.authoring == nil && isDeveloping(plugin.pluginId))
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -283,13 +325,12 @@ public struct PluginManagementView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                pluginMenu(name: name) {
+                pluginMenu(plugin, name: name) {
                     pendingUninstallId = plugin.pluginId
                     pendingUninstallName = name
                 }
                 .disabled(busy)
             }
-
 
             if let source = plugin.sourceUrl {
                 Text(source).font(.caption).foregroundStyle(.secondary)
@@ -383,9 +424,9 @@ public struct PluginManagementView: View {
             }
             #endif
             Button("plugin_check_updates") {
-                Task { try? await facade.checkUpdates(forceRefresh: true) }
+                Task { await checkUpdates() }
             }
-            .disabled(!presenter.state.plugins.contains { $0.sourceUrl != nil })
+            .disabled(isRefreshing || !presenter.state.plugins.contains { $0.sourceUrl != nil })
             if presenter.state.canRebuildIndex {
                 Button("plugin_rebuild_index") {
                     Task { try? await facade.rebuildIndex() }
@@ -736,6 +777,11 @@ func pluginAuthoringLabel(_ phase: PluginAuthoringPhase) -> LocalizedStringKey {
 func pluginPermissionText(_ permission: PluginPermission) -> String {
     if permission.type == .mediaNetwork {
         return String(localized: "plugin_permission_media_network")
+    }
+    if permission.type == .accountHttpOrigin {
+        let origin = permission.origin == "$accountOrigin"
+            ? String(localized: "plugin_permission_account_origin_label") : permission.origin
+        return String(format: String(localized: "plugin_permission_account_http_origin"), permission.platformId ?? "", origin)
     }
     if permission.type == .httpOrigin {
         return String(format: String(localized: "plugin_permission_http_origin"), permission.origin)

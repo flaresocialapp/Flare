@@ -6,6 +6,15 @@ Adapt the paths, authentication, and mapping to your website before publishing.
 No demonstration server is included. Tests in Flare exercise this template with
 fixture HTTP responses through the real QuickJS runtime.
 
+The starter remains a social adapter. To add API v2 translation or an offline
+settings page, use the matching Host/SDK revision and follow the
+[storage, translation and settings contract](https://github.com/flaresocialapp/Flare/blob/feature/plugin-v2/feature/plugin/sdk/skill/flare-plugin/references/storage-and-settings.md).
+Keep ready-to-load HTML/CSS/JS and all page dependencies in `settings/`; the
+starter's build/package commands copy that directory but do not compile page
+TypeScript or resolve browser imports. Bundle the page SDK before packaging.
+A settings-only project can omit the social platform and background script;
+the standalone packer accepts that layout without this starter's build pipeline.
+
 ## 1. Adapt the plugin
 
 If you created this project with `npx flare-plugin-sdk@next init my-plugin`, work
@@ -159,7 +168,7 @@ Use `.fpp` for offline transfer or local testing. From this project directory:
 npm run package
 ```
 
-This checks types, rebuilds the root script, copies only manifest/script/icon/locale
+This checks types, rebuilds the root script, copies manifest/script/icon/locale and built settings
 files to temporary staging, and uses the SDK packer to write `plugin.fpp` at root.
 Staging is cleaned up and development files are excluded. The standalone packer
 still accepts only a clean runtime directory, not this whole project.

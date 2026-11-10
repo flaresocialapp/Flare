@@ -8,10 +8,21 @@ is enabled. The assistant uses the existing Agent provider/model settings and ca
 use plugin tools alongside the normal app tools.
 
 Plugins are independent local resources. A creation tool call assigns immutable
-plugin and platform IDs. Repeating the same creation request key returns the same
+plugin ID and an assigned platform ID to use when a social platform is declared.
+Repeating the same creation request key returns the same
 plugin, including after a restart. Different requests can create multiple plugins
 with the same display name. Tools list and manage only editable local plugins;
 imported and GitHub-installed plugins are outside their scope.
+
+With a matching Host API v2 build, ask for any combination of a social adapter,
+text translation and an offline settings page, including a settings-only plugin.
+Those standalone features need no social account or invented website/login.
+Background code uses `defineFlareSocialPlugin` for social services and
+`defineFlareTranslatePlugin` for translation; combined packages call each once.
+Settings pages run on iOS, Android and native macOS; Compose Desktop has no
+settings page integration. The assistant can submit packaged HTML, JS/MJS, CSS
+and JSON text files and the page SDK alongside background code. See the
+[v2 developer contract](sdk/skill/flare-plugin/references/storage-and-settings.md).
 
 An external package cannot replace an editable local plugin with the same ID;
 delete the local plugin first to install that package. Creation also rejects IDs
@@ -47,7 +58,7 @@ applying an unfinished update. Publishing availability follows the current plugi
 capabilities, including changes applied by updates or a new login.
 
 Deleting a plugin immediately removes its source, installation, accounts,
-credentials and account data. Shared drafts and attachments remain while another
+credentials, plugin-owned storage and account data. Shared drafts and attachments remain while another
 account uses them. The deletion tool requires the user to select the host-provided
 confirmation button for the exact plugin revision. The host controls its deletion
 warning and destructive action type; a model-supplied confirmation flag or text
@@ -69,11 +80,14 @@ platform JavaScript runtime, version checks and permission rules. No data migrat
 chat compatibility layer is included for the development-only previous workflow.
 
 Provide public API documentation or redacted response examples where needed. Log
-in through Flare's account UI; never paste credentials into a conversation or
+in through Flare's account UI for social features; configure plugin-owned service
+keys in its settings page. Never paste credentials into a conversation or
 source. Plugin tools provide only scoped text files, local authoring references and a bounded
 HTTPS documentation reader, with no shell or general filesystem access. The
-assistant writes classic JavaScript directly, without Node/npm/TypeScript on the
-device. The host supplies a default icon. `read_plugin_documentation` also returns icons
+assistant writes classic background JavaScript and packaged browser page files
+directly, without Node/npm/TypeScript on the device. It includes the settings
+SDK in the page's resources; remote page scripts/CDNs are unavailable. The Host
+supplies a default icon. `read_plugin_documentation` also returns icons
 from the website head, resolving relative URLs against the final page URL and its
 HTML base. `write_plugin_files` accepts an optional public HTTPS `iconUrl`; omitted
 URLs preserve the current icon without another download. PNG, JPEG, WebP, GIF and
@@ -87,9 +101,19 @@ Validation checks the package and runtime contract, not live website behavior; r
 `read_plugin_sdk` lists the local reference files and reads one requested document,
 with line pagination. Start with its `README.md`, the in-app tool workflow from
 `agent/README.md`. The build includes an explicit set of shared SDK contracts,
-types and the small token-login template. It extracts the registration/runtime
+types, the token-login template, and the offline translation/settings example
+with its browser SDK. It extracts the registration/runtime
 ABI and compatibility rules without the external installation/publication flow,
 and adapts references to the available files. Documents are assembled only when
 read; listing paths or supplying the default icon does not assemble the corpus.
 No SDK download or remote cache is used. The complete external SDK and skill at
 `sdk/skill/flare-plugin/`, including publishing tools and Pixelfed, remain intact.
+
+Existing-platform actions use `defineFlarePlatformExtensionPlugin` and require
+explicit account grants in the native **Plugin tasks** page, including locally
+AI-authored plugins. Targets can be built-in platforms or other plugins' social
+platforms that explicitly provide `flare.datasource.account-http/v1`. Use per-action
+`platformIds` when different targets need different handlers. The Host invokes
+source authentication in its own account scope and never shares credentials or
+storage with the consumer. Authoring tools cannot grant accounts or run their
+actions. See the [extension contract](sdk/skill/flare-plugin/references/platform-extensions.md).

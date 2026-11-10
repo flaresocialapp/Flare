@@ -157,16 +157,16 @@ internal class WritePluginFilesTool(
         name = "write_plugin_files",
         description =
             "Save the complete file set at expectedRevision; validation and application continue independently. " +
-                "Include manifest.json, plugin.js, and " +
-                "all locales to retain. The host supplies the icon asset. Invalid sources remain editable; running " +
-                "code remains unchanged. Check list_plugins for completion or errors.",
+                "Include manifest.json, plugin.js for background capabilities, and " +
+                "all locales and offline settings text files to retain. The host supplies the icon asset. " +
+                "Invalid sources remain editable; running code remains unchanged. Check list_plugins for completion or errors.",
     ) {
     @Serializable
     internal data class Args(
         val pluginId: String,
         val expectedRevision: Long,
         @property:LLMDescription(
-            "Complete list of relative file paths and UTF-8 contents, including manifest.json and plugin.js.",
+            "Complete relative UTF-8 file set: manifest.json, plugin.js for background capabilities, locales/*.json and settings HTML/JS/CSS/JSON.",
         ) val files: List<SourceFile>,
         @property:LLMDescription(
             "Public HTTPS icon URL from the website head; omit to preserve the existing icon without downloading it again.",

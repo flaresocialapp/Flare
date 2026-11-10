@@ -8,6 +8,7 @@ in the manifest and negotiated login result. JavaScript methods live under
 | ID middle | Service | Required operations | Additional operations | Host surface / dependency |
 | --- | --- | --- | --- | --- |
 | `timeline-page` | `timelinePage` | `load` | None | API v2 temporary native lists; no home timeline or tabCatalog required |
+| `account-http` | `accountHttp` | `authenticate` | None | API v2 account-only authentication for platform extensions; explicit authOrigins; no displayable entry |
 | `timeline` | `timeline` | `page` | None | Static timelines, including at least one default |
 | `search` | `search` | At least one search operation | `posts`, `profiles`, `discoverPosts`, `discoverProfiles`, `discoverHashtags` | Each supported operation enables its own section |
 | `profile` | `profile` | `byId`, `byHandle` | `timeline`, `following`, `followers` | Profile lookup; tabs additionally require `timeline` and profileTabs |
@@ -53,7 +54,7 @@ The first is `platform.capabilities`, the second is `capabilities.timeline`
 (with a website-specific `loadTimeline` implementation), and the third is the
 login success's `capabilities`. On login, negotiate only declared, complete sets
 that this account/instance supports. At least one displayable capability is
-required: compose/relation alone and a notification badge alone do not qualify.
+required: compose/relation/account-http alone and a notification badge alone do not qualify.
 Guest access uses the enabled guest declaration and manifest capabilities instead
 of account login negotiation. See [upgrade negotiation](publishing.md#updates-and-compatibility)
 for how an existing account adopts newly declared operations after an update.
@@ -92,6 +93,17 @@ lookup methods. Use this for a minimal read-only feed such as the template.
 
 See [recipes](recipes.md) for every service's inputs, result shape, and adaptation
 points, and [the type declarations](../flare-plugin.d.ts) for full signatures.
+
+## API v2 account HTTP providers
+
+`flare.datasource.account-http/v1` lets another plugin extend this platform's
+existing accounts. Declare `authOrigins`, negotiate `authenticate` at login, and
+implement `capabilities.accountHttp.authenticate(request, context)`. The Host gives
+the provider its own account context and the exact request method, URL, headers
+and encoded body; returned authentication headers stay inside the Host. The
+consumer needs a separate user grant and cannot access provider credentials or
+storage. See [platform extensions](platform-extensions.md#supplying-authentication-from-a-social-plugin)
+for the manifest, signatures, origin restrictions and lifecycle rules.
 
 ## API v2 temporary timeline pages
 

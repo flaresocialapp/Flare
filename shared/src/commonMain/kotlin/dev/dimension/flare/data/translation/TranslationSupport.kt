@@ -5,13 +5,17 @@ import dev.dimension.flare.data.datastore.AppDataStore
 import dev.dimension.flare.data.datastore.model.AiPromptDefaults
 import dev.dimension.flare.data.datastore.model.AppSettings
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 
 internal object TranslationSettingsSupport {
     fun displayOptionsFlow(appDataStore: AppDataStore): Flow<TranslationDisplayOptions> =
-        appDataStore.appSettingsStore.data
-            .map(::displayOptions)
+        combine(
+            appDataStore.appSettingsStore.data,
+            pluginTranslationServiceOrNull()?.providers ?: flowOf(emptyList()),
+        ) { settings, _ -> displayOptions(settings) }
             .distinctUntilChanged()
 
     fun displayOptions(settings: AppSettings): TranslationDisplayOptions =

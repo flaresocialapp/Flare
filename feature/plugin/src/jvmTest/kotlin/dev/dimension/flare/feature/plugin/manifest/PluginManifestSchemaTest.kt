@@ -65,6 +65,7 @@ class PluginManifestSchemaTest {
             "detector" to DetectorManifestV1.serializer().descriptor,
             "guest" to GuestManifestV1.serializer().descriptor,
             "capability" to CapabilityManifestV1.serializer().descriptor,
+            "platformExtension" to PluginPlatformExtensionManifestV1.serializer().descriptor,
             "operation" to CapabilityOperationManifestV1.serializer().descriptor,
             "timeline" to TimelineManifestV1.serializer().descriptor,
             "profileTab" to ProfileTabManifestV1.serializer().descriptor,
@@ -81,6 +82,28 @@ class PluginManifestSchemaTest {
             "composePoll" to ComposeConfigV2.PollConfigV1.serializer().descriptor,
             "composeLanguage" to ComposeConfigV2.LanguageConfigV1.serializer().descriptor,
         ).forEach { (name, descriptor) -> checkObject(definitions.getValue(name).jsonObject, descriptor) }
+        val extension =
+            definitions
+                .getValue("platformExtension")
+                .jsonObject
+                .getValue("properties")
+                .jsonObject
+        checkObject(
+            extension
+                .getValue("targets")
+                .jsonObject
+                .getValue("items")
+                .jsonObject,
+            PluginExtensionTargetV1.serializer().descriptor,
+        )
+        checkObject(
+            extension
+                .getValue("actions")
+                .jsonObject
+                .getValue("items")
+                .jsonObject,
+            PluginExtensionActionV1.serializer().descriptor,
+        )
         checkObject(
             definitions.getValue("compose").jsonObject,
             ComposeConfigV2.serializer().descriptor,

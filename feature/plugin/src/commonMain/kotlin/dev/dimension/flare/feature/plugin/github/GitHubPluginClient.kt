@@ -5,6 +5,7 @@ import dev.dimension.flare.data.network.proxyHttpClientEngine
 import dev.dimension.flare.feature.plugin.installer.FppLimits
 import dev.dimension.flare.feature.plugin.installer.FppPaths
 import dev.dimension.flare.feature.plugin.installer.compareSemVer
+import dev.dimension.flare.feature.plugin.manifest.isPluginSettingsPath
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.plugins.HttpTimeout
@@ -191,13 +192,16 @@ public class GitHubPluginClient(
             ) {
                 require(entry.type == "blob" && entry.mode in setOf("100644", "100755")) { "Unsupported plugin file: $name" }
                 require(entry.size != null && entry.size in 0..limit) { "Plugin file exceeds its size limit: $name" }
+                require(files.size < FppLimits.MAX_ENTRY_COUNT) { "Invalid package entry count" }
                 files[name] = entry.sha
             }
-            listOf(
-                FppPaths.MANIFEST to FppLimits.MAX_MANIFEST_BYTES,
-                FppPaths.ENTRY to FppLimits.MAX_SCRIPT_BYTES,
-            ).forEach { (name, limit) ->
-                add(name, requireNotNull(entries.singleOrNull { it.path == name }) { "Plugin is missing $name" }, limit)
+            add(
+                FppPaths.MANIFEST,
+                requireNotNull(entries.singleOrNull { it.path == FppPaths.MANIFEST }) { "Plugin is missing manifest.json" },
+                FppLimits.MAX_MANIFEST_BYTES,
+            )
+            entries.singleOrNull { it.path == FppPaths.ENTRY }?.let {
+                add(FppPaths.ENTRY, it, FppLimits.MAX_SCRIPT_BYTES)
             }
             entries.singleOrNull { it.path == "assets" }?.let { assets ->
                 require(assets.type == "tree") { "Invalid plugin assets directory" }
@@ -214,6 +218,26 @@ public class GitHubPluginClient(
                 require(translations.size <= FppLimits.MAX_CATALOG_COUNT) { "Too many locale catalogs" }
                 translations.forEach { add("locales/${it.path}", it, FppLimits.MAX_CATALOG_BYTES) }
             }
+            var settingsDirectories = 0
+
+            suspend fun settings(
+                directory: TreeEntry,
+                prefix: String,
+            ) {
+                require(directory.type == "tree") { "Invalid plugin settings directory" }
+                require(++settingsDirectories <= FppLimits.MAX_REPOSITORY_ENTRY_COUNT) { "Too many settings directories" }
+                // Even the shortest supported filename must fit before walking a directory.
+                if (!isPluginSettingsPath("$prefix/.js")) return
+                tree(repository, directory.sha).forEach { entry ->
+                    val name = "$prefix/${entry.path}"
+                    if (entry.type == "tree") {
+                        settings(entry, name)
+                    } else if (isPluginSettingsPath(name)) {
+                        add(name, entry, FppLimits.MAX_SCRIPT_BYTES)
+                    }
+                }
+            }
+            entries.singleOrNull { it.path == "settings" }?.let { settings(it, "settings") }
             files
         }
 

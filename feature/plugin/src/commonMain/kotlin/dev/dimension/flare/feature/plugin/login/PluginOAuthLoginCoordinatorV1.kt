@@ -7,6 +7,7 @@ import dev.dimension.flare.feature.plugin.host.platformSecureRandom
 import dev.dimension.flare.feature.plugin.host.platformUuid
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.manifest.LoginInteractionV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeKeyV1
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimePool
 import dev.dimension.flare.feature.plugin.wire.LoginBeginRequestV1
@@ -104,7 +105,7 @@ public class PluginOAuthLoginCoordinatorV1(
                 val pending =
                     PluginOAuthPendingV1(
                         pluginId = plugin.installed.pluginId,
-                        platformId = plugin.installed.manifest.platform.id,
+                        platformId = plugin.installed.manifest.socialPlatform.id,
                         packageHash = plugin.installed.packageHash,
                         generation = plugin.generation,
                         methodId = methodId,
@@ -162,7 +163,7 @@ public class PluginOAuthLoginCoordinatorV1(
             plugin == null ||
             plugin.installed.packageHash != pending.packageHash ||
             plugin.generation != pending.generation ||
-            plugin.installed.manifest.platform.id != pending.platformId
+            plugin.installed.manifest.socialPlatform.id != pending.platformId
         ) {
             pendingStore.consume(pending)
             throw PluginLoginException("oauth.package", "The plugin changed while OAuth was in progress")
@@ -245,7 +246,7 @@ internal fun RunningPluginV1.loginContext(
 ): PluginInvocationContextV1 =
     PluginInvocationContextV1.login(
         pluginId = installed.pluginId,
-        platformId = installed.manifest.platform.id,
+        platformId = installed.manifest.socialPlatform.id,
         packageHash = installed.packageHash,
         candidateOrigin = origin,
         authOrigins = installed.manifest.permissions.authOrigins,

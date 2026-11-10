@@ -20,6 +20,7 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dev.dimension.flare.common.AndroidDownloadManager
 import dev.dimension.flare.common.ProvideAndroidMediaSavePicker
+import dev.dimension.flare.feature.plugin.management.PluginRuntimeLifecycleFacadeV1
 import dev.dimension.flare.ui.AppContainer
 import dev.dimension.flare.ui.component.platform.LocalWifiState
 import dev.dimension.flare.ui.component.status.ProvideAndroidTimelineMediaActions
@@ -67,11 +68,13 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         downloadManager.onResume()
+        PluginRuntimeLifecycleFacadeV1().setForeground(true)
     }
 
     override fun onPause() {
         super.onPause()
         downloadManager.onPause()
+        PluginRuntimeLifecycleFacadeV1().setForeground(false)
     }
 }
 

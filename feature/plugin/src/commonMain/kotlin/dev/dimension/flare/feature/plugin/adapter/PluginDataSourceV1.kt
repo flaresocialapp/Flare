@@ -1,6 +1,8 @@
 package dev.dimension.flare.feature.plugin.adapter
 
 import dev.dimension.flare.common.FileItem
+import dev.dimension.flare.data.datasource.microblog.AccountHttpCapability
+import dev.dimension.flare.data.datasource.microblog.AccountHttpRequest
 import dev.dimension.flare.data.datasource.microblog.AuthenticatedMicroblogDataSource
 import dev.dimension.flare.data.datasource.microblog.ComposeConfig
 import dev.dimension.flare.data.datasource.microblog.ComposeData
@@ -42,9 +44,11 @@ import dev.dimension.flare.feature.plugin.host.PluginInvocationContextV1
 import dev.dimension.flare.feature.plugin.host.PluginUrlPolicy
 import dev.dimension.flare.feature.plugin.host.accountHost
 import dev.dimension.flare.feature.plugin.host.platformUuid
+import dev.dimension.flare.feature.plugin.host.validateAuthenticationHeaders
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.manifest.ProfileTabManifestV1
 import dev.dimension.flare.feature.plugin.manifest.TimelineManifestV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.manifest.toUiText
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeKeyV1
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimePool
@@ -94,6 +98,8 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.serialization.builtins.MapSerializer
+import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.encodeToString
 
 /** Lazy proxy: construction reads only the Host-owned credential envelope and never starts a JavaScript engine. */
@@ -145,6 +151,14 @@ internal class PluginDataSourceV1 private constructor(
 
     override val capabilitySet: DataSourceCapabilitySet by lazy {
         DataSourceCapabilitySet(
+            accountHttp =
+                if (plugin.installed.manifest.apiVersion >= 2 &&
+                    capabilities.canExpose(PluginAbiV1.Capabilities.ACCOUNT_HTTP)
+                ) {
+                    AccountHttpAdapter()
+                } else {
+                    null
+                },
             timelinePage =
                 if (plugin.installed.manifest.apiVersion >= 2 &&
                     capabilities.canExpose(PluginAbiV1.Capabilities.TIMELINE_PAGE)
@@ -437,11 +451,11 @@ internal class PluginDataSourceV1 private constructor(
 
     override fun homeTimeline(): RemoteLoader<UiTimelineV2> {
         val timeline =
-            plugin.installed.manifest.platform.timelines
+            plugin.installed.manifest.socialPlatform.timelines
                 .firstOrNull(TimelineManifestV1::defaultForNewAccount)
-                ?: plugin.installed.manifest.platform.timelines
+                ?: plugin.installed.manifest.socialPlatform.timelines
                     .firstOrNull { it.id.equals("home", ignoreCase = true) }
-                ?: plugin.installed.manifest.platform.timelines
+                ?: plugin.installed.manifest.socialPlatform.timelines
                     .firstOrNull()
                 ?: return notSupported()
         return timeline(timeline.id, timeline.parameters)
@@ -452,7 +466,7 @@ internal class PluginDataSourceV1 private constructor(
         parameters: Map<String, String>,
     ): RemoteLoader<UiTimelineV2> {
         val declared =
-            plugin.installed.manifest.platform.timelines
+            plugin.installed.manifest.socialPlatform.timelines
                 .singleOrNull { it.id == timelineId }
         val acceptsDynamicTimeline = capabilities.hasOperation(PluginAbiV1.Capabilities.TAB_CATALOG, "page")
         if (declared == null && !acceptsDynamicTimeline) return notSupported()
@@ -480,7 +494,7 @@ internal class PluginDataSourceV1 private constructor(
     ): RemoteLoader<UiTimelineV2> {
         if (!capabilities.hasOperation(PluginAbiV1.Capabilities.PROFILE, "timeline")) return notSupported()
         val manifestTab =
-            plugin.installed.manifest.platform.profileTabs.firstOrNull {
+            plugin.installed.manifest.socialPlatform.profileTabs.firstOrNull {
                 mediaOnly == (it.display == TimelineDisplayV1.Grid)
             }
         return profileTimelineLoader(userKey, manifestTab)
@@ -538,7 +552,7 @@ internal class PluginDataSourceV1 private constructor(
     override fun fans(userKey: MicroBlogKey): RemoteLoader<UiProfile> = profilePage("followers", userKey)
 
     override suspend fun profileTabs(userKey: MicroBlogKey): ImmutableList<ProfileTab> =
-        plugin.installed.manifest.platform.profileTabs
+        plugin.installed.manifest.socialPlatform.profileTabs
             .takeIf { capabilities.hasOperation(PluginAbiV1.Capabilities.PROFILE, "timeline") }
             .orEmpty()
             .map { tab ->
@@ -661,6 +675,34 @@ internal class PluginDataSourceV1 private constructor(
             mapper::timelineItem,
         )
 
+    private inner class AccountHttpAdapter : AccountHttpCapability {
+        override val accountOrigin = origin
+        override val authorizationRevision = "${plugin.installed.pluginId}:${plugin.installed.packageHash}:${plugin.generation}"
+        private val allowedOrigins =
+            requireNotNull(
+                plugin.installed.manifest.platform,
+            ).capabilities.getValue(PluginAbiV1.Capabilities.ACCOUNT_HTTP).authOrigins.mapTo(linkedSetOf()) {
+                if (it == PluginAbiV1.ACCOUNT_ORIGIN) origin else it
+            }
+        override val origins: Set<String> get() = if (plugin.session.isActive) allowedOrigins else emptySet()
+
+        override suspend fun ensureActive() = invoker.ensureActive()
+
+        override suspend fun <T> withAuthorization(block: suspend () -> T): T = invoker.withAuthorization(block)
+
+        override suspend fun authenticate(request: AccountHttpRequest): Map<String, String> {
+            PluginUrlPolicy.requireRequestUrl(request.url, origins)
+            return invoker.invoke(
+                capabilityId = PluginAbiV1.Capabilities.ACCOUNT_HTTP,
+                operation = "authenticate",
+                request = request,
+                requestSerializer = AccountHttpRequest.serializer(),
+                responseSerializer = MapSerializer(String.serializer(), String.serializer()),
+                validate = ::validateAuthenticationHeaders,
+            )
+        }
+    }
+
     private inner class ComposeCapabilityAdapter :
         ComposeDataSource,
         AuthenticatedMicroblogDataSource by AuthenticatedDelegate() {
@@ -735,7 +777,7 @@ internal class PluginDataSourceV1 private constructor(
         private val metadata = plugin.platformMetadata()
 
         override val defaultTabs: ImmutableList<TimelineCandidate<*>> =
-            plugin.installed.manifest.platform.timelines
+            plugin.installed.manifest.socialPlatform.timelines
                 .filter(TimelineManifestV1::defaultForNewAccount)
                 .mapNotNull(::candidate)
                 .mapIndexed { index, candidate ->
@@ -743,7 +785,7 @@ internal class PluginDataSourceV1 private constructor(
                 }.toImmutableList()
 
         override val builtInTimelineTabs: ImmutableList<TimelineCandidate<*>> =
-            plugin.installed.manifest.platform.timelines
+            plugin.installed.manifest.socialPlatform.timelines
                 .mapNotNull(::candidate)
                 .toImmutableList()
 
@@ -804,7 +846,7 @@ internal class PluginDataSourceV1 private constructor(
                 coroutineScope = coroutineScope,
                 composeConfig =
                     mergePluginComposeConfigV2(
-                        plugin.installed.manifest.platform.composeDefaults,
+                        plugin.installed.manifest.socialPlatform.composeDefaults,
                         account.snapshot.composeConfig,
                     ),
                 loginProfile = account.snapshot.profile,
@@ -820,7 +862,7 @@ internal class PluginDataSourceV1 private constructor(
             dynamicTimelineSpec: TimelineSpec<PluginTimelineDataV1>?,
         ): PluginDataSourceV1 {
             require(
-                plugin.installed.manifest.platform.guest
+                plugin.installed.manifest.socialPlatform.guest
                     ?.enabled == true,
             ) { "Plugin guest access is unavailable" }
             val canonicalOrigin = PluginUrlPolicy.requireOrigin(origin)
@@ -839,7 +881,7 @@ internal class PluginDataSourceV1 private constructor(
                     context = { invocationLocale, _ ->
                         PluginInvocationContextV1.guest(
                             pluginId = plugin.installed.pluginId,
-                            platformId = plugin.installed.manifest.platform.id,
+                            platformId = plugin.installed.manifest.socialPlatform.id,
                             packageHash = plugin.installed.packageHash,
                             origin = canonicalOrigin,
                             locale = invocationLocale.ifBlank { locale },
@@ -853,7 +895,7 @@ internal class PluginDataSourceV1 private constructor(
                 accountKey = null,
                 origin = canonicalOrigin,
                 operations =
-                    plugin.installed.manifest.platform.capabilities
+                    plugin.installed.manifest.socialPlatform.capabilities
                         .mapValues { it.value.operations.keys },
                 invoker = invoker,
                 timelineSpecs = timelineSpecs,
@@ -877,7 +919,12 @@ internal class PluginDataSourceV1 private constructor(
             composeConfig: ComposeConfigV2?,
             loginProfile: ProfileV1?,
         ): PluginDataSourceV1 {
-            val capabilities = PluginSessionCapabilitiesV1(plugin.installed.manifest.platform.capabilities, operations, accountKey != null)
+            val capabilities =
+                PluginSessionCapabilitiesV1(
+                    plugin.installed.manifest.socialPlatform.capabilities,
+                    operations,
+                    accountKey != null,
+                )
             return PluginDataSourceV1(
                 plugin = plugin,
                 runtimePool = runtimePool,
@@ -890,7 +937,7 @@ internal class PluginDataSourceV1 private constructor(
                         pluginId = plugin.installed.pluginId,
                         packageHash = plugin.installed.packageHash,
                         platformIcon = plugin.platformMetadata().icon,
-                        platformId = plugin.installed.manifest.platform.id,
+                        platformId = plugin.installed.manifest.socialPlatform.id,
                         accountKey = accountKey,
                         mediaNetwork = plugin.installed.manifest.permissions.mediaNetwork,
                         originHost = Url(origin).accountHost(),

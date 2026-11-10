@@ -37,14 +37,23 @@ Connect additional websites with social plugins on Android, Desktop, iOS, and
 native macOS. Use a Flare build that includes Plugins in Settings; plugin support
 is not available in the Web client.
 
+The unreleased Plugin API v2 also supports text translation and plugin-owned
+offline settings pages, independently of social capabilities. Settings pages
+support iOS, Android and native macOS. See the
+[v2 developer contract](feature/plugin/sdk/skill/flare-plugin/references/storage-and-settings.md)
+for storage, the webpage SDK and matching Host/SDK requirements.
+Existing-platform actions can use explicitly authorized built-in accounts and run
+manually or once per day when Flare enters the foreground. The first native
+authentication adapter is Weibo; see the [extension contract](feature/plugin/sdk/skill/flare-plugin/references/platform-extensions.md).
+
 - **Install a plugin:** open Settings → Plugins, add its public GitHub repository
   URL, and review its source and permissions before confirming. For a plugin in
   a subdirectory, use `https://github.com/OWNER/REPO?path=/plugins/example`.
   One repository can contain several plugins with independent versions; its
   latest stable tag selects the repository snapshot. See the
   [installation and update guide](feature/plugin/sdk/skill/flare-plugin/references/publishing.md).
-- **Create with Flare AI:** ask the configured AI assistant to build an adapter
-  for your website. See [creating plugins in Flare](feature/plugin/AI_AUTHORING.md).
+- **Create with Flare AI:** ask the configured AI assistant to build a plugin
+  for your requested features. See [creating plugins in Flare](feature/plugin/AI_AUTHORING.md).
 - **Develop a plugin:** create a typed TypeScript project with
   `npx flare-plugin-sdk@next init my-plugin` and follow
   the [SDK quick start](feature/plugin/sdk/README.md) through local debugging and

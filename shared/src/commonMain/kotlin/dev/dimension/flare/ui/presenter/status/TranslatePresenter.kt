@@ -1,7 +1,10 @@
 package dev.dimension.flare.ui.presenter.status
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import dev.dimension.flare.common.Locale
 import dev.dimension.flare.common.decodeJson
 import dev.dimension.flare.data.database.cache.CacheDatabase
@@ -12,13 +15,16 @@ import dev.dimension.flare.data.database.cache.model.TranslationPayload
 import dev.dimension.flare.data.database.cache.model.TranslationStatus
 import dev.dimension.flare.data.database.cache.model.sourceHash
 import dev.dimension.flare.data.datastore.AppDataStore
+import dev.dimension.flare.data.datastore.model.AppSettings
 import dev.dimension.flare.data.network.ai.AiCompletionService
 import dev.dimension.flare.data.repository.tryRun
 import dev.dimension.flare.data.translation.AiPlaceholderTranslationSupport
 import dev.dimension.flare.data.translation.TranslationPromptFormatter
 import dev.dimension.flare.data.translation.TranslationProvider
 import dev.dimension.flare.data.translation.TranslationResponseSanitizer
+import dev.dimension.flare.data.translation.pluginTranslationServiceOrNull
 import dev.dimension.flare.data.translation.translationProviderCacheKey
+import dev.dimension.flare.data.translation.withCurrentTranslationProvider
 import dev.dimension.flare.di.koinInject
 import dev.dimension.flare.model.AccountType
 import dev.dimension.flare.model.MicroBlogKey
@@ -29,7 +35,7 @@ import dev.dimension.flare.ui.render.UiRichText
 import dev.dimension.flare.ui.render.applyTranslationJson
 import dev.dimension.flare.ui.render.toTranslationJson
 import dev.dimension.flare.ui.render.toUiPlainText
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.time.Clock
 
 public class TranslatePresenter(
@@ -51,14 +57,28 @@ public class TranslatePresenter(
 
     @Composable
     override fun body(): UiState<UiRichText> {
-        return produceState<UiState<UiRichText>>(initialValue = UiState.Loading()) {
+        val appSettings by appDataStore.appSettingsStore.data.collectAsState(initial = null)
+        val settings = appSettings ?: return UiState.Loading()
+        val providers by remember {
+            pluginTranslationServiceOrNull()
+                ?.providers
+                ?: MutableStateFlow(emptyList())
+        }.collectAsState()
+        val pluginId =
+            (settings.translateConfig.provider as? AppSettings.TranslateConfig.Provider.Plugin)
+                ?.pluginId
+        val executionKey =
+            if (pluginId == null) {
+                settings.translationProviderCacheKey()
+            } else {
+                providers.firstOrNull { it.pluginId == pluginId }?.cacheKey ?: "plugin:$pluginId:unavailable"
+            }
+        return produceState<UiState<UiRichText>>(initialValue = UiState.Loading(), key1 = executionKey) {
+            value = UiState.Loading()
             value =
                 tryRun {
-                    val settings =
-                        appDataStore.appSettingsStore.data
-                            .first()
-                    val providerCacheKey = settings.translationProviderCacheKey()
-                    cachedTranslation(providerCacheKey)?.let {
+                    val providerCacheKey = executionKey
+                    settings.withCurrentTranslationProvider(providerCacheKey) { cachedTranslation(providerCacheKey) }?.let {
                         return@tryRun it
                     }
                     val prompt =
@@ -78,7 +98,7 @@ public class TranslatePresenter(
                         )
                     if (translatedContent != null) {
                         val translated = toUiRichText(translatedContent)
-                        cacheTranslation(translated, providerCacheKey)
+                        settings.withCurrentTranslationProvider(providerCacheKey) { cacheTranslation(translated, providerCacheKey) }
                         return@tryRun translated
                     }
                     error("Translation returned empty response")

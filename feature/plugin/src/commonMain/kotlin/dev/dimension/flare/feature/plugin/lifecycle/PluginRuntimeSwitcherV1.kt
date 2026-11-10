@@ -30,7 +30,7 @@ internal class PluginRuntimeSwitcherV1(
 
     suspend fun uninstall(
         pluginId: String,
-        platformId: String,
+        platformId: String?,
     ) {
         val previous = subsystem.running.value.plugins[pluginId]
         check(previous?.developmentSource == null) { "Stop development before deleting this plugin" }
@@ -58,25 +58,13 @@ internal class PluginRuntimeSwitcherV1(
         pluginId: String =
             requireNotNull(installed?.pluginId ?: previous?.installed?.pluginId),
         temporary: Boolean = false,
-        platformId: String =
-            requireNotNull(
-                replacement
-                    ?.installed
-                    ?.manifest
-                    ?.platform
-                    ?.id
-                    ?: previous
-                        ?.installed
-                        ?.manifest
-                        ?.platform
-                        ?.id
-                    ?: subsystem.stateStore.desired.value.plugins[pluginId]
-                        ?.manifest
-                        ?.platform
-                        ?.id,
-            ),
+        platformId: String? =
+            replacement?.installed?.ownedPlatformId
+                ?: previous?.installed?.ownedPlatformId
+                ?: subsystem.stateStore.desired.value.plugins[pluginId]
+                    ?.ownedPlatformId,
     ) {
-        val registered = registry.all.firstOrNull { it.platformId.equals(platformId, ignoreCase = true) }
+        val registered = platformId?.let { id -> registry.all.firstOrNull { it.platformId.equals(id, ignoreCase = true) } }
         val ownsRegistration = registered?.belongsToPlugin(pluginId) == true
         if (replacement != null) {
             check(
@@ -87,12 +75,15 @@ internal class PluginRuntimeSwitcherV1(
             require(
                 subsystem.stateStore.desired.value.plugins.values.none {
                     it.pluginId != pluginId &&
-                        it.manifest.platform.id
-                            .equals(platformId, ignoreCase = true)
+                        (
+                            platformId != null &&
+                                it.ownedPlatformId
+                                    .equals(platformId, ignoreCase = true)
+                        )
                 },
             ) { "Platform ID is already owned by another installed plugin" }
         }
-        val spec = replacement?.let(::platform)
+        val spec = replacement?.takeIf { it.installed.manifest.platform != null }?.let(::platform)
         var retired = false
         var removalStarted =
             subsystem.stateStore.desired.value.plugins[pluginId]
@@ -102,7 +93,7 @@ internal class PluginRuntimeSwitcherV1(
                 previous?.let { subsystem.runtimePool.retire(it, protectInteractions = !temporary) }
                 retired = true
                 subsystem.oauth.cancelPlugin(pluginId)
-                if (!temporary && installed == null) {
+                if (!temporary && installed == null && platformId != null) {
                     accounts.deleteAccounts(
                         platformId,
                         ownsCredential = { json ->
@@ -121,15 +112,24 @@ internal class PluginRuntimeSwitcherV1(
                             if (ownsRegistration) registry.replaceExternal(platformId, null)
                         },
                     )
-                } else {
+                } else if (platformId != null) {
                     accounts.invalidatePlatform(platformId)
                 }
                 // A published replacement can immediately start writes that prevent rollback.
                 if (!temporary) {
-                    if (installed == null) subsystem.stateStore.uninstall(pluginId) else subsystem.stateStore.install(installed)
+                    if (installed == null) {
+                        subsystem.stateStore.beginUninstall(pluginId)
+                        removalStarted = true
+                        subsystem.replaceRunning(pluginId, null)
+                        subsystem.storage.remove(pluginId)
+                        subsystem.extensionState.remove(pluginId)
+                        subsystem.stateStore.uninstall(pluginId)
+                    } else {
+                        subsystem.stateStore.install(installed)
+                    }
                 }
                 subsystem.replaceRunning(pluginId, replacement)
-                if (replacement != null || ownsRegistration) registry.replaceExternal(platformId, spec)
+                if (platformId != null && (replacement != null || ownsRegistration)) registry.replaceExternal(platformId, spec)
             }
         } catch (error: Throwable) {
             withContext(NonCancellable) {
@@ -143,7 +143,18 @@ internal class PluginRuntimeSwitcherV1(
                                 generation = generation,
                             )?.also { it.diagnostic = previous.diagnostic }
                     subsystem.replaceRunning(pluginId, restored)
-                    if (ownsRegistration || replacement != null) registry.replaceExternal(platformId, restored?.let(::platform))
+                    if (platformId != null &&
+                        (ownsRegistration || replacement != null)
+                    ) {
+                        registry.replaceExternal(
+                            platformId,
+                            restored
+                                ?.takeIf {
+                                    it.installed.manifest.platform !=
+                                        null
+                                }?.let(::platform),
+                        )
+                    }
                     // Preserve the restored session's identity for OAuth continuations after a restart.
                     if (!temporary && restored != null) {
                         val record = restored.installed.copy(runtimeGeneration = restored.generation)
@@ -166,6 +177,11 @@ internal class PluginRuntimeSwitcherV1(
             webCookie = subsystem.webCookie,
             coroutineScope = scope,
         ).load(
-            registry.all.filterNot { it.platformId == plugin.installed.manifest.platform.id }.mapTo(mutableSetOf()) { it.platformId },
+            registry.all
+                .filterNot {
+                    it.platformId ==
+                        plugin.installed.manifest.platform
+                            ?.id
+                }.mapTo(mutableSetOf()) { it.platformId },
         ).single()
 }

@@ -962,4 +962,30 @@
     <string name="plugin_large_repository_message">此仓库下载超过 20 MiB，会使用更多流量和存储空间。是否继续下载？</string>
     <string name="plugin_continue_download">继续下载</string>
     <string name="plugin_github_path_hint">安装子目录中的插件时，在链接末尾添加 ?path=/plugins/example。</string>
+    <string name="plugin_extension_title">插件任务</string>
+    <string name="plugin_extension_authorize">允许使用</string>
+    <string name="plugin_extension_revoke">取消账号授权</string>
+    <string name="plugin_extension_authorize_message">允许此插件以 %1$s 的身份访问以下网站：\n%2$s\n\n插件可能用此账号发帖、关注或进行其他账号操作。自动运行需要你单独开启。</string>
+    <string name="plugin_extension_foreground_notice">任务仅在使用 Flare 时运行。</string>
+    <string name="plugin_extension_no_accounts">还没有可用账号，请先登录此插件支持的平台。</string>
+    <string name="plugin_extension_automatic">每天自动运行</string>
+    <string name="plugin_extension_run">立即运行</string>
+    <string name="plugin_extension_history">运行记录</string>
+    <string name="plugin_extension_running">正在运行…</string>
+    <string name="plugin_extension_completed">已完成</string>
+    <string name="plugin_extension_already_completed">已完成，无需重复运行</string>
+    <string name="plugin_extension_partial">部分完成，请手动重试</string>
+    <string name="plugin_extension_failed">运行失败，请手动重试</string>
+    <string name="plugin_extension_login_required">请重新登录账号；自动运行已关闭</string>
+    <string name="plugin_extension_user_action_required">需要你手动处理；自动运行已关闭</string>
+    <string name="plugin_extension_skipped">已跳过</string>
+    <string name="plugin_extension_interrupted">运行已中断，重试前请先确认任务是否已完成</string>
+    <string name="plugin_extension_counts">成功 %1$d · 跳过 %2$d · 失败 %3$d</string>
+    <string name="plugin_permission_account_http_origin">使用 %1$s 账号发送已登录请求：%2$s</string>
+    <string name="plugin_extension_authorize_title">允许插件使用此账号？</string>
+    <string name="plugin_extension_authorized">已允许使用</string>
+    <string name="plugin_extension_revoke_title">取消账号授权？</string>
+    <string name="plugin_extension_revoke_message">此插件将无法再使用 %1$s，该账号的自动任务也会关闭。</string>
+    <string name="plugin_extension_automatic_description">每天打开或返回 Flare 时尝试一次。失败或中断后需手动重试。时区：%1$s。</string>
+    <string name="plugin_extension_no_history">还没有运行记录。</string>
 </resources>

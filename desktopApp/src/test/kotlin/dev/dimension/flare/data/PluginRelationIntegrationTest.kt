@@ -11,6 +11,7 @@ import dev.dimension.flare.feature.plugin.PluginSubsystemV1
 import dev.dimension.flare.feature.plugin.adapter.accountCredential
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.management.PluginManagementPresenterV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.wire.EntityKeyV1
 import dev.dimension.flare.feature.plugin.wire.LoginSuccessV1
 import dev.dimension.flare.feature.plugin.wire.PluginAccountCredentialV1
@@ -87,7 +88,7 @@ class PluginRelationIntegrationTest {
             plugin =
                 subsystem.running.value.plugins.values
                     .single()
-            platform = application.koin.get<PlatformRegistry>().require(plugin.installed.manifest.platform.id)
+            platform = application.koin.get<PlatformRegistry>().require(plugin.installed.manifest.socialPlatform.id)
         }
 
     @After
@@ -151,7 +152,7 @@ class PluginRelationIntegrationTest {
                     credential = JsonObject(emptyMap()),
                     profile = ProfileV1(EntityKeyV1(accountId, userKey.host), "$accountId@plugin.example", "Test"),
                     capabilities =
-                        plugin.installed.manifest.platform.capabilities
+                        plugin.installed.manifest.socialPlatform.capabilities
                             .mapValues { it.value.operations.keys },
                 ),
             )

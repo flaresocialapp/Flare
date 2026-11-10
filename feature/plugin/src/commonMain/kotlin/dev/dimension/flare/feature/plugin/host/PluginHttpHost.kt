@@ -1,5 +1,6 @@
 package dev.dimension.flare.feature.plugin.host
 
+import dev.dimension.flare.data.datasource.microblog.AccountHttpRequest
 import dev.dimension.flare.data.model.ProxyRef
 import dev.dimension.flare.feature.plugin.abi.PluginJsonV1
 import dev.dimension.flare.feature.plugin.wire.HttpAuthorizationV1
@@ -8,6 +9,7 @@ import dev.dimension.flare.feature.plugin.wire.HttpMultipartPartV1
 import dev.dimension.flare.feature.plugin.wire.HttpRedirectV1
 import dev.dimension.flare.feature.plugin.wire.HttpRequestV1
 import dev.dimension.flare.feature.plugin.wire.HttpResponseV1
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.Url
@@ -36,6 +38,11 @@ public data class PluginTransportRequestV1(
 
 @HiddenFromObjC
 public sealed interface PluginTransportBodyV1 {
+    public data class Bytes(
+        val value: ByteArray,
+        val contentType: String,
+    ) : PluginTransportBodyV1
+
     public data class Text(
         val value: String,
         val contentType: String,
@@ -83,50 +90,151 @@ internal class PluginHttpHost(
         context: PluginInvocationContextV1,
         callTimeoutMillis: Long,
         apiVersion: Int = 1,
+        account: PluginAccountHttpAccess? = null,
     ): HttpResponseV1 {
         require(apiVersion in dev.dimension.flare.feature.plugin.abi.PluginAbiV1.supportedApiVersions) { "Unsupported API version" }
         require(apiVersion >= 2 || request.redirect == null) { "Redirect options require API v2" }
         validateRequest(request, callTimeoutMillis)
-        var currentUrl = PluginUrlPolicy.requireRequestUrl(request.url, context.metadata.approvedOrigins)
-        val body = request.body?.resolve(context.assets)
-        val headers = request.buildHeaders()
+        val origins = account?.origins ?: context.metadata.approvedOrigins
+        var currentUrl = PluginUrlPolicy.requireRequestUrl(request.url, origins)
+        require(account == null || (request.authorization == null && request.cookies.isEmpty())) {
+            "Account requests cannot override authentication"
+        }
+        val resolvedBody = request.body?.resolve(context.assets)
+        var body = if (account != null) resolvedBody?.materializeForAuthentication() else resolvedBody
+        val headers = request.buildHeaders().toMutableMap()
+        if (body is PluginTransportBodyV1.Bytes) {
+            val headerName = headers.keys.firstOrNull { it.equals(HttpHeaders.ContentType, true) } ?: HttpHeaders.ContentType
+            val contentType = ContentType.parse(headers[headerName] ?: body.contentType).toString()
+            body = body.copy(contentType = contentType)
+            headers[headerName] = contentType
+        }
         if (apiVersion >= 2) {
             require(headers.entries.sumOf { it.key.encodeToByteArray().size + it.value.encodeToByteArray().size } <= MAX_HEADER_BYTES) {
                 "Request headers are too large"
             }
         }
         val timeout = request.timeoutMillis ?: callTimeoutMillis
+        val authenticationHeaderNames = mutableSetOf<String>()
         repeat(MAX_REDIRECTS + 1) { redirectCount ->
+            account?.ensureActive()
+            val authenticatedHeaders =
+                account
+                    ?.authenticate(
+                        AccountHttpRequest(
+                            request.method.uppercase(),
+                            currentUrl.toString(),
+                            headers,
+                            (body as? PluginTransportBodyV1.Bytes)
+                                ?.value
+                                ?.let {
+                                    Base64.encode(it)
+                                },
+                        ),
+                    ).orEmpty()
+            if (account != null) validateAuthenticationHeaders(authenticatedHeaders)
+            authenticatedHeaders.keys.mapTo(authenticationHeaderNames, String::lowercase)
+            val hopHeaders = headers.filterKeys { name -> authenticatedHeaders.keys.none { it.equals(name, true) } } + authenticatedHeaders
+            if (account != null) {
+                require(
+                    hopHeaders.size <= MAX_REQUEST_HEADERS &&
+                        hopHeaders.entries.sumOf { it.key.length + it.value.encodeToByteArray().size } <= MAX_HEADER_BYTES,
+                ) {
+                    "Authenticated request headers are too large"
+                }
+                require(
+                    hopHeaders.all { (name, value) ->
+                        HEADER_NAME.matches(name) &&
+                            value.none { it == '\r' || it == '\n' || it == '\u0000' }
+                    },
+                ) {
+                    "Invalid authenticated request header"
+                }
+            }
             val response =
                 transport.execute(
                     PluginTransportRequestV1(
                         method = request.method.uppercase(),
                         url = currentUrl.toString(),
-                        headers = headers,
+                        headers = hopHeaders,
                         body = body,
                         timeoutMillis = timeout,
                         proxy = context.proxy,
                     ),
                 )
             validateResponse(response)
+            account?.ensureActive()
+            val visibleResponse =
+                if (account ==
+                    null
+                ) {
+                    response
+                } else {
+                    response.copy(
+                        headers =
+                            response.headers.filterKeys {
+                                it.lowercase() !in HIDDEN_RESPONSE_HEADERS &&
+                                    it.lowercase() !in authenticationHeaderNames
+                            },
+                    )
+                }
             val location = response.headers.firstValue(HttpHeaders.Location)
             if (request.redirect == HttpRedirectV1.Manual) {
-                return response.toWire(apiVersion, currentUrl, context.metadata.approvedOrigins)
+                return visibleResponse.toWire(apiVersion, currentUrl, origins)
             }
             if (response.status !in REDIRECT_STATUSES || location == null) {
-                return response.toWire(apiVersion, currentUrl, context.metadata.approvedOrigins)
+                return visibleResponse.toWire(apiVersion, currentUrl, origins)
             }
             require(redirectCount < MAX_REDIRECTS) { "Too many HTTP redirects" }
             require(request.method.equals("GET", true) || request.method.equals("HEAD", true)) {
                 "Redirects for requests with a body are not supported"
             }
-            val redirected = PluginUrlPolicy.resolveRedirect(currentUrl, location, context.metadata.approvedOrigins)
+            val redirected = PluginUrlPolicy.resolveRedirect(currentUrl, location, origins)
             require(redirected.origin() == currentUrl.origin()) { "Cross-origin redirects are not allowed" }
             currentUrl = redirected
         }
         error("Too many HTTP redirects")
     }
 }
+
+internal fun validateAuthenticationHeaders(headers: Map<String, String>) {
+    require(
+        headers.size <= MAX_REQUEST_HEADERS && headers.keys
+            .map(String::lowercase)
+            .distinct()
+            .size == headers.size,
+    ) {
+        "Invalid authentication headers"
+    }
+    require(
+        headers.entries.sumOf {
+            it.key.length + it.value.encodeToByteArray().size
+        } <= MAX_HEADER_BYTES,
+    ) { "Authentication headers are too large" }
+    require(
+        headers.all { (name, value) ->
+            val lower = name.lowercase()
+            HEADER_NAME.matches(name) && lower !in AUTHENTICATION_ROUTING_HEADERS && !lower.startsWith("proxy-") &&
+                !lower.startsWith("sec-") &&
+                value.none { it == '\r' || it == '\n' || it == '\u0000' }
+        },
+    ) { "Invalid authentication header" }
+}
+
+private val AUTHENTICATION_ROUTING_HEADERS =
+    setOf(
+        "host",
+        "connection",
+        "keep-alive",
+        "content-length",
+        "content-type",
+        "transfer-encoding",
+        "te",
+        "trailer",
+        "upgrade",
+        "set-cookie",
+        "set-cookie2",
+    )
 
 private fun validateRequest(
     request: HttpRequestV1,

@@ -20,7 +20,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,7 +44,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -83,6 +81,7 @@ import dev.dimension.flare.ui.component.FlareDropdownMenu
 import dev.dimension.flare.ui.component.FlareLargeFlexibleTopAppBar
 import dev.dimension.flare.ui.component.FlareScaffold
 import dev.dimension.flare.ui.component.LocalTimelineAppearance
+import dev.dimension.flare.ui.component.RefreshContainer
 import dev.dimension.flare.ui.component.resolveText
 import dev.dimension.flare.ui.theme.screenHorizontalPadding
 import dev.dimension.flare.ui.theme.segmentedShapes2
@@ -97,7 +96,9 @@ import java.io.File
 @Composable
 internal fun AndroidPluginManagementScreen(
     onBack: () -> Unit,
+    onSettings: (String) -> Unit,
     onCreateWithAI: () -> Unit = {},
+    onExtensions: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -114,7 +115,20 @@ internal fun AndroidPluginManagementScreen(
         onDispose { presenter.close() }
     }
     val state by presenter.state.collectAsState()
-    LaunchedEffect(presenter) { scope.launchPresenterAction { presenter.checkUpdates(forceRefresh = false) } }
+    var checkingUpdates by remember { mutableStateOf(false) }
+
+    fun checkUpdates(forceRefresh: Boolean = true) {
+        if (state.busy || checkingUpdates) return
+        checkingUpdates = true
+        scope.launchPresenterAction {
+            try {
+                presenter.checkUpdates(forceRefresh)
+            } finally {
+                checkingUpdates = false
+            }
+        }
+    }
+    LaunchedEffect(presenter) { checkUpdates(forceRefresh = false) }
     var pendingUninstallId by remember { mutableStateOf<String?>(null) }
     val pendingUninstall = state.plugins.firstOrNull { it.pluginId == pendingUninstallId }
     val pendingAuthored = state.authoredPlugins.firstOrNull { it.id == pendingUninstallId }
@@ -205,50 +219,55 @@ internal fun AndroidPluginManagementScreen(
         )
     }
 
-    Box(Modifier.fillMaxSize()) {
-        FlareScaffold(
-            topBar = {
-                FlareLargeFlexibleTopAppBar(
-                    title = { Text(stringResource(R.string.settings_plugins_title)) },
-                    navigationIcon = { BackButton(onBack = onBack) },
-                    actions = {
-                        PluginAddMenu(
-                            busy = state.busy,
-                            agentEnabled = LocalTimelineAppearance.current.aiConfig.agent,
-                            onGitHubInstall = presenter::openGitHubInstall,
-                            onCreateWithAI = onCreateWithAI,
-                            onFileInstall = { picker.launch(arrayOf("application/zip", "application/octet-stream")) },
-                        )
-                        PluginManagementMenu(
-                            state = state,
-                            onCheckUpdates = { scope.launchPresenterAction { presenter.checkUpdates() } },
-                            onRebuildIndex = { scope.launchPresenterAction { presenter.rebuildIndex() } },
-                            onCleanup = { scope.launchPresenterAction { presenter.cleanup() } },
-                        )
+    FlareScaffold(
+        topBar = {
+            FlareLargeFlexibleTopAppBar(
+                title = { Text(stringResource(R.string.settings_plugins_title)) },
+                navigationIcon = { BackButton(onBack = onBack) },
+                actions = {
+                    PluginAddMenu(
+                        busy = state.busy,
+                        agentEnabled = LocalTimelineAppearance.current.aiConfig.agent,
+                        onGitHubInstall = presenter::openGitHubInstall,
+                        onCreateWithAI = onCreateWithAI,
+                        onFileInstall = { picker.launch(arrayOf("application/zip", "application/octet-stream")) },
+                    )
+                    PluginManagementMenu(
+                        state = state,
+                        onCheckUpdates = { checkUpdates() },
+                        onRebuildIndex = { scope.launchPresenterAction { presenter.rebuildIndex() } },
+                        onCleanup = { scope.launchPresenterAction { presenter.cleanup() } },
+                    )
+                },
+                scrollBehavior = scrollBehavior,
+            )
+        },
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+    ) { padding ->
+        RefreshContainer(
+            isRefreshing = state.busy || checkingUpdates,
+            onRefresh = { checkUpdates() },
+            indicatorPadding = padding,
+            modifier = Modifier.fillMaxSize(),
+            content = {
+                PluginManagementList(
+                    state = state,
+                    onSettings = onSettings,
+                    onExtensions = onExtensions,
+                    onCancelPluginUpdate = { id -> scope.launchPresenterAction { presenter.cancelPluginUpdate(id) } },
+                    onUninstall = { pendingUninstallId = it },
+                    onUpdate = { pluginId -> scope.launchPresenterAction { presenter.inspectGitHubUpdate(pluginId) } },
+                    onRetryRuntime = { pluginId ->
+                        scope.launchPresenterAction { presenter.retryRuntime(pluginId) }
                     },
-                    scrollBehavior = scrollBehavior,
+                    modifier =
+                        Modifier
+                            .fillMaxSize()
+                            .padding(padding)
+                            .padding(horizontal = screenHorizontalPadding),
                 )
             },
-            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        ) { padding ->
-            PluginManagementList(
-                state = state,
-                onCancelPluginUpdate = { id -> scope.launchPresenterAction { presenter.cancelPluginUpdate(id) } },
-                onUninstall = { pendingUninstallId = it },
-                onUpdate = { pluginId -> scope.launchPresenterAction { presenter.inspectGitHubUpdate(pluginId) } },
-                onRetryRuntime = { pluginId ->
-                    scope.launchPresenterAction { presenter.retryRuntime(pluginId) }
-                },
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .padding(horizontal = screenHorizontalPadding),
-            )
-        }
-        if (state.busy) {
-            CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-        }
+        )
     }
 }
 
@@ -413,6 +432,17 @@ internal fun PluginPermission.localizedDescription(): String {
     if (type == dev.dimension.flare.data.model.PluginPermissionType.MediaNetwork) {
         return stringResource(R.string.plugin_permission_media_network)
     }
+    if (type == dev.dimension.flare.data.model.PluginPermissionType.AccountHttpOrigin) {
+        val displayOrigin =
+            if (origin ==
+                PluginAbiV1.ACCOUNT_ORIGIN
+            ) {
+                stringResource(R.string.plugin_permission_account_origin_label)
+            } else {
+                origin
+            }
+        return stringResource(R.string.plugin_permission_account_http_origin, platformId.orEmpty(), displayOrigin)
+    }
     if (type == dev.dimension.flare.data.model.PluginPermissionType.HttpOrigin) {
         return stringResource(R.string.plugin_permission_http_origin, origin)
     }
@@ -516,11 +546,13 @@ internal fun GitHubInstallDialog(
 @Composable
 internal fun PluginManagementList(
     state: PluginManagementStateV1,
+    onSettings: (String) -> Unit,
     onCancelPluginUpdate: (String) -> Unit,
     onUninstall: (String) -> Unit,
     onUpdate: (String) -> Unit,
     onRetryRuntime: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onExtensions: (String) -> Unit = {},
 ) {
     LazyColumn(
         modifier = modifier,
@@ -622,6 +654,8 @@ internal fun PluginManagementList(
                     busy = state.busy,
                     shapesIndex = index,
                     shapesCount = state.items.size,
+                    onSettings = onSettings,
+                    onExtensions = onExtensions,
                     onCancelUpdate = onCancelPluginUpdate,
                     onUninstall = onUninstall,
                     onUpdate = onUpdate,
@@ -637,9 +671,11 @@ internal fun PluginItem(
     busy: Boolean,
     shapesIndex: Int,
     shapesCount: Int,
+    onSettings: (String) -> Unit,
     onCancelUpdate: (String) -> Unit,
     onUninstall: (String) -> Unit,
     onUpdate: (String) -> Unit,
+    onExtensions: (String) -> Unit = {},
 ) {
     val name = plugin.nameText.resolveText().ifBlank { stringResource(R.string.plugin_ai_untitled) }
     SegmentedListItem(
@@ -661,7 +697,7 @@ internal fun PluginItem(
             Column {
                 Text(
                     plugin.authoring?.let { stringResource(R.string.plugin_ai_source_revision, it.revision) }
-                        ?: "${plugin.platformId} · ${plugin.version}",
+                        ?: "${plugin.platformId.ifEmpty { plugin.pluginId }} · ${plugin.version}",
                 )
                 plugin.sourceUrl?.let { Text(it) }
                 plugin.availableUpdate?.let { update ->
@@ -683,7 +719,13 @@ internal fun PluginItem(
             }
         },
         trailingContent = {
-            PluginItemMenu(name = name, busy = busy, onUninstall = { onUninstall(plugin.pluginId) })
+            PluginItemMenu(
+                name = name,
+                busy = busy,
+                onUninstall = { onUninstall(plugin.pluginId) },
+                onSettings = if (plugin.hasSettings) ({ onSettings(plugin.pluginId) }) else null,
+                onExtensions = if (plugin.hasPlatformExtension) ({ onExtensions(plugin.pluginId) }) else null,
+            )
         },
     )
 }
@@ -693,6 +735,8 @@ internal fun PluginItemMenu(
     name: String,
     busy: Boolean,
     onUninstall: () -> Unit,
+    onSettings: (() -> Unit)?,
+    onExtensions: (() -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -700,6 +744,26 @@ internal fun PluginItemMenu(
             FAIcon(FontAwesomeIcons.Solid.EllipsisVertical, contentDescription = "${stringResource(R.string.more)}: $name")
         }
         FlareDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            if (onExtensions != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.plugin_extension_title)) },
+                    enabled = !busy,
+                    onClick = {
+                        expanded = false
+                        onExtensions()
+                    },
+                )
+            }
+            if (onSettings != null) {
+                DropdownMenuItem(
+                    text = { Text(stringResource(R.string.settings_title)) },
+                    enabled = !busy,
+                    onClick = {
+                        expanded = false
+                        onSettings()
+                    },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.plugin_uninstall)) },
                 leadingIcon = { FAIcon(FontAwesomeIcons.Solid.Trash, contentDescription = null) },

@@ -18,7 +18,10 @@ public data class PluginManifestV1(
     val name: PluginTextV1,
     val description: PluginTextV1? = null,
     val permissions: PluginPermissionsV1 = PluginPermissionsV1(),
-    val platform: PluginPlatformManifestV1,
+    val platform: PluginPlatformManifestV1? = null,
+    val translation: PluginTranslationManifestV1? = null,
+    val settings: PluginSettingsManifestV1? = null,
+    val platformExtension: PluginPlatformExtensionManifestV1? = null,
     /** Editor hint only; the Host never resolves this URL. */
     @SerialName("\$schema")
     val schema: String? = null,
@@ -64,6 +67,7 @@ public data class CapabilityManifestV1(
     val operations: Map<String, CapabilityOperationManifestV1>,
     val notificationFilters: Set<NotificationFilterKindV1> = emptySet(),
     val relationActions: Set<RelationActionKindV1> = emptySet(),
+    val authOrigins: Set<String> = emptySet(),
 )
 
 @Serializable
@@ -213,3 +217,48 @@ public data class PluginMethodTableV1(
     val apiVersion: Int,
     val methods: Set<String>,
 )
+
+@Serializable
+public data class PluginTranslationManifestV1(
+    val apiVersion: Int = 1,
+    val cache: PluginTranslationCacheManifestV1 = PluginTranslationCacheManifestV1(),
+)
+
+@Serializable
+public data class PluginTranslationCacheManifestV1(
+    val storageNamespaces: List<String>? = null,
+)
+
+@Serializable
+public data class PluginSettingsManifestV1(
+    val entry: String,
+    val bridgeVersion: Int = 1,
+)
+
+@Serializable
+public data class PluginPlatformExtensionManifestV1(
+    val apiVersion: Int = 1,
+    val targets: List<PluginExtensionTargetV1>,
+    val actions: List<PluginExtensionActionV1>,
+)
+
+@Serializable
+public data class PluginExtensionTargetV1(
+    val platformId: String,
+    val authOrigins: Set<String>,
+)
+
+@Serializable
+public data class PluginExtensionActionV1(
+    val id: String,
+    val title: PluginTextV1,
+    val description: PluginTextV1? = null,
+    /** When present, foreground catch-up may run once per date in this timezone. */
+    val dailyTimeZone: String? = null,
+    /** Empty means all declared targets, preserving existing v2 packages. */
+    val platformIds: Set<String> = emptySet(),
+)
+
+/** Social-only adapters call this after filtering plugins with no social platform. */
+public val PluginManifestV1.socialPlatform: PluginPlatformManifestV1
+    get() = requireNotNull(platform) { "Plugin has no social platform" }

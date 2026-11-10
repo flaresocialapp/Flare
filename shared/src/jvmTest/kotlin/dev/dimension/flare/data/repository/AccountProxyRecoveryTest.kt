@@ -97,6 +97,30 @@ class AccountProxyRecoveryTest {
         }
 
     @Test
+    fun accountSessionsChangeOnLoginImportAndRemovalButNotCredentialRefresh(): Unit =
+        runBlocking {
+            val (accounts, _) = repository()
+            accounts.withAccountChanges { }
+            app.accountDao().insert(row(deleted))
+            assertTrue(accounts.isSessionActive(deleted, ""))
+            accounts.addAccount(UiAccount(deleted, "Mastodon"), "first login")
+            val first = requireNotNull(app.accountDao().getAccount(deleted)).session_id
+            assertTrue(first.isNotBlank())
+            assertEquals(false, accounts.isSessionActive(deleted, ""))
+            accounts.updateCredential(deleted, "refreshed").join()
+            assertTrue(accounts.isSessionActive(deleted, first))
+            accounts.addAccount(UiAccount(deleted, "Mastodon"), "second login")
+            assertEquals(false, accounts.isSessionActive(deleted, first))
+            val second = requireNotNull(app.accountDao().getAccount(deleted)).session_id
+            accounts.restoreAccounts(listOf(deleted)) { }
+            assertEquals(false, accounts.isSessionActive(deleted, second))
+            val restored = requireNotNull(app.accountDao().getAccount(deleted)).session_id
+            assertTrue(accounts.isSessionActive(deleted, restored))
+            accounts.delete(deleted)
+            assertEquals(false, accounts.isSessionActive(deleted, restored))
+        }
+
+    @Test
     fun bulkDeletionValidatesOwnershipAndCommitsIntentBeforeChangingAccountData(): Unit =
         runBlocking {
             val (accounts, _) = repository()

@@ -4,6 +4,7 @@ import dev.dimension.flare.data.model.IconType
 import dev.dimension.flare.data.repository.AccountService
 import dev.dimension.flare.data.repository.RequireReLoginException
 import dev.dimension.flare.feature.plugin.abi.PluginAbiV1
+import dev.dimension.flare.feature.plugin.abi.PluginJsonV1
 import dev.dimension.flare.feature.plugin.host.PluginCredentialAccess
 import dev.dimension.flare.feature.plugin.host.PluginCredentialSnapshot
 import dev.dimension.flare.feature.plugin.host.PluginInvocationContextV1
@@ -12,6 +13,7 @@ import dev.dimension.flare.feature.plugin.host.accountHost
 import dev.dimension.flare.feature.plugin.host.platformUuid
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
 import dev.dimension.flare.feature.plugin.manifest.fallbackText
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.manifest.toUiText
 import dev.dimension.flare.feature.plugin.wire.AccountPluginSnapshotV1
 import dev.dimension.flare.feature.plugin.wire.LoginSuccessV1
@@ -32,17 +34,17 @@ import kotlinx.serialization.json.JsonElement
 
 public fun RunningPluginV1.accountCredential(success: LoginSuccessV1): PluginAccountCredentialV1 {
     success.requireValid()
-    mergePluginComposeConfigV2(installed.manifest.platform.composeDefaults, success.composeConfig)
+    mergePluginComposeConfigV2(installed.manifest.socialPlatform.composeDefaults, success.composeConfig)
     val manifestCapabilities =
         PluginAbiV1.knownCapabilities(
-            installed.manifest.platform.capabilities
+            installed.manifest.socialPlatform.capabilities
                 .mapValues { it.value.operations.keys },
         )
     return PluginAccountCredentialV1(
         snapshot =
             AccountPluginSnapshotV1(
                 pluginId = installed.pluginId,
-                platformId = installed.manifest.platform.id,
+                platformId = installed.manifest.socialPlatform.id,
                 packageHash = installed.packageHash,
                 origin = PluginUrlPolicy.requireOrigin(success.origin),
                 accountId = success.accountId,
@@ -50,7 +52,7 @@ public fun RunningPluginV1.accountCredential(success: LoginSuccessV1): PluginAcc
                 manifestCapabilities = manifestCapabilities,
                 negotiatedCapabilities = PluginAbiV1.knownCapabilities(success.capabilities),
                 composeConfig = success.composeConfig,
-                credentialSchemaVersion = installed.manifest.platform.credentialSchemaVersion,
+                credentialSchemaVersion = installed.manifest.socialPlatform.credentialSchemaVersion,
             ),
         credential = success.credential,
         sessionEpoch = if (installed.manifest.apiVersion >= 2) platformUuid() else null,
@@ -59,7 +61,7 @@ public fun RunningPluginV1.accountCredential(success: LoginSuccessV1): PluginAcc
 }
 
 internal fun RunningPluginV1.platformMetadata(): PlatformMetadata {
-    val platform = installed.manifest.platform
+    val platform = installed.manifest.socialPlatform
     val normalized = iconPath.replace('\\', '/')
     val absolute = if (normalized.startsWith('/')) normalized else "/$normalized"
     return PlatformMetadata(
@@ -85,7 +87,7 @@ internal suspend fun AccountService.addPluginAccount(
         account =
             UiAccount(
                 accountKey = accountKey,
-                platformId = plugin.installed.manifest.platform.id,
+                platformId = plugin.installed.manifest.socialPlatform.id,
                 platformDisplayName = metadata.displayName,
                 platformIcon = metadata.icon,
                 platformDisplayNameText = metadata.displayNameText,
@@ -108,7 +110,7 @@ internal fun PluginAccountCredentialV1.requireValid(plugin: RunningPluginV1) {
         "Invalid credential revision"
     }
     val manifest = plugin.installed.manifest
-    require(snapshot.pluginId == plugin.installed.pluginId && snapshot.platformId == manifest.platform.id) {
+    require(snapshot.pluginId == plugin.installed.pluginId && snapshot.platformId == manifest.socialPlatform.id) {
         "Plugin account identity mismatch"
     }
     require(PACKAGE_HASH.matches(snapshot.packageHash)) { "Invalid plugin account package hash" }
@@ -129,9 +131,9 @@ internal fun PluginAccountCredentialV1.requireValid(plugin: RunningPluginV1) {
         "Invalid plugin account capabilities"
     }
     snapshot.composeConfig?.requireValid()
-    mergePluginComposeConfigV2(manifest.platform.composeDefaults, snapshot.composeConfig)
+    mergePluginComposeConfigV2(manifest.socialPlatform.composeDefaults, snapshot.composeConfig)
     require(
-        dev.dimension.flare.feature.plugin.abi.PluginJsonV1
+        PluginJsonV1
             .encodeToString(JsonElement.serializer(), credential)
             .encodeToByteArray()
             .size <= WireLimitsV1.MAX_CREDENTIAL_BYTES,
@@ -140,12 +142,13 @@ internal fun PluginAccountCredentialV1.requireValid(plugin: RunningPluginV1) {
 
 internal fun PluginAccountCredentialV1.effectiveCapabilities(plugin: RunningPluginV1): Map<String, Set<String>> {
     requireValid(plugin)
-    return plugin.installed.manifest.platform.capabilities
+    return plugin.installed.manifest.socialPlatform.capabilities
         .mapValues { (capability, declaration) ->
             val previousManifest = snapshot.manifestCapabilities[capability].orEmpty()
             val negotiated = snapshot.negotiatedCapabilities[capability].orEmpty()
             declaration.operations.keys.filterTo(linkedSetOf()) { operation ->
-                operation !in previousManifest || operation in negotiated
+                operation in negotiated ||
+                    (capability != PluginAbiV1.Capabilities.ACCOUNT_HTTP && operation !in previousManifest)
             }
         }.filterValues(Set<String>::isNotEmpty)
         .let(PluginAbiV1::knownCapabilities)
@@ -205,11 +208,11 @@ internal class PlatformDataSourceCredentialAccessV1(
 
     private fun requireEpoch(account: PluginAccountCredentialV1) {
         if (epoch == null || account.credentialRevision == null) {
-            throw RequireReLoginException(context.accountKey, plugin.installed.manifest.platform.id)
+            throw RequireReLoginException(context.accountKey, plugin.installed.manifest.socialPlatform.id)
         }
         if (account.sessionEpoch != epoch) throw CancellationException("Plugin account session was replaced")
-        if (account.snapshot.credentialSchemaVersion != plugin.installed.manifest.platform.credentialSchemaVersion) {
-            throw RequireReLoginException(context.accountKey, plugin.installed.manifest.platform.id)
+        if (account.snapshot.credentialSchemaVersion != plugin.installed.manifest.socialPlatform.credentialSchemaVersion) {
+            throw RequireReLoginException(context.accountKey, plugin.installed.manifest.socialPlatform.id)
         }
     }
 
@@ -263,8 +266,8 @@ internal class PlatformDataSourceCredentialAccessV1(
             .also { account ->
                 requireCurrentAccount(account)
                 // Keep account observers alive for relogin or restoration, but never invoke incompatible credentials.
-                if (account.snapshot.credentialSchemaVersion != plugin.installed.manifest.platform.credentialSchemaVersion) {
-                    throw RequireReLoginException(context.accountKey, plugin.installed.manifest.platform.id)
+                if (account.snapshot.credentialSchemaVersion != plugin.installed.manifest.socialPlatform.credentialSchemaVersion) {
+                    throw RequireReLoginException(context.accountKey, plugin.installed.manifest.socialPlatform.id)
                 }
             }
 
@@ -272,7 +275,7 @@ internal class PlatformDataSourceCredentialAccessV1(
         account.requireValid(plugin)
         val expectedKey = MicroBlogKey(account.snapshot.accountId, Url(account.snapshot.origin).accountHost())
         if (expectedKey != context.accountKey) {
-            throw RequireReLoginException(context.accountKey, plugin.installed.manifest.platform.id)
+            throw RequireReLoginException(context.accountKey, plugin.installed.manifest.socialPlatform.id)
         }
     }
 }
@@ -285,7 +288,7 @@ internal fun RunningPluginV1.accountInvocationContext(
 ): PluginInvocationContextV1 =
     PluginInvocationContextV1.account(
         pluginId = installed.pluginId,
-        platformId = installed.manifest.platform.id,
+        platformId = installed.manifest.socialPlatform.id,
         packageHash = installed.packageHash,
         origin = account.snapshot.origin,
         accountId = account.snapshot.accountId,

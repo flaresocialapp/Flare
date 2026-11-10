@@ -19,6 +19,7 @@ public object PluginAbiV1 {
     internal val capabilityIdPattern = Regex("[a-z0-9.-]+/[a-z0-9.-]+")
 
     public object Capabilities {
+        public const val ACCOUNT_HTTP: String = "flare.datasource.account-http/v1"
         public const val TIMELINE_PAGE: String = "flare.datasource.timeline-page/v1"
         public const val TIMELINE: String = "flare.datasource.timeline/v1"
         public const val SEARCH: String = "flare.datasource.search/v1"
@@ -37,6 +38,7 @@ public object PluginAbiV1 {
     /** Capability versions are independent of the runtime API version. */
     public val knownCapabilityOperations: Map<String, Set<String>> =
         mapOf(
+            Capabilities.ACCOUNT_HTTP to setOf("authenticate"),
             Capabilities.TIMELINE_PAGE to setOf("load"),
             Capabilities.TIMELINE to setOf("page"),
             Capabilities.SEARCH to
@@ -124,6 +126,7 @@ public object PluginAbiV1 {
         if (operation !in knownCapabilityOperations[capabilityId].orEmpty()) return null
         val service =
             when (capabilityId) {
+                Capabilities.ACCOUNT_HTTP -> "accountHttp"
                 Capabilities.TIMELINE_PAGE -> "timelinePage"
                 Capabilities.TIMELINE -> "timeline"
                 Capabilities.SEARCH -> "search"

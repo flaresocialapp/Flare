@@ -1,0 +1,1 @@
+html { color-scheme: light dark; font: 17px system-ui; } main { max-width: 36rem; margin: auto; padding: 1.5rem; } label, input, button { display: block; margin-block: .75rem; } input { box-sizing: border-box; width: 100%; font: inherit; padding: .5rem; } button { font: inherit; padding: .5rem 1rem; }

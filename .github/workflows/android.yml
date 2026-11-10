@@ -109,7 +109,7 @@ jobs:
           arch: x86_64
           disable-animations: true
           script: |
-            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.dimension.flare.ui.screen.settings.ProxySettingsContentTest,dev.dimension.flare.ui.screen.settings.PluginManagementMenuTest,dev.dimension.flare.common.WebViewProxyTest,dev.dimension.flare.ui.screen.gallery.GalleryDetailScreenTest,dev.dimension.flare.ui.screen.media.ImageTranslationErrorDialogTest
+            ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=dev.dimension.flare.ui.screen.settings.ProxySettingsContentTest,dev.dimension.flare.ui.screen.settings.PluginManagementMenuTest,dev.dimension.flare.ui.screen.settings.PluginExtensionScreenTest,dev.dimension.flare.common.WebViewProxyTest,dev.dimension.flare.ui.screen.gallery.GalleryDetailScreenTest,dev.dimension.flare.ui.screen.media.ImageTranslationErrorDialogTest
             ./gradlew :compose-ui:connectedAndroidDeviceTest -Pandroid.testInstrumentationRunnerArguments.class=dev.dimension.flare.ui.component.SurfaceBindingManagerTest
       - name: Build and package Android and Linux
         run: ./gradlew :app:assembleRelease :app:bundleRelease :app:check :app:lint :desktopApp:check :desktopApp:build :desktopApp:packageReleaseAppImage -x ktlintCheck --stacktrace

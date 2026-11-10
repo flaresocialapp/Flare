@@ -37,6 +37,41 @@ class PluginManagementMenuTest {
     private var fileInstalls = 0
     private var installs = 0
     private var updateChecks = 0
+    private var offersSettings by mutableStateOf(true)
+    private var settingsOpened = 0
+    private var uninstalls = 0
+
+    @Test
+    fun itemMenuShowsSettingsOnlyWhenProvidedAndClosesAfterSelection() {
+        showItemMenu()
+        compose.onNodeWithText(context.getString(R.string.settings_title)).assertDoesNotExist()
+        itemMore().performClick()
+        popupItem(R.string.settings_title).assertIsDisplayed().performClick()
+        compose.onNode(isPopup()).assertDoesNotExist()
+        compose.runOnIdle {
+            assertEquals(1, settingsOpened)
+            offersSettings = false
+        }
+        itemMore().performClick()
+        compose.onNodeWithText(context.getString(R.string.settings_title)).assertDoesNotExist()
+        popupItem(R.string.plugin_uninstall).performClick()
+        compose.onNode(isPopup()).assertDoesNotExist()
+        compose.runOnIdle { assertEquals(1, uninstalls) }
+    }
+
+    @Test
+    fun busyItemDisablesBothTheMenuAndItsOpenActions() {
+        state = state.copy(busy = true)
+        showItemMenu()
+        itemMore().assertIsNotEnabled()
+        compose.runOnIdle { state = state.copy(busy = false) }
+        itemMore().performClick()
+        popupItem(R.string.settings_title).assertIsEnabled()
+        compose.runOnIdle { state = state.copy(busy = true) }
+        popupItem(R.string.settings_title).assertIsNotEnabled()
+        popupItem(R.string.plugin_uninstall).assertIsNotEnabled()
+        compose.runOnIdle { assertEquals(0, settingsOpened) }
+    }
 
     @Test
     fun githubActionsAppearInThePopupAndDismissAfterSelection() {
@@ -122,6 +157,21 @@ class PluginManagementMenuTest {
     }
 
     private fun add() = compose.onNodeWithContentDescription(context.getString(R.string.plugin_add))
+
+    private fun showItemMenu() {
+        compose.setContent {
+            MaterialTheme {
+                PluginItemMenu(
+                    name = "Example",
+                    busy = state.busy,
+                    onUninstall = { uninstalls++ },
+                    onSettings = if (offersSettings) ({ settingsOpened++ }) else null,
+                )
+            }
+        }
+    }
+
+    private fun itemMore() = compose.onNodeWithContentDescription("${context.getString(R.string.more)}: Example")
 
     private fun more() = compose.onNodeWithContentDescription(context.getString(R.string.more))
 

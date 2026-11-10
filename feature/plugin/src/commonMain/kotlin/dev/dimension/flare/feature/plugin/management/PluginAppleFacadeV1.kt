@@ -140,6 +140,10 @@ public class PluginOAuthCallbackFacadeV1 {
 
 /** Swift-facing hook for native memory-pressure notifications. */
 public class PluginRuntimeLifecycleFacadeV1 {
+    public fun setForeground(active: Boolean) {
+        koinGet<PluginSubsystemV1>().extensions.setForeground(active)
+    }
+
     @Throws(Exception::class)
     public suspend fun onMemoryPressure() {
         koinGet<PluginSubsystemV1>().onMemoryPressure()

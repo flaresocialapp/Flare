@@ -67,6 +67,7 @@ if (mode === "--watch") {
           await cp(join(root, "locales", name), join(staging, "locales", name));
         }
       }
+      await cp(join(root, "settings"), join(staging, "settings"), { recursive: true }).catch(error => { if (error.code !== "ENOENT") throw error; });
       const packer = fileURLToPath(import.meta.resolve("flare-plugin-sdk/skill/flare-plugin/pack.mjs"));
       execFileSync(process.execPath, [packer, staging, join(root, "plugin.fpp")], { stdio: "inherit" });
     } finally {

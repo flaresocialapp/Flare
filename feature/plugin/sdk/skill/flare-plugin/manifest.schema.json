@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Flare plugin manifest — API v1/v2",
+  "title": "Flare plugin manifest \u2014 API v1/v2",
   "description": "Editor assistance for manifest structure and static rules. Flare remains authoritative for registration, unique IDs, origin approval, locale catalogs, cross-field values and runtime behavior. The Host never fetches the $schema URL.",
   "type": "object",
   "additionalProperties": false,
@@ -60,15 +60,95 @@
       "$ref": "#/definitions/permissions"
     },
     "platform": {
-      "$ref": "#/definitions/platform"
+      "anyOf": [
+        {
+          "$ref": "#/definitions/platform"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "translation": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "apiVersion": {
+              "type": "integer",
+              "const": 1,
+              "default": 1
+            },
+            "cache": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "storageNamespaces": {
+                  "type": [
+                    "array",
+                    "null"
+                  ],
+                  "maxItems": 64,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256,
+                    "pattern": "^[^\\u0000-\\u001f]+$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "settings": {
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "entry"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "type": "string",
+              "maxLength": 512,
+              "pattern": "^(?!.*(?:^|/)\\.{1,2}(?:/|$))settings/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+\\.html$"
+            },
+            "bridgeVersion": {
+              "type": "integer",
+              "const": 1,
+              "default": 1
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "platformExtension": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/platformExtension"
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
     "apiVersion",
     "id",
     "version",
-    "name",
-    "platform"
+    "name"
   ],
   "definitions": {
     "identifier": {
@@ -794,6 +874,24 @@
           },
           "default": [],
           "uniqueItems": true
+        },
+        "authOrigins": {
+          "type": "array",
+          "maxItems": 16,
+          "uniqueItems": true,
+          "items": {
+            "anyOf": [
+              {
+                "type": "string",
+                "description": "Exact canonical HTTPS origin; no path, credentials, wildcard, or trailing slash. Flare checks DNS/port normalization.",
+                "pattern": "^(?:https://[a-z0-9.-]+(?::[0-9]{1,5})?)(?![\\s\\S])"
+              },
+              {
+                "const": "$accountOrigin"
+              }
+            ]
+          },
+          "default": []
         }
       },
       "required": [
@@ -827,6 +925,10 @@
               "maxItems": 0
             },
             "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "authOrigins": {
               "type": "array",
               "maxItems": 0
             }
@@ -870,6 +972,10 @@
               "maxItems": 0
             },
             "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "authOrigins": {
               "type": "array",
               "maxItems": 0
             }
@@ -919,6 +1025,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -962,6 +1072,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1000,6 +1114,10 @@
             "relationActions": {
               "type": "array",
               "minItems": 1
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           },
           "required": [
@@ -1037,6 +1155,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1065,6 +1187,10 @@
               }
             },
             "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "authOrigins": {
               "type": "array",
               "maxItems": 0
             }
@@ -1165,6 +1291,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1231,6 +1361,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1267,6 +1401,10 @@
               "maxItems": 0
             },
             "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "authOrigins": {
               "type": "array",
               "maxItems": 0
             }
@@ -1314,6 +1452,10 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
@@ -1346,6 +1488,10 @@
               "maxItems": 0
             },
             "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "authOrigins": {
               "type": "array",
               "maxItems": 0
             }
@@ -1425,6 +1571,9 @@
         },
         "flare.datasource.timeline-page/v1": {
           "$ref": "#/definitions/capability-timeline-page"
+        },
+        "flare.datasource.account-http/v1": {
+          "$ref": "#/definitions/capability-account-http"
         }
       },
       "additionalProperties": {
@@ -1910,6 +2059,119 @@
         "quote"
       ]
     },
+    "platformExtension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "targets",
+        "actions"
+      ],
+      "properties": {
+        "apiVersion": {
+          "type": "integer",
+          "const": 1,
+          "default": 1
+        },
+        "targets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "platformId",
+              "authOrigins"
+            ],
+            "properties": {
+              "platformId": {
+                "type": "string",
+                "description": "Case-sensitive identifier beginning with a letter.",
+                "pattern": "^(?:[A-Za-z][A-Za-z0-9_.-]{0,127})(?![\\s\\S])"
+              },
+              "authOrigins": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "uniqueItems": true,
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "description": "Exact canonical HTTPS origin; no path, credentials, wildcard, or trailing slash. Flare checks DNS/port normalization.",
+                      "pattern": "^(?:https://[a-z0-9.-]+(?::[0-9]{1,5})?)(?![\\s\\S])"
+                    },
+                    {
+                      "const": "$accountOrigin"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "actions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "title"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+                "not": {
+                  "enum": [
+                    "constructor",
+                    "prototype",
+                    "__proto__"
+                  ]
+                }
+              },
+              "title": {
+                "$ref": "#/definitions/text"
+              },
+              "description": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/text"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "dailyTimeZone": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "minLength": 1,
+                "maxLength": 128,
+                "description": "IANA timezone for once-per-date foreground execution. Host validates availability."
+              },
+              "platformIds": {
+                "type": "array",
+                "maxItems": 8,
+                "uniqueItems": true,
+                "default": [],
+                "description": "Applicable declared target platform IDs. Omitted or empty means all targets; Host validates target membership.",
+                "items": {
+                  "type": "string",
+                  "description": "Case-sensitive identifier beginning with a letter.",
+                  "pattern": "^(?:[A-Za-z][A-Za-z0-9_.-]{0,127})(?![\\s\\S])"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "capability-timeline-page": {
       "type": "object",
       "description": "API v2 temporary timeline pages, independent of home timelines and tabCatalog.",
@@ -1939,13 +2201,157 @@
             "relationActions": {
               "type": "array",
               "maxItems": 0
+            },
+            "authOrigins": {
+              "type": "array",
+              "maxItems": 0
             }
           }
         }
       ]
+    },
+    "capability-account-http": {
+      "type": "object",
+      "description": "API v2 account authentication provider. Returned authentication headers stay inside the Host.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/capability"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "operations": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "authenticate"
+              ],
+              "properties": {
+                "authenticate": {
+                  "$ref": "#/definitions/operation"
+                }
+              }
+            },
+            "authOrigins": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 16,
+              "uniqueItems": true,
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "description": "Exact canonical HTTPS origin; no path, credentials, wildcard, or trailing slash. Flare checks DNS/port normalization.",
+                    "pattern": "^(?:https://[a-z0-9.-]+(?::[0-9]{1,5})?)(?![\\s\\S])"
+                  },
+                  {
+                    "const": "$accountOrigin"
+                  }
+                ]
+              }
+            },
+            "notificationFilters": {
+              "type": "array",
+              "maxItems": 0
+            },
+            "relationActions": {
+              "type": "array",
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "authOrigins"
+          ]
+        }
+      ]
     }
   },
+  "anyOf": [
+    {
+      "required": [
+        "platform"
+      ],
+      "properties": {
+        "platform": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "required": [
+        "translation"
+      ],
+      "properties": {
+        "translation": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "required": [
+        "settings"
+      ],
+      "properties": {
+        "settings": {
+          "type": "object"
+        }
+      }
+    },
+    {
+      "required": [
+        "platformExtension"
+      ],
+      "properties": {
+        "platformExtension": {
+          "type": "object"
+        }
+      }
+    }
+  ],
   "allOf": [
+    {
+      "if": {
+        "anyOf": [
+          {
+            "required": [
+              "translation"
+            ],
+            "properties": {
+              "translation": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "required": [
+              "settings"
+            ],
+            "properties": {
+              "settings": {
+                "type": "object"
+              }
+            }
+          },
+          {
+            "required": [
+              "platformExtension"
+            ],
+            "properties": {
+              "platformExtension": {
+                "type": "object"
+              }
+            }
+          }
+        ]
+      },
+      "then": {
+        "properties": {
+          "apiVersion": {
+            "const": 2
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {
@@ -1963,7 +2369,8 @@
             "properties": {
               "capabilities": {
                 "properties": {
-                  "flare.datasource.timeline-page/v1": false
+                  "flare.datasource.timeline-page/v1": false,
+                  "flare.datasource.account-http/v1": false
                 },
                 "type": "object"
               }

@@ -5,6 +5,7 @@ import dev.dimension.flare.feature.plugin.abi.PluginJsonV1
 import dev.dimension.flare.feature.plugin.lifecycle.PluginIndexCorruptException
 import dev.dimension.flare.feature.plugin.lifecycle.PluginStateIndexV1
 import dev.dimension.flare.feature.plugin.lifecycle.PluginStateStore
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -50,6 +51,41 @@ class PluginInstallerTest {
     fun tearDown() {
         fileSystem.deleteRecursively(root, mustExist = false)
     }
+
+    @Test
+    fun removingTheSocialCapabilityPreservesOwnershipAcrossRestartAndPreventsReassignment() =
+        runBlocking<Unit> {
+            TestFppFactory.write(input)
+            val original = installer.commit(installer.inspect(input), true, stateStore::install)
+            val settingsManifest =
+                """
+                {"apiVersion":2,"id":"${original.pluginId}","version":"2.0.0","name":"Settings",
+                 "settings":{"entry":"settings/index.html"}}
+                """.trimIndent()
+            TestFppFactory.write(
+                input,
+                listOf(
+                    "manifest.json" to settingsManifest.encodeToByteArray(),
+                    "assets/icon.png" to TestFppFactory.validPng,
+                    "settings/index.html" to "<!doctype html><title>Settings</title>".encodeToByteArray(),
+                ),
+            )
+            val updated = installer.commit(installer.inspect(input), true, stateStore::install)
+            assertEquals(null, updated.manifest.platform)
+            assertEquals(original.ownedPlatformId, updated.ownedPlatformId)
+            val restarted = PluginStateStore.open(fileSystem, stateStore.paths.root)
+            assertEquals(
+                original.ownedPlatformId,
+                restarted.desired.value.plugins
+                    .getValue(original.pluginId)
+                    .ownedPlatformId,
+            )
+            TestFppFactory.write(
+                input,
+                TestFppFactory.validEntries(manifest = TestFppFactory.validManifest.replace("TestPlugin", "OtherPlatform")),
+            )
+            assertFails { PluginInstaller(fileSystem, restarted).inspect(input) }
+        }
 
     @Test
     fun rasterIconsKeepTheirBytesFormatAndPathAcrossInstallRestartAndRecovery() =
@@ -163,7 +199,8 @@ class PluginInstallerTest {
             val preview = installer.inspect(input)
             val replacement =
                 installed.copy(
-                    manifest = installed.manifest.copy(platform = installed.manifest.platform.copy(id = "ChangedPlatform")),
+                    manifest = installed.manifest.copy(platform = installed.manifest.socialPlatform.copy(id = "ChangedPlatform")),
+                    ownedPlatformId = "ChangedPlatform",
                 )
             stateStore.install(replacement)
             assertFailsWith<IllegalArgumentException> { installer.commit(preview, confirmed = true, activate = stateStore::install) }

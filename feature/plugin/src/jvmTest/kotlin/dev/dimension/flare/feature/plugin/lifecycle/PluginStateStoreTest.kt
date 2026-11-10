@@ -8,6 +8,7 @@ import dev.dimension.flare.feature.plugin.installer.PluginInstaller
 import dev.dimension.flare.feature.plugin.installer.TestFppFactory
 import dev.dimension.flare.feature.plugin.manifest.CapabilityManifestV1
 import dev.dimension.flare.feature.plugin.manifest.CapabilityOperationManifestV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.wire.ComposeConfigV2
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.encodeToString
@@ -56,14 +57,15 @@ class PluginStateStoreTest {
             val retired =
                 installed.copy(
                     pluginId = retiredId,
+                    ownedPlatformId = installed.manifest.socialPlatform.id + "Retired",
                     manifest =
                         installed.manifest.copy(
                             id = retiredId,
                             platform =
-                                installed.manifest.platform.copy(
-                                    id = installed.manifest.platform.id + "Retired",
+                                installed.manifest.socialPlatform.copy(
+                                    id = installed.manifest.socialPlatform.id + "Retired",
                                     capabilities =
-                                        installed.manifest.platform.capabilities +
+                                        installed.manifest.socialPlatform.capabilities +
                                             (
                                                 PluginAbiV1.RETIRED_COMPOSE to
                                                     CapabilityManifestV1(operations = mapOf("publish" to CapabilityOperationManifestV1()))

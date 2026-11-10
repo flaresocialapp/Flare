@@ -8,6 +8,8 @@ import dev.dimension.flare.feature.plugin.host.PluginInvocationContextV1
 import dev.dimension.flare.feature.plugin.host.PluginInvocationScopeV1
 import dev.dimension.flare.feature.plugin.host.PluginUrlPolicy
 import dev.dimension.flare.feature.plugin.lifecycle.RunningPluginV1
+import dev.dimension.flare.feature.plugin.storage.PluginStorageV1
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -30,6 +32,17 @@ public data class PluginRuntimeKeyV1 private constructor(
     val accountEpoch: String? = null,
 ) {
     public companion object {
+        public fun extension(
+            pluginId: String,
+            packageHash: String,
+            accountId: String,
+        ): PluginRuntimeKeyV1 = create(pluginId, packageHash, PluginInvocationScopeV1.Extension, accountId)
+
+        public fun plugin(
+            pluginId: String,
+            packageHash: String,
+        ): PluginRuntimeKeyV1 = create(pluginId, packageHash, PluginInvocationScopeV1.Plugin, pluginId)
+
         public fun detector(
             pluginId: String,
             packageHash: String,
@@ -85,6 +98,7 @@ public class PluginRuntimePool(
     private val transportFactory: () -> PluginHttpTransport,
     private val dispatcher: CoroutineDispatcher = Dispatchers.Default,
     private val nowMillis: () -> Long = monotonicMillis(),
+    private val storage: PluginStorageV1? = null,
 ) {
     private val mutex = Mutex()
     private val loader = PluginPackageScriptLoader(fileSystem, dispatcher)
@@ -149,7 +163,7 @@ public class PluginRuntimePool(
             } catch (error: Throwable) {
                 plugin.diagnostic?.invoke(
                     plugin,
-                    "$method: ${if (error is kotlinx.coroutines.CancellationException) "cancelled" else "failed"}",
+                    "$method: ${if (error is CancellationException) "cancelled" else "failed"}",
                 )
                 throw error
             }
@@ -165,7 +179,7 @@ public class PluginRuntimePool(
         validate: (JsonElement) -> Unit,
     ): JsonElement {
         validateInvocation(plugin, key, context)
-        if (key.scope == PluginInvocationScopeV1.Detector) {
+        if (key.scope == PluginInvocationScopeV1.Detector || key.scope == PluginInvocationScopeV1.Extension) {
             return invokeTemporary(plugin, context, method, request, timeout, validate)
         }
         val holder =
@@ -180,7 +194,7 @@ public class PluginRuntimePool(
         } catch (error: PluginRuntimeFatalException) {
             withContext(NonCancellable) { handleFatal(plugin.installed.pluginId, key, holder, error) }
             val cause = error.cause ?: error
-            if (cause is kotlinx.coroutines.CancellationException && !error.countsTowardPause) throw cause
+            if (cause is CancellationException && !error.countsTowardPause) throw cause
             throw PluginRuntimeUnavailableException(plugin.installed.pluginId, cause)
         } finally {
             withContext(NonCancellable) { release(holder) }
@@ -259,7 +273,7 @@ public class PluginRuntimePool(
         } catch (error: PluginRuntimeFatalException) {
             withContext(NonCancellable) { recordFailure(plugin.installed.pluginId, error.countsTowardPause) }
             val cause = error.cause ?: error
-            if (cause is kotlinx.coroutines.CancellationException && !error.countsTowardPause) throw cause
+            if (cause is CancellationException && !error.countsTowardPause) throw cause
             throw PluginRuntimeUnavailableException(plugin.installed.pluginId, cause)
         } finally {
             withContext(NonCancellable) { runtime.close() }
@@ -267,7 +281,16 @@ public class PluginRuntimePool(
     }
 
     private fun createRuntime(plugin: RunningPluginV1): IsolatedPluginRuntime =
-        IsolatedPluginRuntime(plugin, loader, gateway.value, dispatcher)
+        IsolatedPluginRuntime(
+            plugin,
+            loader,
+            gateway.value,
+            dispatcher,
+            storageAccess =
+                storage?.access(plugin.installed.pluginId) {
+                    plugin.session.ensureActive()
+                },
+        )
 
     private suspend fun handleFatal(
         pluginId: String,
@@ -324,6 +347,10 @@ public class PluginRuntimePool(
         }
         require(context.metadata.scope == key.scope) { "Invocation scope does not match Runtime key" }
         when (key.scope) {
+            PluginInvocationScopeV1.Extension -> {
+                require(key.identity == context.metadata.accountId && context.accountHttp != null) { "Extension Runtime key mismatch" }
+            }
+
             PluginInvocationScopeV1.Account -> {
                 require(
                     key.identity == accountIdentity(context.metadata.origin, requireNotNull(context.metadata.accountId), key.accountEpoch),
@@ -332,6 +359,10 @@ public class PluginRuntimePool(
 
             PluginInvocationScopeV1.Guest -> {
                 require(key.identity == context.metadata.origin) { "Guest Runtime key mismatch" }
+            }
+
+            PluginInvocationScopeV1.Plugin -> {
+                require(key.identity == context.metadata.pluginId) { "Plugin Runtime key mismatch" }
             }
 
             PluginInvocationScopeV1.Detector,

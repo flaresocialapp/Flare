@@ -5,6 +5,7 @@ import dev.dimension.flare.feature.plugin.PluginSubsystemV1
 import dev.dimension.flare.feature.plugin.installer.TestFppFactory
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingStoreV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingV1
+import dev.dimension.flare.feature.plugin.manifest.socialPlatform
 import dev.dimension.flare.feature.plugin.runtime.PluginSessionRetiredException
 import dev.dimension.flare.feature.plugin.wire.AccountPluginSnapshotV1
 import dev.dimension.flare.feature.plugin.wire.EntityKeyV1
@@ -312,7 +313,7 @@ class PluginLifecycleTest {
             block(subsystem, presenter, accounts, input)
             assertEquals(
                 subsystem.running.value.plugins.values
-                    .map { it.installed.manifest.platform.id }
+                    .map { it.installed.manifest.socialPlatform.id }
                     .toSet(),
                 registry.all
                     .map { it.platformId }

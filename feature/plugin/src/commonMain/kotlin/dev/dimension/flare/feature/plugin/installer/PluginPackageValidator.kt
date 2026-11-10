@@ -3,6 +3,7 @@ package dev.dimension.flare.feature.plugin.installer
 import dev.dimension.flare.feature.plugin.abi.PluginAbiV1
 import dev.dimension.flare.feature.plugin.abi.PluginJsonV1
 import dev.dimension.flare.feature.plugin.manifest.PluginManifestV1
+import dev.dimension.flare.feature.plugin.manifest.PluginMethodTableV1
 import dev.dimension.flare.feature.plugin.manifest.PluginTextV1
 import dev.dimension.flare.feature.plugin.manifest.isValidLocaleTag
 import dev.dimension.flare.feature.plugin.manifest.validate
@@ -33,9 +34,15 @@ internal class PluginPackageValidator(
         archiveReader.validateLayout(archive.entries)
         val manifest = decodeManifest(archive.files.getValue(FppPaths.MANIFEST))
         require(manifest.apiVersion in PluginAbiV1.supportedApiVersions) { "Unsupported API version" }
-        val source = decodeUtf8(archive.files.getValue(FppPaths.ENTRY), FppPaths.ENTRY)
-        require('\u0000' !in source) { "plugin.js contains a null character" }
-        val methodTable = registrationInspector.inspect(source, manifest.apiVersion)
+        val source = archive.files[FppPaths.ENTRY]?.let { decodeUtf8(it, FppPaths.ENTRY) }
+        require(
+            source != null || (manifest.platform == null && manifest.translation == null && manifest.platformExtension == null),
+        ) { "Background capabilities require plugin.js" }
+        require(source == null || '\u0000' !in source) { "plugin.js contains a null character" }
+        val methodTable =
+            source?.let { registrationInspector.inspect(it, manifest.apiVersion) }
+                ?: PluginMethodTableV1(manifest.apiVersion, emptySet())
+        manifest.settings?.let { require(it.entry in archive.files) { "Settings entry is missing" } }
         val manifestValidation = manifest.validate(methodTable)
         manifestValidation.requireValid()
 
@@ -159,16 +166,22 @@ private fun PluginManifestV1.localizedKeys(): Set<String> =
         }
         addText(name)
         addText(description)
-        addText(platform.name)
-        addText(platform.description)
-        platform.timelines.forEach { addText(it.title) }
-        platform.profileTabs.forEach { addText(it.title) }
-        platform.loginMethods.forEach { method ->
-            addText(method.title)
-            addText(method.description)
-            method.fields.forEach { field ->
-                addText(field.label)
-                addText(field.placeholder)
+        platformExtension?.actions?.forEach {
+            addText(it.title)
+            addText(it.description)
+        }
+        platform?.let { platform ->
+            addText(platform.name)
+            addText(platform.description)
+            platform.timelines.forEach { addText(it.title) }
+            platform.profileTabs.forEach { addText(it.title) }
+            platform.loginMethods.forEach { method ->
+                addText(method.title)
+                addText(method.description)
+                method.fields.forEach { field ->
+                    addText(field.label)
+                    addText(field.placeholder)
+                }
             }
         }
     }
