@@ -870,4 +870,16 @@
     <string name="plugin_large_repository_message">此仓库下载超过 20 MiB，会使用更多流量和存储空间。是否继续下载？</string>
     <string name="plugin_continue_download">继续下载</string>
     <string name="plugin_github_path_hint">安装子目录中的插件时，在链接末尾添加 ?path=/plugins/example。</string>
+    <string name="plugin_installed">已安装</string>
+    <string name="plugin_marketplace">插件市场</string>
+    <string name="plugin_marketplace_empty">暂无可用插件</string>
+    <string name="plugin_marketplace_failed">暂时无法加载插件市场</string>
+    <string name="plugin_marketplace_cached">正在显示上次保存的列表。</string>
+    <string name="plugin_marketplace_refresh">刷新</string>
+    <string name="plugin_marketplace_loading">正在加载插件…</string>
+    <string name="plugin_marketplace_repository">查看仓库</string>
+    <string name="plugin_marketplace_manage">管理</string>
+    <string name="plugin_marketplace_install">安装</string>
+    <string name="plugin_marketplace_local">本地插件</string>
+    <string name="plugin_marketplace_search">搜索插件</string>
 </resources>

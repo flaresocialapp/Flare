@@ -19,6 +19,8 @@ import dev.dimension.flare.feature.plugin.lifecycle.PluginInstallSourceV1
 import dev.dimension.flare.feature.plugin.lifecycle.PluginRuntimeSwitcherV1
 import dev.dimension.flare.feature.plugin.lifecycle.PluginStateIssueV1
 import dev.dimension.flare.feature.plugin.manifest.toUiText
+import dev.dimension.flare.feature.plugin.marketplace.PluginMarketplace
+import dev.dimension.flare.feature.plugin.marketplace.PluginMarketplaceStateV1
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimeIssueV1
 import dev.dimension.flare.model.PlatformRegistry
 import dev.dimension.flare.ui.model.UiText
@@ -54,7 +56,15 @@ public data class PluginManagementStateV1(
     val development: PluginDevelopmentStateV1 = PluginDevelopmentStateV1(),
     val authoredPlugins: List<AuthoredPlugin> = emptyList(),
     val needsRepositoryDownloadConfirmation: Boolean = false,
+    val marketplace: PluginMarketplaceStateV1 = PluginMarketplaceStateV1(),
 ) {
+    public val canInstallFromMarketplace: Boolean
+        get() = !busy && gitHubInstall == null && pendingInstall == null && !needsRepositoryDownloadConfirmation
+
+    public fun isInstalled(pluginId: String): Boolean = plugins.any { it.pluginId == pluginId }
+
+    public fun isManaged(pluginId: String): Boolean = items.any { it.pluginId == pluginId } || development.pluginId == pluginId
+
     public val items: List<PluginManagementItemV1> =
         buildList {
             val installed = plugins.associateByTo(linkedMapOf(), PluginManagementItemV1::pluginId)
@@ -115,6 +125,7 @@ public class PluginManagementPresenterV1(
     private val github: GitHubPluginClient = subsystem.github,
     registry: () -> PlatformRegistry = { koinGet() },
     accounts: () -> AccountService = { koinGet() },
+    private val marketplace: PluginMarketplace = subsystem.marketplace,
 ) {
     private val switcher by lazy { PluginRuntimeSwitcherV1(subsystem, registry(), accounts(), scope) }
     private val updates = MutableStateFlow(emptyMap<String, GitHubPluginVersionV1>())
@@ -127,6 +138,7 @@ public class PluginManagementPresenterV1(
     private val actionMutex = Mutex()
     private val updateMutex = Mutex()
     private val closed = MutableStateFlow(false)
+    private var marketplaceJob: Job? = null
 
     private val observation: Job =
         combine(
@@ -141,6 +153,7 @@ public class PluginManagementPresenterV1(
 
     public fun close() {
         if (!closed.compareAndSet(expect = false, update = true)) return
+        marketplaceJob?.cancel()
         observation.cancel()
         scope.launch {
             observation.join()
@@ -160,6 +173,81 @@ public class PluginManagementPresenterV1(
     public fun openGitHubInstall() {
         if (closed.value) return
         mutableState.update { it.copy(gitHubInstall = it.gitHubInstall ?: PluginGitHubInstallStateV1()) }
+    }
+
+    public fun loadMarketplace(forceRefresh: Boolean = false) {
+        if (closed.value || marketplaceJob?.isActive == true) return
+        mutableState.update { it.copy(marketplace = it.marketplace.copy(loading = true, error = null)) }
+        marketplaceJob =
+            scope.launch(operationDispatcher) {
+                try {
+                    marketplace.cachedCatalog()?.let { cached ->
+                        if (!closed.value) {
+                            mutableState.update { it.copy(marketplace = it.marketplace.copy(plugins = cached.plugins, loaded = true)) }
+                        }
+                    }
+                    val catalog = marketplace.load(forceRefresh)
+                    if (!closed.value) {
+                        mutableState.update {
+                            it.copy(marketplace = PluginMarketplaceStateV1(plugins = catalog.plugins, loaded = true))
+                        }
+                    }
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    if (!closed.value) {
+                        mutableState.update {
+                            it.copy(
+                                marketplace =
+                                    it.marketplace.copy(
+                                        loading = false,
+                                        error =
+                                            error.message ?: "Plugin marketplace is unavailable",
+                                    ),
+                            )
+                        }
+                    }
+                } finally {
+                    if (!closed.value) {
+                        mutableState.update { it.copy(marketplace = it.marketplace.copy(loading = false)) }
+                    }
+                }
+            }
+    }
+
+    public suspend fun marketplaceIcon(pluginId: String): String? =
+        withContext(operationDispatcher) {
+            if (closed.value) return@withContext null
+            val entry =
+                mutableState.value.marketplace.plugins
+                    .firstOrNull { it.id == pluginId } ?: return@withContext null
+            marketplace.icon(entry)
+        }
+
+    public suspend fun refreshMarketplace() {
+        loadMarketplace(forceRefresh = true)
+        marketplaceJob?.join()
+    }
+
+    public suspend fun inspectMarketplace(pluginId: String) {
+        runAction {
+            check(
+                preview == null && pendingDownload == null && mutableState.value.gitHubInstall == null,
+            ) { "Finish the pending installation first" }
+            check(subsystem.stateStore.desired.value.plugins[pluginId] == null) { "Plugin is already installed" }
+            check(
+                subsystem.authoring.plugins.value
+                    .none { it.id == pluginId },
+            ) { "Manage the editable local plugin with this ID first" }
+            requireNotDeveloping(pluginId)
+            val entry =
+                requireNotNull(
+                    mutableState.value.marketplace.plugins
+                        .firstOrNull { it.id == pluginId },
+                ) { "Plugin is no longer in the marketplace" }
+            clearPreview()
+            val catalog = github.catalog(entry.repository, forceRefresh = true)
+            prepareGitHub(catalog, catalog.versions.first(), marketplacePluginId = entry.id)
+        }
     }
 
     public suspend fun inspectGitHub(url: String) {
@@ -227,17 +315,22 @@ public class PluginManagementPresenterV1(
         version: GitHubPluginVersionV1,
         expectedPluginId: String? = null,
         allowLargeRepository: Boolean = false,
+        marketplacePluginId: String? = null,
     ) = subsystem.installer.withRepositoryDownload { archive ->
         val fileSystem = subsystem.appFiles.fileSystem
         try {
             github.archive(catalog.repository, version, fileSystem, archive, allowLargeRepository)
         } catch (_: GitHubRepositorySizeConfirmationRequired) {
-            pendingDownload = PendingGitHubDownload(catalog, version, expectedPluginId)
+            pendingDownload = PendingGitHubDownload(catalog, version, expectedPluginId, marketplacePluginId)
             mutableState.update { it.copy(needsRepositoryDownloadConfirmation = true) }
             return@withRepositoryDownload
         }
         val source = PluginInstallSourceV1.GitHub(catalog.repository, version.tag, version.commitSha, catalog.path)
         val prepared = subsystem.installer.inspect(archive, source, expectedPluginId)
+        if (marketplacePluginId != null && prepared.pluginId != marketplacePluginId) {
+            subsystem.installer.discard(prepared)
+            error("Downloaded plugin ID does not match the marketplace entry")
+        }
         if (expectedPluginId != null &&
             prepared.packageHash ==
             subsystem.stateStore.desired.value.plugins[expectedPluginId]
@@ -255,7 +348,13 @@ public class PluginManagementPresenterV1(
             val pending = requireNotNull(pendingDownload) { "No repository download is pending" }
             pendingDownload = null
             mutableState.update { it.copy(needsRepositoryDownloadConfirmation = false) }
-            prepareGitHub(pending.catalog, pending.version, pending.expectedPluginId, allowLargeRepository = true)
+            prepareGitHub(
+                pending.catalog,
+                pending.version,
+                pending.expectedPluginId,
+                allowLargeRepository = true,
+                marketplacePluginId = pending.marketplacePluginId,
+            )
         }
     }
 
@@ -472,6 +571,7 @@ public class PluginManagementPresenterV1(
         val catalog: GitHubPluginCatalogV1,
         val version: GitHubPluginVersionV1,
         val expectedPluginId: String?,
+        val marketplacePluginId: String?,
     )
 }
 

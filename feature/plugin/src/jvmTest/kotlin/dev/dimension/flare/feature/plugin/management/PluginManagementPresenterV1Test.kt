@@ -3,14 +3,20 @@ package dev.dimension.flare.feature.plugin.management
 import dev.dimension.flare.data.io.AppFileStore
 import dev.dimension.flare.data.repository.AuthoredPlugin
 import dev.dimension.flare.feature.plugin.PluginSubsystemV1
+import dev.dimension.flare.feature.plugin.development.PluginDevelopmentStateV1
 import dev.dimension.flare.feature.plugin.installer.TestFppFactory
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingStoreV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingV1
+import dev.dimension.flare.feature.plugin.marketplace.PluginMarketplace
 import dev.dimension.flare.ui.model.UiText
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.MockEngineConfig
+import io.ktor.client.engine.mock.respond
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.collect
@@ -26,6 +32,7 @@ import okio.Path.Companion.toPath
 import org.koin.core.context.startKoin
 import org.koin.core.context.stopKoin
 import org.koin.dsl.module
+import java.io.File
 import java.nio.file.Files
 import java.util.UUID
 import kotlin.test.AfterTest
@@ -54,6 +61,85 @@ class PluginManagementPresenterV1Test {
     fun tearDown() {
         FileSystem.SYSTEM.deleteRecursively(root, mustExist = false)
     }
+
+    @Test
+    fun marketplaceOwnershipComesFromInstalledEditableAndDevelopmentState() {
+        val pluginId = "example.plugin"
+        val empty = PluginManagementStateV1()
+        assertFalse(empty.isInstalled(pluginId))
+        assertFalse(empty.isManaged(pluginId))
+        val installed =
+            empty.copy(
+                plugins =
+                    listOf(
+                        PluginManagementItemV1(
+                            pluginId,
+                            "Example",
+                            UiText.Raw("Example"),
+                            "1.0.0",
+                            "",
+                            sourceUrl = null,
+                            availableUpdate = null,
+                        ),
+                    ),
+            )
+        assertTrue(installed.isInstalled(pluginId))
+        assertTrue(installed.isManaged(pluginId))
+        val editable = empty.copy(authoredPlugins = listOf(AuthoredPlugin(pluginId, "Example")))
+        assertFalse(editable.isInstalled(pluginId))
+        assertTrue(editable.isManaged(pluginId))
+        val development = empty.copy(development = PluginDevelopmentStateV1(pluginId = pluginId))
+        assertFalse(development.isInstalled(pluginId))
+        assertTrue(development.isManaged(pluginId))
+        assertFalse(development.isManaged("other.plugin"))
+    }
+
+    @Test
+    fun marketplaceTimeoutReportsAnErrorWithAndWithoutACachedCatalog() =
+        runTest {
+            val dispatcher = StandardTestDispatcher(testScheduler)
+            for (cached in listOf(false, true)) {
+                val subsystem = subsystem()
+                var stalled = !cached
+                val marketplace =
+                    PluginMarketplace(
+                        subsystem.appFiles,
+                        MockEngine(
+                            MockEngineConfig().apply {
+                                this.dispatcher = dispatcher
+                                addHandler {
+                                    if (stalled) {
+                                        awaitCancellation()
+                                    } else {
+                                        respond(File("../../docs/plugins/index.json").readText())
+                                    }
+                                }
+                            },
+                        ),
+                    )
+                val presenter =
+                    PluginManagementPresenterV1(subsystem, backgroundScope, operationDispatcher = dispatcher, marketplace = marketplace)
+                try {
+                    if (cached) {
+                        presenter.refreshMarketplace()
+                        assertTrue(presenter.state.value.marketplace.loaded)
+                        stalled = true
+                    }
+                    presenter.refreshMarketplace()
+                    val state = presenter.state.value
+                    assertFalse(state.marketplace.loading)
+                    assertFalse(state.busy)
+                    assertNotNull(state.marketplace.error)
+                    assertEquals(cached, state.marketplace.loaded)
+                    assertEquals(cached, state.marketplace.plugins.isNotEmpty())
+                } finally {
+                    presenter.close()
+                    runCurrent()
+                    marketplace.close()
+                    subsystem.runtimePool.close()
+                }
+            }
+        }
 
     @Test
     fun unusedAppleFacadesStartNoObserversAndTheRetainedFacadeDisposesItsObserver() =

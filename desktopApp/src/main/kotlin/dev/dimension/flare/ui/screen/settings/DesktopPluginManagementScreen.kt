@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -24,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -37,6 +39,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.LinkAnnotation
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -49,7 +52,11 @@ import compose.icons.FontAwesomeIcons
 import compose.icons.fontawesomeicons.Solid
 import compose.icons.fontawesomeicons.solid.ArrowLeft
 import compose.icons.fontawesomeicons.solid.EllipsisVertical
+import compose.icons.fontawesomeicons.solid.MagnifyingGlass
 import compose.icons.fontawesomeicons.solid.Plus
+import compose.icons.fontawesomeicons.solid.PuzzlePiece
+import compose.icons.fontawesomeicons.solid.RotateRight
+import compose.icons.fontawesomeicons.solid.Store
 import compose.icons.fontawesomeicons.solid.Trash
 import dev.dimension.flare.LocalWindowPadding
 import dev.dimension.flare.Res
@@ -66,6 +73,7 @@ import dev.dimension.flare.feature.plugin.management.PluginManagementItemV1
 import dev.dimension.flare.feature.plugin.management.PluginManagementPresenterV1
 import dev.dimension.flare.feature.plugin.management.PluginManagementStateV1
 import dev.dimension.flare.more
+import dev.dimension.flare.navigate_back
 import dev.dimension.flare.plugin_add
 import dev.dimension.flare.plugin_ai_create
 import dev.dimension.flare.plugin_ai_delete_message
@@ -84,6 +92,7 @@ import dev.dimension.flare.plugin_github_path_hint
 import dev.dimension.flare.plugin_github_repository
 import dev.dimension.flare.plugin_install
 import dev.dimension.flare.plugin_install_github
+import dev.dimension.flare.plugin_installed
 import dev.dimension.flare.plugin_issue_files_missing
 import dev.dimension.flare.plugin_issue_index_corrupt
 import dev.dimension.flare.plugin_issue_platform_conflict
@@ -91,6 +100,17 @@ import dev.dimension.flare.plugin_issue_platform_invalid
 import dev.dimension.flare.plugin_issues
 import dev.dimension.flare.plugin_large_repository_message
 import dev.dimension.flare.plugin_large_repository_title
+import dev.dimension.flare.plugin_marketplace
+import dev.dimension.flare.plugin_marketplace_cached
+import dev.dimension.flare.plugin_marketplace_empty
+import dev.dimension.flare.plugin_marketplace_failed
+import dev.dimension.flare.plugin_marketplace_install
+import dev.dimension.flare.plugin_marketplace_loading
+import dev.dimension.flare.plugin_marketplace_local
+import dev.dimension.flare.plugin_marketplace_manage
+import dev.dimension.flare.plugin_marketplace_refresh
+import dev.dimension.flare.plugin_marketplace_repository
+import dev.dimension.flare.plugin_marketplace_search
 import dev.dimension.flare.plugin_operation_failed
 import dev.dimension.flare.plugin_permission_account_origin
 import dev.dimension.flare.plugin_permission_account_origin_label
@@ -116,12 +136,14 @@ import dev.dimension.flare.plugin_warning_compatibility
 import dev.dimension.flare.plugin_warning_downgrade
 import dev.dimension.flare.plugin_warning_source_changed
 import dev.dimension.flare.plugin_warning_tag_moved
+import dev.dimension.flare.search_empty
 import dev.dimension.flare.settings_plugins_subtitle
 import dev.dimension.flare.settings_plugins_title
 import dev.dimension.flare.ui.component.FAIcon
 import dev.dimension.flare.ui.component.FlareScrollBar
 import dev.dimension.flare.ui.component.LocalTimelineAppearance
 import dev.dimension.flare.ui.component.resolveText
+import dev.dimension.flare.ui.component.status.ListEmptyView
 import dev.dimension.flare.ui.theme.LocalComposeWindow
 import dev.dimension.flare.ui.theme.screenHorizontalPadding
 import io.github.composefluent.FluentTheme
@@ -138,7 +160,9 @@ import io.github.composefluent.component.FlyoutPlacement
 import io.github.composefluent.component.InfoBar
 import io.github.composefluent.component.InfoBarSeverity
 import io.github.composefluent.component.MenuFlyout
+import io.github.composefluent.component.MenuFlyoutContainer
 import io.github.composefluent.component.MenuFlyoutItem
+import io.github.composefluent.component.ProgressBar
 import io.github.composefluent.component.ProgressRing
 import io.github.composefluent.component.SubtleButton
 import io.github.composefluent.component.Text
@@ -156,6 +180,8 @@ import java.io.File
 internal fun DesktopPluginManagementScreen(
     onBack: () -> Unit,
     onCreateWithAI: () -> Unit = {},
+    onOpenMarketplace: () -> Unit = {},
+    marketplace: Boolean = false,
 ) {
     val window = LocalComposeWindow.current
     val subsystem = koinInject<PluginSubsystemV1>()
@@ -172,7 +198,14 @@ internal fun DesktopPluginManagementScreen(
         onDispose { presenter.close() }
     }
     val state by presenter.state.collectAsState()
-    LaunchedEffect(presenter) { scope.launchPresenterAction { presenter.checkUpdates(forceRefresh = false) } }
+    val marketplaceSearch = rememberTextFieldState()
+    LaunchedEffect(marketplace, presenter) {
+        if (marketplace) {
+            presenter.loadMarketplace()
+        } else {
+            scope.launchPresenterAction { presenter.checkUpdates(forceRefresh = false) }
+        }
+    }
     val installLabel = stringResource(Res.string.plugin_install)
     var showsMaintenanceMenu by remember { mutableStateOf(false) }
     var showsDevelopment by remember { mutableStateOf(false) }
@@ -253,113 +286,285 @@ internal fun DesktopPluginManagementScreen(
                 SubtleButton(onClick = onBack, iconOnly = true) {
                     FAIcon(
                         imageVector = FontAwesomeIcons.Solid.ArrowLeft,
-                        contentDescription = null,
+                        contentDescription = stringResource(Res.string.navigate_back),
                     )
                 }
                 Text(
-                    text = stringResource(Res.string.settings_plugins_title),
+                    text = stringResource(if (marketplace) Res.string.plugin_marketplace else Res.string.settings_plugins_title),
                     style = FluentTheme.typography.title,
                 )
                 Box(Modifier.weight(1f))
-                PluginAddMenu(
-                    busy = state.busy,
-                    agentEnabled = LocalTimelineAppearance.current.aiConfig.agent,
-                    onGitHubInstall = presenter::openGitHubInstall,
-                    onCreateWithAI = onCreateWithAI,
-                    onFileInstall = {
-                        FileDialog(window, installLabel, FileDialog.LOAD).apply {
-                            file = "*.fpp"
-                            isVisible = true
-                            if (directory != null && file != null) {
-                                val path = File(directory, file).absolutePath
-                                scope.launchPresenterAction { presenter.inspect(path) }
-                            }
-                        }
-                    },
-                )
-                Box {
+                if (marketplace) {
                     SubtleButton(
-                        onClick = { showsMaintenanceMenu = true },
-                        disabled = state.busy,
+                        onClick = { presenter.loadMarketplace(forceRefresh = true) },
+                        disabled = state.marketplace.loading,
                         iconOnly = true,
                     ) {
                         FAIcon(
-                            imageVector = FontAwesomeIcons.Solid.EllipsisVertical,
-                            contentDescription = stringResource(Res.string.more),
-                        )
-                    }
-                    MenuFlyout(
-                        visible = showsMaintenanceMenu,
-                        onDismissRequest = { showsMaintenanceMenu = false },
-                        placement = FlyoutPlacement.BottomAlignedEnd,
-                    ) {
-                        MenuFlyoutItem(
-                            text = { Text(stringResource(Res.string.plugin_development)) },
-                            onClick = {
-                                showsMaintenanceMenu = false
-                                subsystem.development
-                                showsDevelopment = true
-                            },
-                        )
-                        MenuFlyoutItem(
-                            text = { Text(stringResource(Res.string.plugin_check_updates)) },
-                            enabled = state.plugins.any { it.sourceUrl != null },
-                            onClick = {
-                                showsMaintenanceMenu = false
-                                scope.launchPresenterAction { presenter.checkUpdates() }
-                            },
-                        )
-                        if (state.canRebuildIndex) {
-                            MenuFlyoutItem(
-                                text = { Text(stringResource(Res.string.plugin_rebuild_index)) },
-                                onClick = {
-                                    showsMaintenanceMenu = false
-                                    scope.launchPresenterAction { presenter.rebuildIndex() }
-                                },
-                            )
-                        }
-                        MenuFlyoutItem(
-                            text = { Text(stringResource(Res.string.plugin_cleanup)) },
-                            enabled = !state.canRebuildIndex,
-                            onClick = {
-                                showsMaintenanceMenu = false
-                                scope.launchPresenterAction { presenter.cleanup() }
-                            },
+                            FontAwesomeIcons.Solid.RotateRight,
+                            contentDescription = stringResource(Res.string.plugin_marketplace_refresh),
                         )
                     }
                 }
-            }
-            PluginManagementList(
-                state = state,
-                onCancelPluginUpdate = { id -> scope.launchPresenterAction { presenter.cancelPluginUpdate(id) } },
-                development =
-                    if (showsDevelopment || state.development.directory != null) {
-                        {
-                            PluginDevelopmentPanel(
-                                state = state.development,
-                                onOpen = {
-                                    DesktopSaveDialog.chooseDirectory(window, state.development.recentDirectory)?.let { directory ->
-                                        scope.launchPresenterAction { subsystem.development.open(directory.absolutePath) }
-                                    }
-                                },
-                                onReload = { confirmed -> scope.launchPresenterAction { subsystem.development.reload(confirmed) } },
-                                onCancel = { subsystem.development.cancelReview() },
-                                onStop = { scope.launchPresenterAction { subsystem.development.stop() } },
+                if (!marketplace) {
+                    PluginAddMenu(
+                        busy = state.busy,
+                        agentEnabled = LocalTimelineAppearance.current.aiConfig.agent,
+                        onGitHubInstall = presenter::openGitHubInstall,
+                        onCreateWithAI = onCreateWithAI,
+                        onFileInstall = {
+                            FileDialog(window, installLabel, FileDialog.LOAD).apply {
+                                file = "*.fpp"
+                                isVisible = true
+                                if (directory != null && file != null) {
+                                    val path = File(directory, file).absolutePath
+                                    scope.launchPresenterAction { presenter.inspect(path) }
+                                }
+                            }
+                        },
+                    )
+                }
+                if (!marketplace) {
+                    SubtleButton(onClick = onOpenMarketplace, disabled = state.busy, iconOnly = true) {
+                        FAIcon(FontAwesomeIcons.Solid.Store, contentDescription = stringResource(Res.string.plugin_marketplace))
+                    }
+                }
+                if (!marketplace) {
+                    Box {
+                        SubtleButton(
+                            onClick = { showsMaintenanceMenu = true },
+                            disabled = state.busy,
+                            iconOnly = true,
+                        ) {
+                            FAIcon(
+                                imageVector = FontAwesomeIcons.Solid.EllipsisVertical,
+                                contentDescription = stringResource(Res.string.more),
                             )
                         }
-                    } else {
-                        null
+                        MenuFlyout(
+                            visible = showsMaintenanceMenu,
+                            onDismissRequest = { showsMaintenanceMenu = false },
+                            placement = FlyoutPlacement.BottomAlignedEnd,
+                        ) {
+                            MenuFlyoutItem(
+                                text = { Text(stringResource(Res.string.plugin_development)) },
+                                onClick = {
+                                    showsMaintenanceMenu = false
+                                    subsystem.development
+                                    showsDevelopment = true
+                                },
+                            )
+                            MenuFlyoutItem(
+                                text = { Text(stringResource(Res.string.plugin_check_updates)) },
+                                enabled = state.plugins.any { it.sourceUrl != null },
+                                onClick = {
+                                    showsMaintenanceMenu = false
+                                    scope.launchPresenterAction { presenter.checkUpdates() }
+                                },
+                            )
+                            if (state.canRebuildIndex) {
+                                MenuFlyoutItem(
+                                    text = { Text(stringResource(Res.string.plugin_rebuild_index)) },
+                                    onClick = {
+                                        showsMaintenanceMenu = false
+                                        scope.launchPresenterAction { presenter.rebuildIndex() }
+                                    },
+                                )
+                            }
+                            MenuFlyoutItem(
+                                text = { Text(stringResource(Res.string.plugin_cleanup)) },
+                                enabled = !state.canRebuildIndex,
+                                onClick = {
+                                    showsMaintenanceMenu = false
+                                    scope.launchPresenterAction { presenter.cleanup() }
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            if (marketplace) {
+                Box(Modifier.fillMaxWidth().padding(horizontal = screenHorizontalPadding, vertical = 8.dp)) {
+                    TextField(
+                        state = marketplaceSearch,
+                        lineLimits = TextFieldLineLimits.SingleLine,
+                        placeholder = { Text(stringResource(Res.string.plugin_marketplace_search)) },
+                        trailing = {
+                            FAIcon(
+                                FontAwesomeIcons.Solid.MagnifyingGlass,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        modifier = Modifier.align(Alignment.CenterEnd).widthIn(min = 200.dp),
+                    )
+                }
+                PluginMarketplaceList(
+                    state = state,
+                    onInstall = { id -> scope.launchPresenterAction { presenter.inspectMarketplace(id) } },
+                    onManage = onBack,
+                    onRefresh = { presenter.loadMarketplace(forceRefresh = true) },
+                    onIcon = presenter::marketplaceIcon,
+                    query = marketplaceSearch.text.toString(),
+                    modifier = Modifier.weight(1f),
+                )
+            } else {
+                PluginManagementList(
+                    state = state,
+                    onCancelPluginUpdate = { id -> scope.launchPresenterAction { presenter.cancelPluginUpdate(id) } },
+                    development =
+                        if (showsDevelopment || state.development.directory != null) {
+                            {
+                                PluginDevelopmentPanel(
+                                    state = state.development,
+                                    onOpen = {
+                                        DesktopSaveDialog.chooseDirectory(window, state.development.recentDirectory)?.let { directory ->
+                                            scope.launchPresenterAction { subsystem.development.open(directory.absolutePath) }
+                                        }
+                                    },
+                                    onReload = { confirmed -> scope.launchPresenterAction { subsystem.development.reload(confirmed) } },
+                                    onCancel = { subsystem.development.cancelReview() },
+                                    onStop = { scope.launchPresenterAction { subsystem.development.stop() } },
+                                )
+                            }
+                        } else {
+                            null
+                        },
+                    onUninstall = { pendingUninstallId = it },
+                    onUpdate = { pluginId -> scope.launchPresenterAction { presenter.inspectGitHubUpdate(pluginId) } },
+                    onRetryRuntime = { pluginId ->
+                        scope.launchPresenterAction { presenter.retryRuntime(pluginId) }
                     },
-                onUninstall = { pendingUninstallId = it },
-                onUpdate = { pluginId -> scope.launchPresenterAction { presenter.inspectGitHubUpdate(pluginId) } },
-                onRetryRuntime = { pluginId ->
-                    scope.launchPresenterAction { presenter.retryRuntime(pluginId) }
-                },
-                modifier = Modifier.weight(1f),
-            )
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
         if (state.busy) {
             ProgressRing(modifier = Modifier.align(Alignment.Center))
+        }
+    }
+}
+
+@Composable
+internal fun PluginMarketplaceList(
+    state: PluginManagementStateV1,
+    onInstall: (String) -> Unit,
+    onManage: () -> Unit,
+    onRefresh: () -> Unit,
+    onIcon: suspend (String) -> String?,
+    modifier: Modifier = Modifier,
+    query: String = "",
+) {
+    val uriHandler = LocalUriHandler.current
+    val marketplace = state.marketplace
+    val plugins = marketplace.search(query)
+    val listState = rememberLazyListState()
+    Box(modifier) {
+        FlareScrollBar(state = listState) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = screenHorizontalPadding, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                if (marketplace.error != null) {
+                    item(key = "marketplace-error") {
+                        InfoBar(
+                            title = { Text(stringResource(Res.string.plugin_marketplace_failed)) },
+                            message = { if (marketplace.loaded) Text(stringResource(Res.string.plugin_marketplace_cached)) },
+                            severity = InfoBarSeverity.Warning,
+                            action = {
+                                Button(
+                                    onClick = onRefresh,
+                                    disabled = marketplace.loading,
+                                ) { Text(stringResource(Res.string.plugin_retry)) }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+                state.error?.let { error ->
+                    item(key = "marketplace-install-error") {
+                        ErrorInfoBar("${stringResource(Res.string.plugin_operation_failed)}: ${error.take(512)}")
+                    }
+                }
+                if (marketplace.loaded && plugins.isEmpty() && !marketplace.loading) {
+                    item(key = "marketplace-empty") {
+                        ListEmptyView(
+                            text = stringResource(if (query.isBlank()) Res.string.plugin_marketplace_empty else Res.string.search_empty),
+                            icon = if (query.isBlank()) FontAwesomeIcons.Solid.PuzzlePiece else FontAwesomeIcons.Solid.MagnifyingGlass,
+                            modifier = Modifier.fillParentMaxSize(),
+                        )
+                    }
+                }
+                items(plugins, key = { it.id }) { entry ->
+                    val iconPath by produceState<String?>(null, entry.icon) { value = onIcon(entry.id) }
+                    val installed = state.isInstalled(entry.id)
+                    val managed = state.isManaged(entry.id)
+                    CardExpanderItem(
+                        heading = { Text(entry.name) },
+                        caption = {
+                            Column {
+                                Text(entry.description)
+                                if (managed) {
+                                    Text(
+                                        stringResource(if (installed) Res.string.plugin_installed else Res.string.plugin_marketplace_local),
+                                    )
+                                }
+                            }
+                        },
+                        icon = {
+                            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                                if (iconPath == null) FAIcon(FontAwesomeIcons.Solid.PuzzlePiece, contentDescription = null)
+                                iconPath?.let {
+                                    AsyncImage(
+                                        model = File(it),
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.size(40.dp).clip(RoundedCornerShape(8.dp)),
+                                    )
+                                }
+                            }
+                        },
+                        trailing = {
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Button(
+                                    onClick = { if (managed) onManage() else onInstall(entry.id) },
+                                    disabled = !managed && !state.canInstallFromMarketplace,
+                                ) {
+                                    Text(
+                                        stringResource(
+                                            if (managed) Res.string.plugin_marketplace_manage else Res.string.plugin_marketplace_install,
+                                        ),
+                                    )
+                                }
+                                MenuFlyoutContainer(
+                                    adaptivePlacement = true,
+                                    flyout = {
+                                        MenuFlyoutItem(
+                                            text = { Text(stringResource(Res.string.plugin_marketplace_repository)) },
+                                            onClick = {
+                                                isFlyoutVisible = false
+                                                uriHandler.openUri(entry.repository)
+                                            },
+                                        )
+                                    },
+                                ) {
+                                    SubtleButton(onClick = { isFlyoutVisible = !isFlyoutVisible }, iconOnly = true) {
+                                        FAIcon(
+                                            FontAwesomeIcons.Solid.EllipsisVertical,
+                                            contentDescription = "${stringResource(Res.string.more)}: ${entry.name}",
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                    )
+                }
+            }
+        }
+        if (marketplace.loading) {
+            ProgressBar(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
         }
     }
 }

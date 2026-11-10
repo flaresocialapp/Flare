@@ -104,6 +104,7 @@ internal fun EntryProviderScope<NavKey>.settingsSelectEntryBuilder(
             onBack = onBack,
             onSettings = { navigate(Route.Settings.PluginSettings(it)) },
             onExtensions = { navigate(Route.Settings.PluginExtensions(it)) },
+            onOpenMarketplace = { navigate(Route.Settings.PluginMarketplace) },
             onCreateWithAI = {
                 navigate(Route.AgentChat("generic-chat:${Clock.System.now().toEpochMilliseconds()}", null))
             },
@@ -120,6 +121,17 @@ internal fun EntryProviderScope<NavKey>.settingsSelectEntryBuilder(
         metadata = ListDetailSceneStrategy.detailPane(sceneKey = "Settings"),
     ) {
         PluginSettingsScreen(pluginId = it.pluginId, onBack = onBack)
+    }
+
+    entry<Route.Settings.PluginMarketplace>(
+        metadata = ListDetailSceneStrategy.detailPane(sceneKey = "Settings"),
+    ) {
+        AndroidPluginManagementScreen(
+            onBack = onBack,
+            onSettings = { navigate(Route.Settings.PluginSettings(it)) },
+            onExtensions = { navigate(Route.Settings.PluginExtensions(it)) },
+            marketplace = true,
+        )
     }
 
     entry<Route.Settings.AppearanceTheme>(

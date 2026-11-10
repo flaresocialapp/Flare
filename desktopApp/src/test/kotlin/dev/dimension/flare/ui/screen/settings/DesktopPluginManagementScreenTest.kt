@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -16,6 +17,8 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isPopup
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -24,9 +27,13 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performFirstLinkClick
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTextClearance
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.dp
 import dev.dimension.flare.common.FileSystemUtilsExt
+import dev.dimension.flare.data.io.AppFileStore
 import dev.dimension.flare.data.model.appearance.TimelineAppearance
 import dev.dimension.flare.data.repository.AuthoredPlugin
 import dev.dimension.flare.data.repository.PluginAuthoring
@@ -38,11 +45,14 @@ import dev.dimension.flare.feature.plugin.github.GitHubPluginRepositoryV1
 import dev.dimension.flare.feature.plugin.github.GitHubPluginVersionV1
 import dev.dimension.flare.feature.plugin.management.PluginManagementItemV1
 import dev.dimension.flare.feature.plugin.management.PluginManagementStateV1
+import dev.dimension.flare.feature.plugin.marketplace.PluginMarketplace
 import dev.dimension.flare.ui.component.LocalExternalTextResolver
 import dev.dimension.flare.ui.component.LocalTimelineAppearance
 import dev.dimension.flare.ui.model.UiText
 import dev.dimension.flare.ui.theme.FlareTheme
 import dev.dimension.flare.ui.theme.LocalComposeWindow
+import io.ktor.client.engine.mock.MockEngine
+import io.ktor.client.engine.mock.respond
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
@@ -70,6 +80,14 @@ class DesktopPluginManagementScreenTest {
     private lateinit var scope: CoroutineScope
     private var visible by mutableStateOf(true)
 
+    private fun screenshot(page: String) {
+        ImageIO.write(
+            compose.onRoot().captureToImage().toAwtImage(),
+            "png",
+            File(System.getProperty("java.io.tmpdir"), "flare-marketplace-desktop-$page.png"),
+        )
+    }
+
     @Before
     fun setUp() {
         originalHome = System.getProperty("user.home")
@@ -93,6 +111,76 @@ class DesktopPluginManagementScreenTest {
         stopKoin()
         System.setProperty("user.home", originalHome)
         root.toFile().deleteRecursively()
+    }
+
+    @Test
+    fun marketplaceLoadsTheSavedCatalogAndKeepsRepositoryLinksExternal() {
+        val catalog = File("../docs/plugins/index.json").readText()
+        val seed = PluginMarketplace(koinGet<AppFileStore>(), MockEngine { respond(catalog) })
+        try {
+            runBlocking { seed.load() }
+        } finally {
+            seed.close()
+        }
+        var openedUrl: String? = null
+        var marketplace by mutableStateOf(false)
+        compose.setContent {
+            if (visible) {
+                CompositionLocalProvider(
+                    LocalUriHandler provides
+                        object : UriHandler {
+                            override fun openUri(uri: String) {
+                                openedUrl = uri
+                            }
+                        },
+                    LocalComposeWindow provides null,
+                    LocalTimelineAppearance provides TimelineAppearance(),
+                ) {
+                    FlareTheme(isDarkTheme = false) {
+                        Box(Modifier.width(620.dp).height(660.dp)) {
+                            key(marketplace) {
+                                DesktopPluginManagementScreen(
+                                    onBack = { marketplace = false },
+                                    onOpenMarketplace = { marketplace = true },
+                                    marketplace = marketplace,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("No plugins installed").assertIsDisplayed()
+        compose.onNodeWithText("Installed").assertDoesNotExist()
+        screenshot("management")
+        compose.onNodeWithContentDescription("Marketplace").assertIsDisplayed().performClick()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodes(hasText("知乎")).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Install").assertIsDisplayed()
+        compose.onNodeWithText("View repository").assertDoesNotExist()
+        compose.onNodeWithContentDescription("More: 知乎").performClick()
+        compose.onNodeWithText("View repository").performClick()
+        compose.runOnIdle { assertEquals("https://github.com/anamaxlec/flare-zhihu-plugin", openedUrl) }
+        compose.onNodeWithContentDescription("Refresh").assertIsDisplayed()
+        compose.onNodeWithContentDescription("More").assertDoesNotExist()
+        screenshot("store")
+        val search = compose.onNode(hasSetTextAction())
+        search.performTextInput("知")
+        compose.onNodeWithText("知乎").assertIsDisplayed()
+        search.performTextReplacement("not-a-plugin")
+        compose.onNodeWithText("No search results").assertIsDisplayed()
+        compose.onNodeWithText("知乎").assertDoesNotExist()
+        search.performTextReplacement("推荐")
+        compose.onNodeWithText("知乎").assertIsDisplayed()
+        screenshot("store-search")
+        search.performTextClearance()
+        compose.onNodeWithText("知乎").assertIsDisplayed()
+        compose.onNodeWithText("Plugins (Beta)").assertDoesNotExist()
+        compose.onNodeWithText("Marketplace").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Go back").performClick()
+        compose.onNodeWithText("No plugins installed").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Marketplace").assertIsDisplayed()
     }
 
     @Test

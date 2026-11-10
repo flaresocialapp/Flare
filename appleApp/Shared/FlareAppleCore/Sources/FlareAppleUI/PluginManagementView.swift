@@ -12,11 +12,15 @@ import AppKit
 
 public struct PluginManagementView: View {
     @Environment(\.timelineAppearance.aiConfig.agent) private var agentEnabled
+    @Environment(\.dismiss) private var dismiss
     @State private var facade: PluginAppleFacadeV1
     @State private var presenter: KotlinPresenter<PluginManagementStateV1>
     @State private var importsPlugin = false
     @State private var checkingUpdates = false
     private var isRefreshing: Bool { presenter.state.busy || checkingUpdates }
+    @State private var showsMarketplace = false
+    @State private var marketplaceQuery = ""
+    private let marketplace: Bool
     private let onCreateWithAI: () -> Void
     private var showsGitHubInstall: Bool { presenter.state.gitHubInstall != nil }
     @State private var gitHubURL = ""
@@ -28,7 +32,8 @@ public struct PluginManagementView: View {
     @State private var showsDevelopment = false
     #endif
 
-    public init(onCreateWithAI: @escaping () -> Void) {
+    public init(marketplace: Bool = false, onCreateWithAI: @escaping () -> Void) {
+        self.marketplace = marketplace
         self.onCreateWithAI = onCreateWithAI
         let facade = PluginAppleFacadeV1()
         _facade = State(initialValue: facade)
@@ -36,111 +41,48 @@ public struct PluginManagementView: View {
     }
 
     public var body: some View {
-        List {
-            #if os(macOS)
-            if isRefreshing {
-                ProgressView()
-                    .controlSize(.small)
-                    .frame(maxWidth: .infinity)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .accessibilityLabel(Text("Refresh"))
-            }
-            #endif
-            Section {
-                #if os(macOS)
-                GroupBox {
-                    betaNotice.padding(4)
-                }
-                .listRowBackground(Color.clear)
-                #else
-                betaNotice
-                #endif
-            }
-            #if os(macOS)
-            if showsDevelopment || presenter.state.development.directory != nil {
-                developmentSection
-            }
-            #endif
-
-            if let error = presenter.state.error {
-                Section {
-                    Label {
-                        Text("plugin_operation_failed")
-                    } icon: {
-                        Image(fontAwesome: .circleExclamation)
-                    }
-                    .foregroundStyle(.red)
-                    Text(String(error.prefix(512))).font(.caption)
-                }
-            }
-
-            if !presenter.state.issues.isEmpty || !presenter.state.runtimeIssues.isEmpty {
-                Section("plugin_issues") {
-                    ForEach(Array(presenter.state.issues.enumerated()), id: \.offset) { _, issue in
-                        Text(issue.code == "update.failed" ? "\(issue.pluginId ?? ""): \(issue.message.prefix(512))" : issueText(issue.code))
-                            .foregroundStyle(.red)
-                    }
-                    ForEach(presenter.state.runtimeIssues, id: \.pluginId) { issue in
-                        HStack {
-                            VStack(alignment: .leading) {
-                                Text(issue.pluginId)
-                                Text(runtimeIssueText(issue.code))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button("plugin_retry") {
-                                Task { try? await facade.retryRuntime(pluginId: issue.pluginId) }
-                            }
-                            .disabled(presenter.state.busy)
+        Group {
+            if marketplace {
+                List { marketplaceSections }
+                    .searchable(text: $marketplaceQuery, prompt: Text("plugin_marketplace_search"))
+                    .refreshable { try? await facade.refreshMarketplace() }
+                    .overlay {
+                        if presenter.state.busy {
+                            ProgressView()
+                                .padding()
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                         }
                     }
-                }
-            }
-
-            if presenter.state.items.isEmpty {
-                ContentUnavailableView {
-                    Label {
-                        Text("plugin_empty")
-                    } icon: {
-                        Image(fontAwesome: .puzzlePiece)
-                    }
-                } description: {
-                    Text("settings_plugins_subtitle")
-                }
-                .listRowBackground(Color.clear)
             } else {
-                Section {
-                    ForEach(presenter.state.items, id: \.pluginId) { plugin in
-                        pluginRow(plugin)
-                    }
-                }
+                List { installedSections }
+                    .refreshable { await checkUpdates() }
             }
         }
-        .refreshable {
-            await checkUpdates()
-        }
-        .navigationTitle("settings_plugins_title")
+        .navigationTitle(marketplace ? String(localized: "plugin_marketplace") : String(localized: "settings_plugins_title"))
         #if os(macOS)
         // The Settings window reserves its toolbar for pane selection.
         .safeAreaInset(edge: .top) {
             HStack(spacing: 8) {
                 Spacer()
-                Button {
-                    Task { await checkUpdates() }
-                } label: {
-                    Label {
-                        Text("Refresh")
-                    } icon: {
-                        Image(fontAwesome: .arrowsRotate)
+                if marketplace {
+                    marketplaceRefreshButton
+                } else {
+                    Button {
+                        Task { await checkUpdates() }
+                    } label: {
+                        Label {
+                            Text("Refresh")
+                        } icon: {
+                            Image(fontAwesome: .arrowsRotate)
+                        }
                     }
+                    .labelStyle(.iconOnly)
+                    .help("Refresh")
+                    .disabled(isRefreshing || !presenter.state.plugins.contains { $0.sourceUrl != nil })
+                    addActions
+                    marketplaceButton
+                    maintenanceMenu.menuStyle(.borderedButton)
                 }
-                .labelStyle(.iconOnly)
-                .help("Refresh")
-                .disabled(isRefreshing || !presenter.state.plugins.contains { $0.sourceUrl != nil })
-                addActions
-                maintenanceMenu.menuStyle(.borderedButton)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
@@ -151,8 +93,11 @@ public struct PluginManagementView: View {
         #else
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
-                addMenu
-                maintenanceMenu.labelStyle(.iconOnly)
+                if !marketplace {
+                    addMenu
+                    marketplaceButton
+                    maintenanceMenu.labelStyle(.iconOnly)
+                }
             }
         }
         #endif
@@ -168,7 +113,13 @@ public struct PluginManagementView: View {
         .sheet(isPresented: Binding(get: { extensionPluginId != nil }, set: { if !$0 { extensionPluginId = nil } })) {
             if let extensionPluginId { PluginExtensionView(pluginId: extensionPluginId) }
         }
-        .task { await checkUpdates(forceRefresh: false) }
+        .task {
+            if marketplace { facade.loadMarketplace(forceRefresh: false) }
+            else { await checkUpdates(forceRefresh: false) }
+        }
+        .navigationDestination(isPresented: $showsMarketplace) {
+            PluginManagementView(marketplace: true, onCreateWithAI: onCreateWithAI)
+        }
         .sheet(isPresented: Binding(
             get: { showsGitHubInstall },
             set: { visible in
@@ -254,6 +205,163 @@ public struct PluginManagementView: View {
         checkingUpdates = true
         defer { checkingUpdates = false }
         try? await facade.checkUpdates(forceRefresh: forceRefresh)
+    }
+
+    @ViewBuilder
+    private var installedSections: some View {
+        #if os(macOS)
+        if isRefreshing {
+            ProgressView()
+                .controlSize(.small)
+                .frame(maxWidth: .infinity)
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
+                .accessibilityLabel(Text("Refresh"))
+        }
+        #endif
+        Section {
+            #if os(macOS)
+            GroupBox {
+                betaNotice.padding(4)
+            }
+            .listRowBackground(Color.clear)
+            #else
+            betaNotice
+            #endif
+        }
+        #if os(macOS)
+        if showsDevelopment || presenter.state.development.directory != nil {
+            developmentSection
+        }
+        #endif
+
+        if let error = presenter.state.error {
+            Section {
+                Label {
+                    Text("plugin_operation_failed")
+                } icon: {
+                    Image(fontAwesome: .circleExclamation)
+                }
+                .foregroundStyle(.red)
+                Text(String(error.prefix(512))).font(.caption)
+            }
+        }
+
+        if !presenter.state.issues.isEmpty || !presenter.state.runtimeIssues.isEmpty {
+            Section("plugin_issues") {
+                ForEach(Array(presenter.state.issues.enumerated()), id: \.offset) { _, issue in
+                    Text(issue.code == "update.failed" ? "\(issue.pluginId ?? ""): \(issue.message.prefix(512))" : issueText(issue.code))
+                        .foregroundStyle(.red)
+                }
+                ForEach(presenter.state.runtimeIssues, id: \.pluginId) { issue in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(issue.pluginId)
+                            Text(runtimeIssueText(issue.code))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("plugin_retry") {
+                            Task { try? await facade.retryRuntime(pluginId: issue.pluginId) }
+                        }
+                        .disabled(presenter.state.busy)
+                    }
+                }
+            }
+        }
+
+        if presenter.state.items.isEmpty {
+            ContentUnavailableView {
+                Label {
+                    Text("plugin_empty")
+                } icon: {
+                    Image(fontAwesome: .puzzlePiece)
+                }
+            } description: {
+                Text("settings_plugins_subtitle")
+            }
+            .listRowBackground(Color.clear)
+        } else {
+            Section {
+                ForEach(presenter.state.items, id: \.pluginId) { plugin in
+                    pluginRow(plugin)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var marketplaceSections: some View {
+        let state = presenter.state
+        let marketplace = state.marketplace
+        let plugins = marketplace.search(query: marketplaceQuery)
+        if marketplace.loading && marketplace.plugins.isEmpty {
+            Section { UiListPlaceholder() }
+        }
+        if marketplace.error != nil || state.error != nil {
+            Section {
+                if marketplace.error != nil {
+                    Text("plugin_marketplace_failed").foregroundStyle(.red)
+                    if marketplace.loaded { Text("plugin_marketplace_cached").foregroundStyle(.secondary) }
+                    Button("plugin_retry") { facade.loadMarketplace(forceRefresh: true) }
+                        .disabled(marketplace.loading)
+                }
+                if let error = state.error {
+                    Text("plugin_operation_failed").foregroundStyle(.red)
+                    Text(verbatim: String(error.prefix(512))).font(.caption).foregroundStyle(.red)
+                }
+            }
+        }
+        if marketplace.loaded && plugins.isEmpty && !marketplace.loading {
+            if marketplaceQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                ListEmptyView("plugin_marketplace_empty", icon: .puzzlePiece)
+            } else {
+                ListEmptyView("search_empty_title", icon: .magnifyingGlass)
+            }
+        }
+        Section {
+            ForEach(plugins, id: \.id) { entry in
+                let installed = state.isInstalled(pluginId: entry.id)
+                let managed = state.isManaged(pluginId: entry.id)
+                PluginMarketplaceRow(
+                    entry: entry,
+                    facade: facade,
+                    installed: installed,
+                    managed: managed,
+                    canInstall: state.canInstallFromMarketplace,
+                    onManage: { dismiss() }
+                )
+            }
+        }
+    }
+
+    private var marketplaceButton: some View {
+        Button { showsMarketplace = true } label: {
+            Label {
+                Text("plugin_marketplace")
+            } icon: {
+                Image(fontAwesome: .store)
+            }
+        }
+        .labelStyle(.iconOnly)
+        .help("plugin_marketplace")
+        .disabled(presenter.state.busy)
+    }
+
+    private var marketplaceRefreshButton: some View {
+        Button {
+            facade.loadMarketplace(forceRefresh: true)
+        } label: {
+            Label {
+                Text("plugin_marketplace_refresh")
+            } icon: {
+                Image(fontAwesome: .arrowsRotate)
+            }
+        }
+        .labelStyle(.iconOnly)
+        .help("plugin_marketplace_refresh")
+        .disabled(presenter.state.marketplace.loading)
     }
 
     private var betaNotice: some View {
@@ -658,29 +766,6 @@ public struct PluginManagementView: View {
         }
     }
 
-    @ViewBuilder
-    private func pluginIcon(path: String) -> some View {
-        #if os(iOS)
-        if let image = UIImage(contentsOfFile: path) {
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-        } else {
-            Image(fontAwesome: .puzzlePiece)
-        }
-        #elseif os(macOS)
-        if let image = NSImage(contentsOfFile: path) {
-            Image(nsImage: image)
-                .resizable()
-                .scaledToFit()
-        } else {
-            Image(fontAwesome: .puzzlePiece)
-        }
-        #else
-        Image(fontAwesome: .puzzlePiece)
-        #endif
-    }
-
     private func issueText(_ code: String) -> String {
         let key: String
         switch code {
@@ -804,4 +889,92 @@ func pluginPermissionText(_ permission: PluginPermission) -> String {
         origin,
         cookieName
     )
+}
+
+@ViewBuilder
+private func pluginIcon(path: String) -> some View {
+    #if os(iOS)
+    if let image = UIImage(contentsOfFile: path) {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFit()
+    } else {
+        Image(fontAwesome: .puzzlePiece)
+    }
+    #elseif os(macOS)
+    if let image = NSImage(contentsOfFile: path) {
+        Image(nsImage: image)
+            .resizable()
+            .scaledToFit()
+    } else {
+        Image(fontAwesome: .puzzlePiece)
+    }
+    #else
+    Image(fontAwesome: .puzzlePiece)
+    #endif
+}
+
+
+private struct PluginMarketplaceRow: View {
+    let entry: PluginMarketplaceEntryV1
+    let facade: PluginAppleFacadeV1
+    let installed: Bool
+    let managed: Bool
+    let canInstall: Bool
+    let onManage: () -> Void
+    @State private var iconPath: String?
+
+    var body: some View {
+        HStack(spacing: 12) {
+            pluginIcon(path: iconPath ?? "")
+                .frame(width: 40, height: 40)
+                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.name)
+                Text(entry.description_).font(.caption).foregroundStyle(.secondary)
+                if managed {
+                    Text(installed ? "plugin_installed" : "plugin_marketplace_local")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            Spacer(minLength: 0)
+            Button {
+                if managed {
+                    onManage()
+                } else {
+                    Task { try? await facade.inspectMarketplace(pluginId: entry.id) }
+                }
+            } label: {
+                Text(managed ? "plugin_marketplace_manage" : "plugin_marketplace_install")
+            }
+            .buttonStyle(.borderless)
+            .disabled(!managed && !canInstall)
+            Menu {
+                if let url = URL(string: entry.repository) {
+                    Link("plugin_marketplace_repository", destination: url)
+                        .environment(\.openURL, OpenURLAction { .systemAction($0) })
+                }
+            } label: {
+                Label {
+                    Text("more")
+                } icon: {
+                    Image(fontAwesome: .ellipsisVertical)
+                        #if os(iOS)
+                        .frame(minWidth: 44, minHeight: 44)
+                        #endif
+                }
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .accessibilityLabel(Text(verbatim: "\(String(localized: "more")): \(entry.name)"))
+            #if os(macOS)
+            .menuIndicator(.hidden)
+            #endif
+        }
+        .padding(.vertical, 4)
+        .task(id: entry.icon) {
+            iconPath = try? await facade.marketplaceIcon(pluginId: entry.id)
+        }
+    }
 }
