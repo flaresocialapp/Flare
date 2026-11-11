@@ -12,7 +12,11 @@ import AppKit
 
 public struct PluginManagementView: View {
     @Environment(\.timelineAppearance.aiConfig.agent) private var agentEnabled
+    #if os(macOS)
+    @Environment(\.openSettings) private var openSettings
+    #else
     @Environment(\.dismiss) private var dismiss
+    #endif
     @State private var facade: PluginAppleFacadeV1
     @State private var presenter: KotlinPresenter<PluginManagementStateV1>
     @State private var importsPlugin = false
@@ -21,6 +25,8 @@ public struct PluginManagementView: View {
     @State private var showsMarketplace = false
     @State private var marketplaceQuery = ""
     private let marketplace: Bool
+    private let onOpenMarketplace: (() -> Void)?
+    private let onSelectPluginSettings: (() -> Void)?
     private let onCreateWithAI: () -> Void
     private var showsGitHubInstall: Bool { presenter.state.gitHubInstall != nil }
     @State private var gitHubURL = ""
@@ -32,8 +38,15 @@ public struct PluginManagementView: View {
     @State private var showsDevelopment = false
     #endif
 
-    public init(marketplace: Bool = false, onCreateWithAI: @escaping () -> Void) {
+    public init(
+        marketplace: Bool = false,
+        onOpenMarketplace: (() -> Void)? = nil,
+        onSelectPluginSettings: (() -> Void)? = nil,
+        onCreateWithAI: @escaping () -> Void
+    ) {
         self.marketplace = marketplace
+        self.onOpenMarketplace = onOpenMarketplace
+        self.onSelectPluginSettings = onSelectPluginSettings
         self.onCreateWithAI = onCreateWithAI
         let facade = PluginAppleFacadeV1()
         _facade = State(initialValue: facade)
@@ -53,49 +66,34 @@ public struct PluginManagementView: View {
                                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
                         }
                     }
+                    #if os(macOS)
+                    .toolbar {
+                        ToolbarItem(placement: .primaryAction) {
+                            marketplaceRefreshButton.disabled(presenter.state.busy)
+                        }
+                    }
+                    #endif
             } else {
                 List { installedSections }
                     .refreshable { await checkUpdates() }
+                    #if os(macOS)
+                    .safeAreaInset(edge: .top, spacing: 0) { installedActions }
+                    #endif
             }
         }
-        .navigationTitle(marketplace ? String(localized: "plugin_marketplace") : String(localized: "settings_plugins_title"))
         #if os(macOS)
-        // The Settings window reserves its toolbar for pane selection.
-        .safeAreaInset(edge: .top) {
-            HStack(spacing: 8) {
-                Spacer()
-                if marketplace {
-                    marketplaceRefreshButton
-                } else {
-                    Button {
-                        Task { await checkUpdates() }
-                    } label: {
-                        Label {
-                            Text("Refresh")
-                        } icon: {
-                            Image(fontAwesome: .arrowsRotate)
-                        }
-                    }
-                    .labelStyle(.iconOnly)
-                    .help("Refresh")
-                    .disabled(isRefreshing || !presenter.state.plugins.contains { $0.sourceUrl != nil })
-                    addActions
-                    marketplaceButton
-                    maintenanceMenu.menuStyle(.borderedButton)
-                }
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .labelStyle(.titleAndIcon)
-            .disabled(presenter.state.busy)
-            .padding()
-        }
-        #else
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .padding(.horizontal, MacPluginLayout.pagePadding)
+        .padding(.top, 6)
+        #endif
+        .navigationTitle(marketplace ? String(localized: "plugin_marketplace") : String(localized: "settings_plugins_title"))
+        #if os(iOS)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 if !marketplace {
                     addMenu
-                    marketplaceButton
+                    marketplaceButton.labelStyle(.iconOnly)
                     maintenanceMenu.labelStyle(.iconOnly)
                 }
             }
@@ -199,6 +197,36 @@ public struct PluginManagementView: View {
         }
     }
 
+    #if os(macOS)
+    // The Settings window reserves its toolbar for pane selection.
+    private var installedActions: some View {
+        HStack(spacing: 8) {
+            Spacer()
+            Button {
+                Task { await checkUpdates() }
+            } label: {
+                Label {
+                    Text("Refresh")
+                } icon: {
+                    Image(fontAwesome: .arrowsRotate)
+                }
+            }
+            .labelStyle(.iconOnly)
+            .help("Refresh")
+            .disabled(isRefreshing || !presenter.state.plugins.contains { $0.sourceUrl != nil })
+            addActions
+            marketplaceButton
+            maintenanceMenu.menuStyle(.borderedButton)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .labelStyle(.titleAndIcon)
+        .disabled(presenter.state.busy)
+        .padding(.horizontal, MacPluginLayout.nativeRowInset)
+        .padding(.vertical, 8)
+    }
+    #endif
+
     @MainActor
     private func checkUpdates(forceRefresh: Bool = true) async {
         guard !isRefreshing else { return }
@@ -225,6 +253,8 @@ public struct PluginManagementView: View {
                 betaNotice.padding(4)
             }
             .listRowBackground(Color.clear)
+            .listRowInsets(MacPluginLayout.rowInsets)
+            .listRowSeparator(.hidden)
             #else
             betaNotice
             #endif
@@ -330,21 +360,27 @@ public struct PluginManagementView: View {
                     installed: installed,
                     managed: managed,
                     canInstall: state.canInstallFromMarketplace,
-                    onManage: { dismiss() }
+                    onManage: {
+                        #if os(macOS)
+                        onSelectPluginSettings?()
+                        openSettings()
+                        #else
+                        dismiss()
+                        #endif
+                    }
                 )
             }
         }
     }
 
     private var marketplaceButton: some View {
-        Button { showsMarketplace = true } label: {
+        Button(action: onOpenMarketplace ?? { showsMarketplace = true }) {
             Label {
                 Text("plugin_marketplace")
             } icon: {
                 Image(fontAwesome: .store)
             }
         }
-        .labelStyle(.iconOnly)
         .help("plugin_marketplace")
         .disabled(presenter.state.busy)
     }
@@ -395,14 +431,7 @@ public struct PluginManagementView: View {
                 }
             }
         } label: {
-            Label {
-                Text("more")
-            } icon: {
-                Image(fontAwesome: .ellipsisVertical)
-                    #if os(iOS)
-                    .frame(minWidth: 44, minHeight: 44)
-                    #endif
-            }
+            pluginRowMoreLabel()
         }
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)
@@ -420,54 +449,68 @@ public struct PluginManagementView: View {
             String(format: String(localized: "plugin_ai_source_revision"), $0.revision)
         } ?? "\(plugin.platformId.isEmpty ? plugin.pluginId : plugin.platformId) · \(plugin.version)"
         let busy = presenter.state.busy || (plugin.authoring == nil && isDeveloping(plugin.pluginId))
+        let title = VStack(alignment: .leading, spacing: 2) {
+            Text(name).font(.headline)
+            Text(subtitle).font(.caption).foregroundStyle(.secondary)
+        }
+        let menu = pluginMenu(plugin, name: name) {
+            pendingUninstallId = plugin.pluginId
+            pendingUninstallName = name
+        }
+        .disabled(busy)
+        #if os(macOS)
+        macPluginRow(iconPath: plugin.iconPath) {
+            VStack(alignment: .leading, spacing: 4) {
+                title
+                pluginRowDetails(plugin, busy: busy)
+            }
+        } actions: {
+            menu
+        }
+        #else
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 pluginIcon(path: plugin.iconPath)
                     .frame(width: 40, height: 40)
                     .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name)
-                        .font(.headline)
-                    Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                title
                 Spacer()
-                pluginMenu(plugin, name: name) {
-                    pendingUninstallId = plugin.pluginId
-                    pendingUninstallName = name
-                }
-                .disabled(busy)
+                menu
             }
-
-            if let source = plugin.sourceUrl {
-                Text(source).font(.caption).foregroundStyle(.secondary)
-            }
-            if let update = plugin.availableUpdate {
-                Button {
-                    Task { try? await facade.inspectGitHubUpdate(pluginId: plugin.pluginId) }
-                } label: {
-                    Text("plugin_update") + Text(" " + update.tag)
-                }
-                .disabled(busy)
-            }
-            if let authoring = plugin.authoring {
-                if authoring.phase != .idle && authoring.phase != .applied {
-                    Text(pluginAuthoringLabel(authoring.phase)).font(.caption).foregroundStyle(.secondary)
-                }
-                if let error = authoring.error {
-                    Text(verbatim: error).font(.caption).foregroundStyle(.red)
-                }
-                if authoring.canCancelUpdate {
-                    Button("plugin_ai_stop") {
-                        Task { try? await facade.cancelPluginUpdate(pluginId: plugin.pluginId) }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(busy)
-                }
-            }
+            pluginRowDetails(plugin, busy: busy)
         }
         .padding(.vertical, 4)
+        #endif
+    }
+
+    @ViewBuilder
+    private func pluginRowDetails(_ plugin: PluginManagementItemV1, busy: Bool) -> some View {
+        if let source = plugin.sourceUrl {
+            Text(source).font(.caption).foregroundStyle(.secondary)
+        }
+        if let update = plugin.availableUpdate {
+            Button {
+                Task { try? await facade.inspectGitHubUpdate(pluginId: plugin.pluginId) }
+            } label: {
+                Text("plugin_update") + Text(" " + update.tag)
+            }
+            .disabled(busy)
+        }
+        if let authoring = plugin.authoring {
+            if authoring.phase != .idle && authoring.phase != .applied {
+                Text(pluginAuthoringLabel(authoring.phase)).font(.caption).foregroundStyle(.secondary)
+            }
+            if let error = authoring.error {
+                Text(verbatim: error).font(.caption).foregroundStyle(.red)
+            }
+            if authoring.canCancelUpdate {
+                Button("plugin_ai_stop") {
+                    Task { try? await facade.cancelPluginUpdate(pluginId: plugin.pluginId) }
+                }
+                .buttonStyle(.bordered)
+                .disabled(busy)
+            }
+        }
     }
 
     private func isDeveloping(_ pluginId: String) -> Bool {
@@ -914,6 +957,53 @@ private func pluginIcon(path: String) -> some View {
     #endif
 }
 
+private func pluginRowMoreLabel() -> some View {
+    Label {
+        Text("more")
+    } icon: {
+        Image(fontAwesome: .ellipsisVertical)
+            #if os(macOS)
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+            #else
+            .frame(minWidth: 44, minHeight: 44)
+            #endif
+    }
+}
+
+#if os(macOS)
+private enum MacPluginLayout {
+    static let pagePadding: CGFloat = 16
+    // Plain lists inset their row content inside the scroll view.
+    static let nativeRowInset: CGFloat = 8
+    static let iconSize: CGFloat = 40
+    static let rowInsets = EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0)
+}
+
+private func macPluginRow<Details: View, Actions: View>(
+    iconPath: String,
+    @ViewBuilder details: () -> Details,
+    @ViewBuilder actions: () -> Actions
+) -> some View {
+    HStack(alignment: .top, spacing: 12) {
+        pluginIcon(path: iconPath)
+            .font(.title3)
+            .frame(width: MacPluginLayout.iconSize, height: MacPluginLayout.iconSize)
+            .background(.quaternary)
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .accessibilityHidden(true)
+        details()
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.top, 2)
+            .frame(maxWidth: .infinity, minHeight: MacPluginLayout.iconSize, alignment: .topLeading)
+        actions()
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(height: MacPluginLayout.iconSize)
+    }
+    .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
+    .listRowInsets(MacPluginLayout.rowInsets)
+}
+#endif
 
 private struct PluginMarketplaceRow: View {
     let entry: PluginMarketplaceEntryV1
@@ -925,56 +1015,91 @@ private struct PluginMarketplaceRow: View {
     @State private var iconPath: String?
 
     var body: some View {
-        HStack(spacing: 12) {
-            pluginIcon(path: iconPath ?? "")
-                .frame(width: 40, height: 40)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(entry.name)
-                Text(entry.description_).font(.caption).foregroundStyle(.secondary)
-                if managed {
-                    Text(installed ? "plugin_installed" : "plugin_marketplace_local")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Spacer(minLength: 0)
-            Button {
-                if managed {
-                    onManage()
-                } else {
-                    Task { try? await facade.inspectMarketplace(pluginId: entry.id) }
-                }
-            } label: {
-                Text(managed ? "plugin_marketplace_manage" : "plugin_marketplace_install")
-            }
-            .buttonStyle(.borderless)
-            .disabled(!managed && !canInstall)
-            Menu {
-                if let url = URL(string: entry.repository) {
-                    Link("plugin_marketplace_repository", destination: url)
-                        .environment(\.openURL, OpenURLAction { .systemAction($0) })
-                }
-            } label: {
-                Label {
-                    Text("more")
-                } icon: {
-                    Image(fontAwesome: .ellipsisVertical)
-                        #if os(iOS)
-                        .frame(minWidth: 44, minHeight: 44)
-                        #endif
-                }
-            }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.borderless)
-            .accessibilityLabel(Text(verbatim: "\(String(localized: "more")): \(entry.name)"))
+        Group {
             #if os(macOS)
-            .menuIndicator(.hidden)
+            macPluginRow(iconPath: iconPath ?? "") {
+                details
+            } actions: {
+                HStack(spacing: 8) {
+                    installButton
+                    repositoryMenu
+                }
+            }
+            #else
+            HStack(spacing: 12) {
+                pluginIcon(path: iconPath ?? "")
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .accessibilityHidden(true)
+                details
+                Spacer(minLength: 0)
+                installButton
+                repositoryMenu
+            }
+            .padding(.vertical, 4)
             #endif
         }
-        .padding(.vertical, 4)
         .task(id: entry.icon) {
             iconPath = try? await facade.marketplaceIcon(pluginId: entry.id)
         }
+    }
+
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(entry.name)
+                #if os(macOS)
+                .font(.headline)
+                #endif
+            Text(entry.description_)
+                #if os(macOS)
+                .font(.subheadline)
+                #else
+                .font(.caption)
+                #endif
+                .foregroundStyle(.secondary)
+            if managed {
+                Text(installed ? "plugin_installed" : "plugin_marketplace_local")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var installButton: some View {
+        Button {
+            if managed {
+                onManage()
+            } else {
+                Task { try? await facade.inspectMarketplace(pluginId: entry.id) }
+            }
+        } label: {
+            Text(managed ? "plugin_marketplace_manage" : "plugin_marketplace_install")
+                #if os(macOS)
+                .frame(minWidth: 44)
+                #endif
+        }
+        #if os(macOS)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        #else
+        .buttonStyle(.borderless)
+        #endif
+        .disabled(!managed && !canInstall)
+    }
+
+    private var repositoryMenu: some View {
+        Menu {
+            if let url = URL(string: entry.repository) {
+                Link("plugin_marketplace_repository", destination: url)
+                    .environment(\.openURL, OpenURLAction { .systemAction($0) })
+            }
+        } label: {
+            pluginRowMoreLabel()
+        }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.borderless)
+        .accessibilityLabel(Text(verbatim: "\(String(localized: "more")): \(entry.name)"))
+        #if os(macOS)
+        .menuIndicator(.hidden)
+        #endif
     }
 }

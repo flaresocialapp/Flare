@@ -104,26 +104,37 @@ public class PluginInstaller(
         path: Path,
         installSource: PluginInstallSourceV1 = PluginInstallSourceV1.Local,
         expectedPluginId: String? = null,
-    ): PreparedPluginInstallV1 = fileSystem.source(path).buffer().use { source -> inspect(source, installSource, expectedPluginId) }
+    ): PreparedPluginInstallV1 =
+        prepareInstall(installSource, expectedPluginId) { limit ->
+            fileSystem.source(path).buffer().use { source -> stage(source, limit) }
+        }
 
     public suspend fun inspect(
         source: Source,
         installSource: PluginInstallSourceV1 = PluginInstallSourceV1.Local,
         expectedPluginId: String? = null,
+    ): PreparedPluginInstallV1 = prepareInstall(installSource, expectedPluginId) { limit -> stage(source, limit) }
+
+    private suspend fun prepareInstall(
+        installSource: PluginInstallSourceV1,
+        expectedPluginId: String?,
+        stageInput: (Long) -> String,
     ): PreparedPluginInstallV1 =
         preparationMutex.withLock {
             mutex.withLock {
-                activePreview?.let { discardLocked(it) }
+                check(activePreview == null) { "Finish the pending plugin installation first" }
                 ensureDirectories()
                 fileSystem.delete(stateStore.paths.incoming, mustExist = false)
                 preparing = true
             }
             try {
-                val stagedHash =
-                    stage(
-                        source,
-                        if (installSource is PluginInstallSourceV1.GitHub) FppLimits.MAX_REPOSITORY_BYTES else FppLimits.MAX_PACKAGE_BYTES,
-                    )
+                val limit =
+                    if (installSource is PluginInstallSourceV1.GitHub) {
+                        FppLimits.MAX_REPOSITORY_BYTES
+                    } else {
+                        FppLimits.MAX_PACKAGE_BYTES
+                    }
+                val stagedHash = stageInput(limit)
                 val hash =
                     if (installSource is PluginInstallSourceV1.GitHub) {
                         installSource.repository.requireValid()
@@ -234,7 +245,10 @@ public class PluginInstaller(
 
     public suspend fun discard(preview: PreparedPluginInstallV1) {
         mutex.withLock {
-            if (activePreview === preview) discardLocked(preview)
+            if (activePreview === preview) {
+                activePreview = null
+                fileSystem.delete(stateStore.paths.incoming, mustExist = false)
+            }
         }
     }
 
@@ -383,13 +397,6 @@ public class PluginInstaller(
 
     private fun ensureDirectories() {
         fileSystem.createDirectories(stateStore.paths.staging)
-    }
-
-    private fun discardLocked(preview: PreparedPluginInstallV1) {
-        if (activePreview === preview) {
-            activePreview = null
-            fileSystem.delete(stateStore.paths.incoming, mustExist = false)
-        }
     }
 }
 
