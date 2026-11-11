@@ -56,7 +56,7 @@ public struct PluginManagementView: View {
     public var body: some View {
         Group {
             if marketplace {
-                List { marketplaceSections }
+                marketplaceContent
                     .searchable(text: $marketplaceQuery, prompt: Text("plugin_marketplace_search"))
                     .refreshable { try? await facade.refreshMarketplace() }
                     .overlay {
@@ -237,7 +237,9 @@ public struct PluginManagementView: View {
 
     @ViewBuilder
     private var installedSections: some View {
+        let state = presenter.state
         #if os(macOS)
+        let issues = state.issues.filter { !state.canRebuildIndex || $0.code != "index.corrupt" }
         if isRefreshing {
             ProgressView()
                 .controlSize(.small)
@@ -246,6 +248,8 @@ public struct PluginManagementView: View {
                 .listRowSeparator(.hidden)
                 .accessibilityLabel(Text("Refresh"))
         }
+        #else
+        let issues = state.issues
         #endif
         Section {
             #if os(macOS)
@@ -265,7 +269,19 @@ public struct PluginManagementView: View {
         }
         #endif
 
-        if let error = presenter.state.error {
+        #if os(macOS)
+        if let error = state.error, !state.items.isEmpty || state.canRebuildIndex {
+            Section { macPluginOperationNotice(error) }
+        }
+        if state.canRebuildIndex && !state.items.isEmpty {
+            Section {
+                macPluginNotice("plugin_list_unavailable", detail: Text("plugin_issue_index_corrupt")) {
+                    rebuildIndexButton
+                }
+            }
+        }
+        #else
+        if let error = state.error {
             Section {
                 Label {
                     Text("plugin_operation_failed")
@@ -276,14 +292,15 @@ public struct PluginManagementView: View {
                 Text(String(error.prefix(512))).font(.caption)
             }
         }
+        #endif
 
-        if !presenter.state.issues.isEmpty || !presenter.state.runtimeIssues.isEmpty {
+        if !issues.isEmpty || !state.runtimeIssues.isEmpty {
             Section("plugin_issues") {
-                ForEach(Array(presenter.state.issues.enumerated()), id: \.offset) { _, issue in
+                ForEach(Array(issues.enumerated()), id: \.offset) { _, issue in
                     Text(issue.code == "update.failed" ? "\(issue.pluginId ?? ""): \(issue.message.prefix(512))" : issueText(issue.code))
                         .foregroundStyle(.red)
                 }
-                ForEach(presenter.state.runtimeIssues, id: \.pluginId) { issue in
+                ForEach(state.runtimeIssues, id: \.pluginId) { issue in
                     HStack {
                         VStack(alignment: .leading) {
                             Text(issue.pluginId)
@@ -301,7 +318,10 @@ public struct PluginManagementView: View {
             }
         }
 
-        if presenter.state.items.isEmpty {
+        if state.items.isEmpty {
+            #if os(macOS)
+            macInstalledState(state).macPluginStateRow()
+            #else
             ContentUnavailableView {
                 Label {
                     Text("plugin_empty")
@@ -312,13 +332,79 @@ public struct PluginManagementView: View {
                 Text("settings_plugins_subtitle")
             }
             .listRowBackground(Color.clear)
+            #endif
         } else {
             Section {
-                ForEach(presenter.state.items, id: \.pluginId) { plugin in
+                ForEach(state.items, id: \.pluginId) { plugin in
                     pluginRow(plugin)
                 }
             }
         }
+    }
+
+    #if os(macOS)
+    @ViewBuilder
+    private func macInstalledState(_ state: PluginManagementStateV1) -> some View {
+        if state.canRebuildIndex {
+            ContentUnavailableView {
+                Label("plugin_list_unavailable", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text("plugin_issue_index_corrupt")
+            } actions: {
+                rebuildIndexButton.buttonStyle(.borderedProminent)
+            }
+        } else if let error = state.error {
+            ContentUnavailableView {
+                Label("plugin_operation_failed_title", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(verbatim: String(error.prefix(512))).textSelection(.enabled)
+            }
+        } else {
+            ContentUnavailableView {
+                Label {
+                    Text("plugin_empty")
+                } icon: {
+                    Image(fontAwesome: .puzzlePiece)
+                }
+            } description: {
+                Text("plugin_empty_install_hint")
+            }
+        }
+    }
+    #endif
+
+    @ViewBuilder
+    private var marketplaceContent: some View {
+        #if os(macOS)
+        let state = presenter.state
+        let catalog = state.marketplace
+        if catalog.plugins.isEmpty {
+            VStack(spacing: 0) {
+                if let error = state.error {
+                    macPluginOperationNotice(error)
+                        .padding(.horizontal, MacPluginLayout.nativeRowInset)
+                }
+                Group {
+                    if catalog.error != nil {
+                        ContentUnavailableView {
+                            Label("plugin_marketplace_failed", systemImage: "exclamationmark.triangle")
+                        } actions: {
+                            marketplaceRetryButton.buttonStyle(.borderedProminent)
+                        }
+                    } else if catalog.loading || !catalog.loaded {
+                        ProgressView("plugin_marketplace_loading")
+                    } else {
+                        ListEmptyView("plugin_marketplace_empty", icon: .puzzlePiece)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        } else {
+            List { marketplaceSections }
+        }
+        #else
+        List { marketplaceSections }
+        #endif
     }
 
     @ViewBuilder
@@ -326,6 +412,22 @@ public struct PluginManagementView: View {
         let state = presenter.state
         let marketplace = state.marketplace
         let plugins = marketplace.search(query: marketplaceQuery)
+        #if os(macOS)
+        if marketplace.error != nil {
+            Section {
+                macPluginNotice("plugin_marketplace_refresh_failed", detail: Text("plugin_marketplace_cached")) {
+                    marketplaceRetryButton
+                }
+            }
+        }
+        if let error = state.error {
+            Section { macPluginOperationNotice(error) }
+        }
+        if plugins.isEmpty {
+            ContentUnavailableView.search(text: marketplaceQuery.trimmingCharacters(in: .whitespacesAndNewlines))
+                .macPluginStateRow()
+        }
+        #else
         if marketplace.loading && marketplace.plugins.isEmpty {
             Section { UiListPlaceholder() }
         }
@@ -350,6 +452,7 @@ public struct PluginManagementView: View {
                 ListEmptyView("search_empty_title", icon: .magnifyingGlass)
             }
         }
+        #endif
         Section {
             ForEach(plugins, id: \.id) { entry in
                 let installed = state.isInstalled(pluginId: entry.id)
@@ -372,6 +475,13 @@ public struct PluginManagementView: View {
             }
         }
     }
+
+    #if os(macOS)
+    private var marketplaceRetryButton: some View {
+        Button("plugin_retry") { facade.loadMarketplace(forceRefresh: true) }
+            .disabled(presenter.state.marketplace.loading || presenter.state.busy)
+    }
+    #endif
 
     private var marketplaceButton: some View {
         Button(action: onOpenMarketplace ?? { showsMarketplace = true }) {
@@ -579,9 +689,7 @@ public struct PluginManagementView: View {
             }
             .disabled(isRefreshing || !presenter.state.plugins.contains { $0.sourceUrl != nil })
             if presenter.state.canRebuildIndex {
-                Button("plugin_rebuild_index") {
-                    Task { try? await facade.rebuildIndex() }
-                }
+                rebuildIndexButton
             }
             Button("plugin_cleanup") {
                 Task { try? await facade.cleanup() }
@@ -596,6 +704,13 @@ public struct PluginManagementView: View {
         }
         .accessibilityLabel(Text("more"))
         .help("more")
+        .disabled(presenter.state.busy)
+    }
+
+    private var rebuildIndexButton: some View {
+        Button("plugin_rebuild_index") {
+            Task { try? await facade.rebuildIndex() }
+        }
         .disabled(presenter.state.busy)
     }
 
@@ -978,6 +1093,52 @@ private enum MacPluginLayout {
     static let nativeRowInset: CGFloat = 8
     static let iconSize: CGFloat = 40
     static let rowInsets = EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0)
+}
+
+private extension View {
+    func macPluginStateRow() -> some View {
+        frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .listRowInsets(MacPluginLayout.rowInsets)
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+    }
+}
+
+private func macPluginOperationNotice(_ error: String) -> some View {
+    macPluginNotice("plugin_operation_failed_title", detail: Text(verbatim: String(error.prefix(512)))) {}
+}
+
+private func macPluginNotice<Actions: View>(
+    _ title: LocalizedStringKey,
+    detail: Text,
+    @ViewBuilder actions: () -> Actions
+) -> some View {
+    GroupBox {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                detail
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            actions()
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .padding(4)
+    }
+    .listRowInsets(MacPluginLayout.rowInsets)
+    .listRowBackground(Color.clear)
+    .listRowSeparator(.hidden)
 }
 
 private func macPluginRow<Details: View, Actions: View>(
