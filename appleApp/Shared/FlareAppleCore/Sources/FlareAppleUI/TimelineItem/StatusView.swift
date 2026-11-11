@@ -362,7 +362,9 @@ public struct StatusView: View {
                                 carouselLeadingPadding: carouselLeadingPadding,
                                 carouselTrailingPadding: carouselEdgePadding
                             ) { media, index in
-                                if let timelineMediaOpenAction {
+                                if data.pluginId != nil, data.mediaClickPolicy == .openPostClickEvent {
+                                    data.onClicked(ClickContext(launcher: AppleUriLauncher(openUrl: openURL)))
+                                } else if let timelineMediaOpenAction {
                                     timelineMediaOpenAction(data, media, index)
                                 } else {
                                     let preview: String? = switch onEnum(of: media) {

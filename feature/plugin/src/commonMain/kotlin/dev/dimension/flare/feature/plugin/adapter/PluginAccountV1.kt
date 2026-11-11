@@ -34,7 +34,6 @@ import kotlinx.serialization.json.JsonElement
 
 public fun RunningPluginV1.accountCredential(success: LoginSuccessV1): PluginAccountCredentialV1 {
     success.requireValid()
-    mergePluginComposeConfigV2(installed.manifest.socialPlatform.composeDefaults, success.composeConfig)
     val manifestCapabilities =
         PluginAbiV1.knownCapabilities(
             installed.manifest.socialPlatform.capabilities
@@ -53,6 +52,7 @@ public fun RunningPluginV1.accountCredential(success: LoginSuccessV1): PluginAcc
                 negotiatedCapabilities = PluginAbiV1.knownCapabilities(success.capabilities),
                 composeConfig = success.composeConfig,
                 credentialSchemaVersion = installed.manifest.socialPlatform.credentialSchemaVersion,
+                composeConfigV3 = success.composeConfigV3,
             ),
         credential = success.credential,
         sessionEpoch = if (installed.manifest.apiVersion >= 2) platformUuid() else null,
@@ -130,8 +130,8 @@ internal fun PluginAccountCredentialV1.requireValid(plugin: RunningPluginV1) {
     require(snapshot.manifestCapabilities.isCapabilitySnapshot() && snapshot.negotiatedCapabilities.isCapabilitySnapshot()) {
         "Invalid plugin account capabilities"
     }
-    snapshot.composeConfig?.requireValid()
     mergePluginComposeConfigV2(manifest.socialPlatform.composeDefaults, snapshot.composeConfig)
+    mergePluginComposeConfigV2(manifest.socialPlatform.composeDefaultsV3, snapshot.composeConfigV3, allowExtendedVisibility = true)
     require(
         PluginJsonV1
             .encodeToString(JsonElement.serializer(), credential)
@@ -148,7 +148,11 @@ internal fun PluginAccountCredentialV1.effectiveCapabilities(plugin: RunningPlug
             val negotiated = snapshot.negotiatedCapabilities[capability].orEmpty()
             declaration.operations.keys.filterTo(linkedSetOf()) { operation ->
                 operation in negotiated ||
-                    (capability != PluginAbiV1.Capabilities.ACCOUNT_HTTP && operation !in previousManifest)
+                    (
+                        capability != PluginAbiV1.Capabilities.ACCOUNT_HTTP &&
+                            capability != PluginAbiV1.Capabilities.COMPOSE_V3 &&
+                            operation !in previousManifest
+                    )
             }
         }.filterValues(Set<String>::isNotEmpty)
         .let(PluginAbiV1::knownCapabilities)

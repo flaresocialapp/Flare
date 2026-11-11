@@ -150,10 +150,25 @@ public fun <T : UiTimelineV2> T.bindMediaProxy(): T {
 @HiddenFromObjC
 public fun UiList.withProxy(proxy: ProxyRef): UiList =
     when (this) {
-        is UiList.List -> copy(proxy = proxy, creator = creator?.withProxy(proxy))
-        is UiList.Feed -> copy(proxy = proxy, creator = creator?.withProxy(proxy))
-        is UiList.Channel -> copy(proxy = proxy, description = description?.withProxy(proxy))
-        is UiList.Antenna -> this
+        is UiList.List -> {
+            copy(
+                proxy = proxy,
+                creator = creator?.withProxy(proxy),
+                avatar = avatar?.takeIf { UiMedia.Image(it).allowedForPlugin(pluginId) },
+            )
+        }
+
+        is UiList.Feed -> {
+            copy(proxy = proxy, creator = creator?.withProxy(proxy))
+        }
+
+        is UiList.Channel -> {
+            copy(proxy = proxy, description = description?.withProxy(proxy))
+        }
+
+        is UiList.Antenna -> {
+            this
+        }
     }
 
 @HiddenFromObjC
@@ -211,7 +226,15 @@ public fun UiArticle.withProxy(proxy: ProxyRef): UiArticle =
                                 }
 
                                 is UiArticleBlock.Embed -> {
-                                    block.takeIf { pluginId == null }?.copy(proxy = proxy)
+                                    if (pluginId == null) {
+                                        block.copy(proxy = proxy)
+                                    } else {
+                                        block.takeIf { !it.url.isNullOrBlank() && it.url.isSafePluginUrl() }?.copy(
+                                            proxy = proxy,
+                                            imageUrl = block.imageUrl?.takeIf { UiMedia.Image(it).allowedForPlugin(pluginId) },
+                                            htmlFallback = null,
+                                        )
+                                    }
                                 }
 
                                 is UiArticleBlock.File -> {

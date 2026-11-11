@@ -164,7 +164,7 @@ final class TimelineRefreshAnimationTests: XCTestCase {
         let profile = UiProfile(key: user.key, handle: user.handle, avatar: media, nameInternal: user.name,
             platformId: user.platformId, platformIcon: user.platformIcon, clickEvent: ClickEventNoop.shared,
             banner: nil, description: nil, sourceLanguages: [], translationDisplayState: .hidden,
-            matrices: user.matrices, mark: [], bottomContent: nil, pluginId: nil)
+            matrices: user.matrices, mark: [], bottomContent: nil, pluginId: nil, clearedMarks: [])
         let post = UiTimelineV2.Post(platformId: original.platformId, images: [media], sensitive: false,
             contentWarning: nil, user: profile, platformIcon: original.platformIcon, sourceLanguages: [],
             translationDisplayState: .hidden, content: original.content, actions: original.actions,

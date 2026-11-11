@@ -1160,6 +1160,165 @@
       "hostValid": true
     },
     {
+      "name": "compose/v3 declares private audiences separately",
+      "patch": {
+        "platform": {
+          "capabilities": {
+            "flare.datasource.compose/v3": {
+              "operations": {
+                "publish": {}
+              }
+            }
+          },
+          "composeDefaultsV3": {
+            "supportedTypes": [
+              "new"
+            ],
+            "visibility": {
+              "allowed": [
+                "friends",
+                "selfOnly"
+              ],
+              "default": "selfOnly"
+            }
+          }
+        }
+      },
+      "schemaValid": true,
+      "hostValid": true
+    },
+    {
+      "name": "compose/v3 requires visibility defaults",
+      "patch": {
+        "platform": {
+          "capabilities": {
+            "flare.datasource.compose/v3": {
+              "operations": {
+                "publish": {}
+              }
+            }
+          },
+          "composeDefaultsV3": {
+            "supportedTypes": [
+              "new"
+            ]
+          }
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "compose/v2 rejects private audience enum additions",
+      "patch": {
+        "platform": {
+          "capabilities": {
+            "flare.datasource.compose/v2": {
+              "operations": {
+                "publish": {}
+              }
+            }
+          },
+          "composeDefaults": {
+            "supportedTypes": [
+              "new"
+            ],
+            "visibility": {
+              "allowed": [
+                "friends",
+                "selfOnly"
+              ],
+              "default": "selfOnly"
+            }
+          }
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
+      "name": "dual compose contracts declare independent audiences",
+      "patch": {
+        "platform": {
+          "capabilities": {
+            "flare.datasource.compose/v2": {
+              "operations": {
+                "publish": {}
+              }
+            },
+            "flare.datasource.compose/v3": {
+              "operations": {
+                "publish": {}
+              }
+            }
+          },
+          "composeDefaults": {
+            "supportedTypes": [
+              "new"
+            ],
+            "visibility": {
+              "allowed": [
+                "followers"
+              ],
+              "default": "followers"
+            }
+          },
+          "composeDefaultsV3": {
+            "supportedTypes": [
+              "new"
+            ],
+            "visibility": {
+              "allowed": [
+                "friends",
+                "selfOnly"
+              ],
+              "default": "selfOnly"
+            }
+          }
+        }
+      },
+      "schemaValid": true,
+      "hostValid": true
+    },
+    {
+      "name": "dual compose contracts require an explicit legacy audience",
+      "patch": {
+        "platform": {
+          "capabilities": {
+            "flare.datasource.compose/v2": {
+              "operations": {
+                "publish": {}
+              }
+            },
+            "flare.datasource.compose/v3": {
+              "operations": {
+                "publish": {}
+              }
+            }
+          },
+          "composeDefaults": {
+            "supportedTypes": [
+              "new"
+            ]
+          },
+          "composeDefaultsV3": {
+            "supportedTypes": [
+              "new"
+            ],
+            "visibility": {
+              "allowed": [
+                "friends",
+                "selfOnly"
+              ],
+              "default": "selfOnly"
+            }
+          }
+        }
+      },
+      "schemaValid": false,
+      "hostValid": false
+    },
+    {
       "name": "compose limits",
       "patch": {
         "platform": {

@@ -199,6 +199,11 @@ including a required supportedTypes set. `compose.publish` receives
 `ComposeRequestV2`: text, visibility, languages, assets, sensitive, optional
 spoilerText/reference/poll, and returns `{ post: PostV1 }`.
 
+For friends-only or self-only publishing, negotiate `flare.datasource.compose/v3`
+and implement `composeV3.publish`. It receives the same fields with the expanded
+visibility values. Apply the selected visibility on the website and report
+the resulting private post with `extendedVisibility`. See [compose defaults](manifest.md#compose-defaults).
+
 - No reference means a new post.
 - `{ type: "reply", key: { id, host } }` means reply to that exact target.
 - `{ type: "quote", key: { id, host } }` means quote that exact target.

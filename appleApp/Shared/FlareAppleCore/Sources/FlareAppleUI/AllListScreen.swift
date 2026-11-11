@@ -32,7 +32,7 @@ public struct AllListScreen<Destination: Hashable>: View {
                     value: timelineDestination(presenter.state.timelineTabItem(item: item))
                 ) {
                     UiListView(data: item)
-                        .if(item.readonly) { view in
+                        .if(!item.readonly) { view in
                             view.swipeActions(edge: .leading) {
                                 if editListContent != nil {
                                     Button {

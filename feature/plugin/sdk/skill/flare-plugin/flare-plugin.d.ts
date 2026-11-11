@@ -97,6 +97,8 @@ interface SocialPluginDefinitionV1 {
     post?: Partial<PostServiceV1>;
     relation?: Partial<RelationServiceV1>;
     compose?: { publish(request: ComposeRequestV2, context: PluginInvocationContextV1): MaybePromise<ComposeResultV1> };
+    /** Opt-in compose/v3 capability for friends and selfOnly. */
+    composeV3?: { publish(request: ComposeRequestV3, context: PluginInvocationContextV1): MaybePromise<ComposeResultV1> };
     notification?: Partial<NotificationServiceV1>;
     list?: Partial<ListServiceV1>;
     directMessage?: Partial<DirectMessageServiceV1>;
@@ -265,6 +267,7 @@ interface LoginSuccessV1 {
   profile: ProfileV1;
   capabilities: Record<string, string[]>;
   composeConfig?: ComposeConfigV2;
+  composeConfigV3?: ComposeConfigV3;
 }
 
 /** Stable ID in the selected API namespace; host is an HTTPS authority without scheme/path. */
@@ -288,6 +291,12 @@ interface ProfileV1 {
   fields?: ProfileFieldV1[];
   entityToken?: string;
   actions?: ActionDescriptorV1[];
+  /** Platform-reported badges; false clears a cached badge, omission leaves it unspecified. */
+  verified?: boolean;
+  cat?: boolean;
+  /** Inline formatted text and emoji. Keep displayName as the plain fallback. */
+  displayNameRichText?: RichTextV1;
+  sourceLanguages?: string[];
 }
 type MediaTypeV1 = "image" | "video" | "gif" | "audio" | "ugoira";
 /** HTTPS URLs only; automatic loading requires permissions.mediaNetwork. Preserve alt text. */
@@ -308,6 +317,7 @@ interface MediaV1 {
   customHeaders?: Record<string, string>;
 }
 type VisibilityV1 = "public" | "unlisted" | "followers" | "direct" | "channel";
+type ExtendedVisibilityV1 = "friends" | "selfOnly";
 type SemanticActionV1 =
   | "Favourite" | "Unfavourite" | "Repost" | "Unrepost" | "Bookmark" | "Unbookmark"
   | "Delete" | "Reply" | "Quote" | "Follow" | "Unfollow" | "Block" | "Unblock" | "Mute" | "Unmute"
@@ -358,6 +368,12 @@ interface PostV1 {
   card?: CardV1;
   poll?: PollV1;
   emojiReactions?: EmojiReactionV1[];
+  /** Plain text in the author header. Omission uses the author's handle. */
+  authorSubtitle?: string;
+  /** Defaults to detailType behavior; openMedia requires negotiated post.detail. */
+  mediaClickPolicy?: "openMedia" | "openTarget";
+  /** Omit visibility when supplying this field. Older Hosts display no visibility indicator. */
+  extendedVisibility?: ExtendedVisibilityV1;
 }
 /** All timeline-producing operations use this discriminated union. No bare-post compatibility.
  * Gap/loading/translation state, account identity and callbacks are owned by the Host.
@@ -516,9 +532,22 @@ interface RelationV1 {
   followedBy?: boolean;
   blocking?: boolean;
   muting?: boolean;
+  blockedBy?: boolean;
+  hasPendingFollowRequestFromYou?: boolean;
+  hasPendingFollowRequestToYou?: boolean;
   actionTokens?: Partial<Record<SemanticActionV1, string>>;
 }
-interface SocialListV1 { id: string; title: string; memberCount?: number; entityToken?: string }
+interface SocialListV1 {
+  id: string;
+  title: string;
+  memberCount?: number;
+  entityToken?: string;
+  description?: string;
+  avatarUrl?: string;
+  creator?: ProfileV1;
+  /** Also enforce write restrictions in the plugin's list mutation handlers. */
+  readOnly?: boolean;
+}
 interface DirectMessageRoomV1 {
   key: EntityKeyV1;
   title: string;
@@ -535,7 +564,13 @@ interface DirectMessageV1 {
   content: RichTextV1;
   fromCurrentAccount?: boolean;
   entityToken?: string;
+  /** Omission shows content. Keep content as the text fallback for older Hosts. */
+  body?: DirectMessageBodyV1;
 }
+type DirectMessageBodyV1 =
+  | { type: "media"; media: MediaV1 }
+  | { type: "post"; post: PostV1 }
+  | { type: "deleted" };
 interface ArticleV1 {
   key: EntityKeyV1;
   title: string;
@@ -544,7 +579,19 @@ interface ArticleV1 {
   content: RichTextV1;
   url?: string;
   coverUrl?: string;
+  /** Site and byline for articles without a ProfileV1 author. */
+  attribution?: ArticleAttributionV1;
+  /** Nonempty blocks take precedence on compatible Hosts. Keep content as a readable fallback. */
+  blocks?: ArticleBlockV1[];
 }
+interface ArticleAttributionV1 { siteName?: string; byline?: string; iconUrl?: string }
+type ArticleBlockV1 =
+  | { type: "text"; content: RichTextV1 }
+  | { type: "image"; media: MediaV1 & { type: "image" } }
+  | { type: "video"; media: MediaV1 & { type: "video" } }
+  | { type: "file"; name: string; url: string; sizeBytes?: number; extension?: string; customHeaders?: Record<string, string> }
+  | { type: "embed"; url: string; title?: string; description?: string; imageUrl?: string }
+  | { type: "contentGate"; actionUrl?: string; /** Subscription price in Japanese yen. */ feeRequired?: number };
 interface GalleryV1 {
   key: EntityKeyV1;
   title: string;
@@ -606,6 +653,11 @@ interface ComposeConfigV2 {
   poll?: { maxOptions: number };
   language?: { maxCount: number };
 }
+type ComposeVisibilityV3 = VisibilityV1 | ExtendedVisibilityV1;
+interface ComposeConfigV3 extends Omit<ComposeConfigV2, "visibility"> {
+  /** Required in platform.composeDefaultsV3. */
+  visibility?: { allowed: ComposeVisibilityV3[]; default?: ComposeVisibilityV3 };
+}
 /** Host-owned per-invocation upload handle. Forward via multipart; bytes never enter JS. */
 interface ComposeAssetV1 { handle: string; fileName?: string; mimeType?: string; description?: string }
 interface ComposePollV1 { options: string[]; expiresInSeconds: number; multiple?: boolean }
@@ -619,6 +671,7 @@ interface ComposeRequestV2 {
   reference?: { type: "reply" | "quote"; key: EntityKeyV1 };
   poll?: ComposePollV1;
 }
+interface ComposeRequestV3 extends Omit<ComposeRequestV2, "visibility"> { visibility: ComposeVisibilityV3 }
 interface ComposeResultV1 { post: PostV1 }
 
 type HttpAuthorizationV1 =

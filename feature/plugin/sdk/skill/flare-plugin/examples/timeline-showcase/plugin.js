@@ -15,7 +15,10 @@ const negotiated = {
 };
 function key(id, context) { return { id, host: context.origin.slice(8) }; }
 function profile(id, context) {
-  return { key: key(id, context), handle: id, displayName: id === "alice" ? "Alice" : "Demo account" };
+  return {
+    key: key(id, context), handle: id, displayName: id === "alice" ? "Alice" : "Demo account",
+    verified: id === "alice", sourceLanguages: ["en"]
+  };
 }
 function token(action) { return action + ":" + revision; }
 function button(action, label) { return { action, label, actionToken: token(action) }; }
@@ -28,6 +31,7 @@ function post(id, context) {
       target: { type: "timelinePage", pageId: "replies", title: { value: "Replies" }, parameters: { parentId: id } }
     } : {}),
     ...(id === "poll" ? {
+      authorSubtitle: "Timeline Showcase",
       card: { title: "Flare", description: "Existing native UI, supplied by a plugin", url: "https://github.com/DimensionDev/Flare" },
       poll: { id: "demo-poll", options: [{ title: "Posts", votesCount: 2 + (ownVotes.includes(0) ? 1 : 0) },
         { title: "Mixed items", votesCount: 3 + (ownVotes.includes(1) ? 1 : 0) }],

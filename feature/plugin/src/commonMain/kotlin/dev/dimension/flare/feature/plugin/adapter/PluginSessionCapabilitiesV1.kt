@@ -12,6 +12,14 @@ internal class PluginSessionCapabilitiesV1(
 ) {
     private val operations = PluginAbiV1.knownCapabilities(operations)
 
+    val composeCapability: String?
+        get() =
+            when {
+                canExpose(Capabilities.COMPOSE_V3) -> Capabilities.COMPOSE_V3
+                canExpose(Capabilities.COMPOSE) -> Capabilities.COMPOSE
+                else -> null
+            }
+
     fun hasOperation(
         capability: String,
         operation: String,
@@ -42,6 +50,7 @@ internal class PluginSessionCapabilitiesV1(
         val ACCOUNT_CAPABILITIES =
             setOf(
                 Capabilities.COMPOSE,
+                Capabilities.COMPOSE_V3,
                 Capabilities.ACCOUNT_HTTP,
                 Capabilities.RELATION,
                 Capabilities.NOTIFICATION,

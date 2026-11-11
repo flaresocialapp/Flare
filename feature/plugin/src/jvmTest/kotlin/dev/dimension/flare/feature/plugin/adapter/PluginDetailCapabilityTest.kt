@@ -4,6 +4,7 @@ import androidx.paging.LoadState
 import dev.dimension.flare.common.CacheState
 import dev.dimension.flare.data.datasource.microblog.ActionMenu
 import dev.dimension.flare.data.datasource.microblog.ComposeData
+import dev.dimension.flare.data.datasource.microblog.ComposeType
 import dev.dimension.flare.data.datasource.microblog.DatabaseUpdater
 import dev.dimension.flare.data.datasource.microblog.NotificationFilter
 import dev.dimension.flare.data.datasource.microblog.PostActionFamily
@@ -817,6 +818,63 @@ class PluginDetailCapabilityTest {
         }
 
     @Test
+    fun privateComposeUsesNegotiatedCapabilityAndIndependentLegacyDefaults() =
+        runBlocking {
+            val manifest =
+                MANIFEST.replace(
+                    "\"capabilities\": {",
+                    """
+                    "composeDefaults": { "supportedTypes": ["new"], "visibility": { "allowed": ["followers"], "default": "followers" } },
+                    "composeDefaultsV3": {
+                      "supportedTypes": ["new"],
+                      "visibility": { "allowed": ["friends", "selfOnly"], "default": "selfOnly" }
+                    },
+                    "capabilities": {
+                      "${PluginAbiV1.Capabilities.COMPOSE}": { "operations": { "publish": {} } },
+                      "${PluginAbiV1.Capabilities.COMPOSE_V3}": { "operations": { "publish": {} } },
+                    """.trimIndent(),
+                )
+            val script =
+                SCRIPT.replace(
+                    "defineFlareSocialPlugin({ capabilities: {",
+                    """
+                    function recordCompose(handler) {
+                      return { async publish(request, context) {
+                        await flare.http.request({ url: context.origin + "/record", method: "POST",
+                          body: { type: "json", value: { handler, visibility: request.visibility } } });
+                        return { post: post("published") };
+                      } };
+                    }
+                    defineFlareSocialPlugin({ capabilities: {
+                      compose: recordCompose("legacy"),
+                      composeV3: recordCompose("extended"),
+                    """.trimIndent(),
+                )
+            val plugin = install(manifest, script)
+            val extended = requireNotNull(authenticated(plugin).capabilitySet.compose)
+            assertEquals(UiTimelineV2.Post.Visibility.SelfOnly, extended.composeConfig(ComposeType.New).visibility?.defaultVisibility)
+            for ((scope, expected) in listOf(
+                UiTimelineV2.Post.Visibility.Friends to "friends",
+                UiTimelineV2.Post.Visibility.SelfOnly to "selfOnly",
+            )) {
+                extended.compose(ComposeData("private post", visibility = scope)) {}
+                val payload = Json.parseToJsonElement(assertIs<PluginTransportBodyV1.Text>(transport.requests.last().body).value).jsonObject
+                assertEquals("extended", payload["handler"]?.jsonPrimitive?.content)
+                assertEquals(expected, payload["visibility"]?.jsonPrimitive?.content)
+            }
+            val legacy = requireNotNull(authenticated(plugin, setOf(PluginAbiV1.Capabilities.COMPOSE_V3)).capabilitySet.compose)
+            assertEquals(UiTimelineV2.Post.Visibility.Followers, legacy.composeConfig(ComposeType.New).visibility?.defaultVisibility)
+            assertFailsWith<IllegalArgumentException> {
+                legacy.publish(ComposeData("private post", visibility = UiTimelineV2.Post.Visibility.SelfOnly)) {}
+            }
+            assertEquals(2, transport.requests.size)
+            legacy.compose(ComposeData("followers post", visibility = UiTimelineV2.Post.Visibility.Followers)) {}
+            val payload = Json.parseToJsonElement(assertIs<PluginTransportBodyV1.Text>(transport.requests.last().body).value).jsonObject
+            assertEquals("legacy", payload["handler"]?.jsonPrimitive?.content)
+            assertEquals("followers", payload["visibility"]?.jsonPrimitive?.content)
+        }
+
+    @Test
     fun unsupportedComposeTypesAndEmptyQuotesFailBeforePluginCalls() =
         runBlocking {
             installCompose().let { running ->
@@ -1112,6 +1170,55 @@ class PluginDetailCapabilityTest {
                     .load(20, PagingRequest.Refresh)
                     .data.size,
             )
+        }
+
+    @Test
+    fun readOnlyListBlocksWritesEvenBeforeItsDetailHasBeenLoaded() =
+        runBlocking {
+            val script = SCRIPT.replace("title: \"Cold list\",", "title: \"Cold list\", readOnly: true,")
+            val adapter = requireNotNull(authenticated(install(script = script)).extraCapabilities.listAdapter)
+            assertFailsWith<IllegalArgumentException> { adapter.update("list-1", ListMetaData(title = "Changed")) }
+            assertTrue(adapter.info("list-1").readonly)
+        }
+
+    @Test
+    fun membershipResultsRefreshReadOnlyStateWithoutDroppingTheListToken() =
+        runBlocking {
+            val script =
+                SCRIPT.replace(
+                    "memberships() { return { items: [] }; },",
+                    """
+                    memberships(request) {
+                      const item = { id: "list-1", title: "List" };
+                      if (request.key.id !== "unknown") item.readOnly = request.key.id === "viewer";
+                      return { items: [item] };
+                    },
+                    """.trimIndent(),
+                )
+            val adapter = requireNotNull(authenticated(install(script = script)).extraCapabilities.listAdapter)
+            val members = adapter.memberLoader
+            val viewer = MicroBlogKey("viewer", "plugin.example")
+            assertFalse(adapter.info("list-1").readonly)
+            assertTrue(
+                members
+                    .loadUserLists(20, PagingRequest.Refresh, viewer)
+                    .data
+                    .single()
+                    .readonly,
+            )
+            assertTrue(
+                members
+                    .loadUserLists(20, PagingRequest.Refresh, viewer.copy(id = "unknown"))
+                    .data
+                    .single()
+                    .readonly,
+            )
+            assertFailsWith<IllegalArgumentException> { adapter.update("list-1", ListMetaData(title = "Changed")) }
+            assertFailsWith<IllegalArgumentException> { members.addMember("list-1", viewer) }
+            assertFailsWith<IllegalArgumentException> { members.removeMember("list-1", viewer) }
+
+            members.loadUserLists(20, PagingRequest.Refresh, viewer.copy(id = "editor"))
+            assertEquals("Changed", adapter.update("list-1", ListMetaData(title = "Changed")).title)
         }
 
     @Test

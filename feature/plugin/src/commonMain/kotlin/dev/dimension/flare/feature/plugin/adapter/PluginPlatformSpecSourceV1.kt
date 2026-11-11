@@ -318,7 +318,7 @@ private class PluginPlatformSpecV1(
                 result.instance.takeUnless { result.match == DetectorMatchV1.None }
             }
         val domain = detected?.domain ?: Url(origin).accountHost()
-        val compose = platform.composeDefaults
+        val compose = platform.composeDefaultsV3 ?: platform.composeDefaults
         return UiInstanceMetadata(
             instance =
                 UiInstance(

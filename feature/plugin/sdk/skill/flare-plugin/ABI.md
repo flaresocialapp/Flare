@@ -119,6 +119,7 @@ Current method paths are:
 | `flare.datasource.post/v1` | `post.detail`, `context`, `delete`, `mutate` |
 | `flare.datasource.relation/v1` | `relation.state`, `mutate` |
 | `flare.datasource.compose/v2` | `compose.publish` |
+| `flare.datasource.compose/v3` | `composeV3.publish` |
 | `flare.datasource.notification/v1` | `notification.page`, `badge` |
 | `flare.datasource.list/v1` | `list.page`, `detail`, `create`, `update`, `delete`, `timeline`, `members`, `memberships`, `addMember`, `removeMember` |
 | `flare.datasource.direct-message/v1` | `directMessage.rooms`, `room`, `messages`, `send`, `delete`, `leave`, `create`, `badge`, `canSend` |
@@ -136,13 +137,19 @@ translateBatchDocumentJson })`. The Host keeps the internal method paths
 `translation.translateDocumentJson` and `translation.translateBatchDocumentJson`; see the [translation contract](references/storage-and-settings.md#text-translation).
 Settings-only packages have no background registration to execute.
 
-Compose uses `flare.datasource.compose/v2`, independently of the runtime API
-version. `compose/v1` manifests and negotiated capabilities are rejected rather
+Compose capability versions are independent of the runtime API version.
+`compose/v1` manifests and negotiated capabilities are rejected rather
 than adapted. Composer plugins must update their manifests, SDK types and
 publish handlers; existing compose accounts need a new login. New requests use
 `reference: { type: "reply" | "quote", key }`, with no reference for a new post.
 `composeDefaults.supportedTypes` is required and login narrows that set by
 intersection. See the [compose recipe](references/recipes.md#compose).
+
+Use `compose/v3` to publish with `friends` or `selfOnly` visibility. The Host
+selects `composeV3.publish` when the account negotiates it. A package can include
+`compose/v2` with its own explicit legacy visibility config. Older Hosts with
+additive compatibility ignore the v3 capability and config and use the declared
+v2 config when available. See [compose defaults](references/manifest.md#compose-defaults).
 
 Installed compose/v1 records are retained as disabled, upgradeable/uninstallable
 entries so they cannot corrupt the shared plugin index or block unrelated plugins.
