@@ -24,6 +24,7 @@ public sealed class UiList {
         val creator: UiProfile? = null,
         override val readonly: Boolean = false,
         @Transient val proxy: ProxyRef = ProxyRef.Unbound,
+        val pluginId: String? = null,
     ) : UiList() {
         val media: UiMedia.Image? get() = avatar.toUiImage(proxy = proxy)
     }

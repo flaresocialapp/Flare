@@ -43,6 +43,11 @@ private struct UiListRow: View {
                         .frame(width: 24, height: 24)
                 }
             }
+            if let creator = data.creator {
+                Text(verbatim: creator.handle.display)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             if let desc = data.description_, !desc.isEmpty {
                 Text(desc)
                     .font(.caption)

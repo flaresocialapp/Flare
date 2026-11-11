@@ -50,6 +50,7 @@ public data class PluginPlatformManifestV1(
     val guest: GuestManifestV1? = null,
     val credentialSchemaVersion: Int = 1,
     val timelineSchemaVersion: Int = 1,
+    val composeDefaultsV3: ComposeConfigV2? = null,
 )
 
 @Serializable

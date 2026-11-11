@@ -13,12 +13,15 @@ import dev.dimension.flare.data.model.ProxyRef
 import dev.dimension.flare.feature.plugin.abi.PluginAbiV1
 import dev.dimension.flare.feature.plugin.manifest.toUiText
 import dev.dimension.flare.feature.plugin.wire.ActionDescriptorV1
+import dev.dimension.flare.feature.plugin.wire.ArticleBlockV1
 import dev.dimension.flare.feature.plugin.wire.ArticleV1
+import dev.dimension.flare.feature.plugin.wire.DirectMessageBodyV1
 import dev.dimension.flare.feature.plugin.wire.DirectMessageRoomV1
 import dev.dimension.flare.feature.plugin.wire.DirectMessageV1
 import dev.dimension.flare.feature.plugin.wire.GalleryOrientationV1
 import dev.dimension.flare.feature.plugin.wire.GalleryV1
 import dev.dimension.flare.feature.plugin.wire.HashtagV1
+import dev.dimension.flare.feature.plugin.wire.MediaClickPolicyV1
 import dev.dimension.flare.feature.plugin.wire.MediaTypeV1
 import dev.dimension.flare.feature.plugin.wire.MediaV1
 import dev.dimension.flare.feature.plugin.wire.MessageV1
@@ -34,7 +37,6 @@ import dev.dimension.flare.feature.plugin.wire.SemanticActionV1
 import dev.dimension.flare.feature.plugin.wire.SocialListV1
 import dev.dimension.flare.feature.plugin.wire.TimelineItemV1
 import dev.dimension.flare.feature.plugin.wire.TimelineUserV1
-import dev.dimension.flare.feature.plugin.wire.VisibilityV1
 import dev.dimension.flare.feature.plugin.wire.requireValid
 import dev.dimension.flare.feature.plugin.wire.validatedHtml
 import dev.dimension.flare.model.AccountType
@@ -44,12 +46,14 @@ import dev.dimension.flare.ui.model.ClickEvent
 import dev.dimension.flare.ui.model.UiArticle
 import dev.dimension.flare.ui.model.UiArticleAuthor
 import dev.dimension.flare.ui.model.UiArticleBlock
+import dev.dimension.flare.ui.model.UiArticleContentGateReason
 import dev.dimension.flare.ui.model.UiCard
 import dev.dimension.flare.ui.model.UiDMItem
 import dev.dimension.flare.ui.model.UiDMRoom
 import dev.dimension.flare.ui.model.UiHandle
 import dev.dimension.flare.ui.model.UiHashtag
 import dev.dimension.flare.ui.model.UiIcon
+import dev.dimension.flare.ui.model.UiList
 import dev.dimension.flare.ui.model.UiMedia
 import dev.dimension.flare.ui.model.UiNumber
 import dev.dimension.flare.ui.model.UiPoll
@@ -61,8 +65,11 @@ import dev.dimension.flare.ui.model.asType
 import dev.dimension.flare.ui.model.uiArticleContentOf
 import dev.dimension.flare.ui.model.withProxy
 import dev.dimension.flare.ui.render.RenderContent
+import dev.dimension.flare.ui.render.RenderRun
+import dev.dimension.flare.ui.render.UiRichText
 import dev.dimension.flare.ui.render.toUi
 import dev.dimension.flare.ui.render.toUiPlainText
+import dev.dimension.flare.ui.render.uiRichTextOf
 import dev.dimension.flare.ui.route.DeeplinkRoute
 import io.ktor.http.URLProtocol
 import io.ktor.http.Url
@@ -94,6 +101,7 @@ internal class PluginWireMapperV1(
                 value.copy(
                     avatarUrl = null,
                     bannerUrl = null,
+                    displayNameRichText = value.displayNameRichText?.withoutMedia(),
                     description = value.description?.withoutMedia(),
                     fields = value.fields.map { it.copy(value = it.value.withoutMedia()) },
                 )
@@ -125,17 +133,20 @@ internal class PluginWireMapperV1(
             key = key,
             handle = UiHandle(value.handle, handleHost),
             avatar = value.avatarUrl.toUiImage(),
-            nameInternal = value.displayName.toUiPlainText(),
+            nameInternal =
+                value.displayNameRichText?.toUiDisplayName(value.sourceLanguages)?.takeUnless { it.raw.isBlank() }
+                    ?: value.displayName.toUiPlainText(value.sourceLanguages),
             platformId = platformId,
             platformIcon = platformIcon,
             clickEvent =
                 if (capabilities.canExpose(PluginAbiV1.Capabilities.PROFILE)) {
                     ClickEvent.Deeplink(DeeplinkRoute.Profile.User(accountType, key))
                 } else {
-                    ClickEvent.Noop
+                    value.url?.takeIf(String::isNotBlank)?.let { target(NavigationTargetV1.Link(it)) } ?: ClickEvent.Noop
                 },
             banner = value.bannerUrl.toUiImage(),
-            description = value.description?.toUi(),
+            description = value.description?.toUi(value.sourceLanguages),
+            sourceLanguages = value.sourceLanguages.toImmutableList(),
             matrices =
                 UiProfile.Matrices(
                     fansCount = value.followersCount ?: 0,
@@ -144,8 +155,15 @@ internal class PluginWireMapperV1(
                 ),
             mark =
                 buildList {
+                    if (value.verified == true) add(UiProfile.Mark.Verified)
+                    if (value.cat == true) add(UiProfile.Mark.Cat)
                     if (value.locked) add(UiProfile.Mark.Locked)
                     if (value.bot) add(UiProfile.Mark.Bot)
+                }.toPersistentList(),
+            clearedMarks =
+                buildList {
+                    if (value.verified == false) add(UiProfile.Mark.Verified)
+                    if (value.cat == false) add(UiProfile.Mark.Cat)
                 }.toPersistentList(),
             bottomContent =
                 value.fields
@@ -385,13 +403,25 @@ internal class PluginWireMapperV1(
             following = value.following,
             isFans = value.followedBy,
             blocking = value.blocking,
+            blockedBy = value.blockedBy,
             muted = value.muting,
+            hasPendingFollowRequestFromYou = value.hasPendingFollowRequestFromYou,
+            hasPendingFollowRequestToYou = value.hasPendingFollowRequestToYou,
         )
 
-    fun socialList(value: SocialListV1): dev.dimension.flare.ui.model.UiList.List {
-        require(value.id.isNotBlank() && value.id.length <= 512 && value.title.length <= 4_096) { "Invalid plugin list" }
-        return dev.dimension.flare.ui.model.UiList
-            .List(id = value.id, title = value.title)
+    fun socialList(value: SocialListV1): UiList.List {
+        value.requireValid()
+        requireMediaUrl(value.avatarUrl)
+        return UiList.List(
+            id = value.id,
+            title = value.title,
+            description = value.description,
+            avatar = value.avatarUrl?.takeIf(String::isNotBlank),
+            creator = value.creator?.let(::profile),
+            readonly = value.readOnly == true,
+            proxy = mediaProxy,
+            pluginId = pluginId,
+        )
     }
 
     fun directMessageRoom(value: DirectMessageRoomV1): UiDMRoom {
@@ -410,7 +440,13 @@ internal class PluginWireMapperV1(
             pluginId = pluginId,
             key = value.key.toMicroBlogKey(),
             user = profile(value.sender),
-            content = UiDMItem.Message.Text(value.content.toUi()),
+            content =
+                when (val body = value.body) {
+                    is DirectMessageBodyV1.Media -> body.media.toUi(false)?.let(UiDMItem.Message::Media)
+                    is DirectMessageBodyV1.Post -> UiDMItem.Message.Status(body.post.toUiPost())
+                    DirectMessageBodyV1.Deleted -> UiDMItem.Message.Deleted
+                    null -> null
+                } ?: UiDMItem.Message.Text(value.content.toUi()),
             timestamp = Instant.parse(value.createdAt).toUi(),
             isFromMe = value.fromCurrentAccount,
             sendState = null,
@@ -418,28 +454,92 @@ internal class PluginWireMapperV1(
         )
 
     fun article(value: ArticleV1): UiArticle {
-        value.url.requireHttpsUrl()
-        value.coverUrl.requireHttpsUrl()
-        val richText = value.content.toUi()
-        val blocks =
-            richText.renderRuns.mapIndexed { index, content ->
-                val blockKey = "${value.key.id}:$index"
-                when (content) {
-                    is RenderContent.Text -> UiArticleBlock.Text(key = blockKey, content = content)
-                    is RenderContent.BlockImage -> UiArticleBlock.Image(key = blockKey, media = content.media)
-                }
+        val content =
+            if (value.blocks.isEmpty()) {
+                val richText = value.content.toUi()
+                uiArticleContentOf(richText.toArticleBlocks(value.key.id), richText.raw)
+            } else {
+                uiArticleContentOf(value.blocks.flatMapIndexed { index, block -> block.toUiBlocks("${value.key.id}:$index") })
             }
         return UiArticle(
             pluginId = pluginId,
             key = value.key.id,
             title = value.title,
-            content = uiArticleContentOf(blocks, richText.raw),
+            content = content,
             cover = value.coverUrl.toUiImage(),
             publishDate = value.createdAt?.let(Instant::parse)?.toUi(),
-            author = value.author?.let(::profile)?.let { UiArticleAuthor.Profile(it) },
+            author =
+                value.author?.let(::profile)?.let { UiArticleAuthor.Profile(it) }
+                    ?: value.attribution?.let {
+                        requireMediaUrl(it.iconUrl)
+                        UiArticleAuthor.Rss(it.siteName, it.byline, it.iconUrl, mediaProxy)
+                    },
             sourceUrl = value.url,
         )
     }
+
+    private fun UiRichText.toArticleBlocks(key: String): List<UiArticleBlock> =
+        renderRuns.mapIndexed { index, content ->
+            val blockKey = "$key:$index"
+            when (content) {
+                is RenderContent.Text -> UiArticleBlock.Text(key = blockKey, content = content)
+                is RenderContent.BlockImage -> UiArticleBlock.Image(key = blockKey, media = content.media)
+            }
+        }
+
+    private fun ArticleBlockV1.toUiBlocks(key: String): List<UiArticleBlock> =
+        when (this) {
+            is ArticleBlockV1.Text -> {
+                content.toUi().toArticleBlocks(key)
+            }
+
+            is ArticleBlockV1.Image -> {
+                listOf(UiArticleBlock.Image(key, media.toUi(false) as UiMedia.Image))
+            }
+
+            is ArticleBlockV1.Video -> {
+                listOf(UiArticleBlock.Video(key, media.toUi(false) as UiMedia.Video))
+            }
+
+            is ArticleBlockV1.File -> {
+                requireMediaUrl(url)
+                listOf(
+                    UiArticleBlock.File(
+                        key = key,
+                        name = name,
+                        url = url,
+                        sizeBytes = sizeBytes,
+                        extension = extension,
+                        customHeaders = customHeaders.takeIf { it.isNotEmpty() }?.toPersistentMap(),
+                        proxy = mediaProxy,
+                    ),
+                )
+            }
+
+            is ArticleBlockV1.Embed -> {
+                requireMediaUrl(imageUrl)
+                listOf(
+                    UiArticleBlock.Embed(
+                        key = key,
+                        url = url,
+                        title = title,
+                        description = description,
+                        imageUrl = imageUrl,
+                        proxy = mediaProxy,
+                    ),
+                )
+            }
+
+            is ArticleBlockV1.ContentGate -> {
+                listOf(
+                    UiArticleBlock.ContentGate(
+                        key,
+                        UiArticleContentGateReason.SubscriptionRequired(platformId, feeRequired),
+                        actionUrl,
+                    ),
+                )
+            }
+        }
 
     fun gallery(value: GalleryV1): GalleryDetail {
         value.url.requireHttpsUrl()
@@ -515,6 +615,21 @@ internal class PluginWireMapperV1(
                     DeeplinkRoute.OpenLinkDirectly(requireNotNull(url))
                 }
             }
+        val openStatusMedia =
+            when (mediaClickPolicy) {
+                null -> {
+                    detailType == PostDetailTypeV1.Post
+                }
+
+                MediaClickPolicyV1.OpenMedia -> {
+                    detailType != PostDetailTypeV1.Unknown &&
+                        capabilities.canExpose(PluginAbiV1.Capabilities.POST)
+                }
+
+                MediaClickPolicyV1.OpenTarget -> {
+                    false
+                }
+            }
         val resolvedUrl = url ?: "https://${key.host}/"
         val directActions = mutableListOf<ActionMenu>()
         val overflow = mutableListOf<ActionMenu>()
@@ -522,10 +637,16 @@ internal class PluginWireMapperV1(
             val semantic = descriptor.toSemanticPostAction()
             if (semantic != null) {
                 val enabled = descriptor.enabled && accountKey != null && capabilities.hasOperation(PluginAbiV1.Capabilities.POST, "mutate")
-                val item = semanticPostActionMenu(key, semantic, descriptor.actionToken, descriptor.count ?: 0, accountKey)
+                val count =
+                    descriptor.count ?: when (semantic) {
+                        SemanticPostAction.Favourite, SemanticPostAction.Unfavourite -> favouritesCount
+                        SemanticPostAction.Repost, SemanticPostAction.Unrepost -> repostsCount
+                        SemanticPostAction.Bookmark, SemanticPostAction.Unbookmark -> null
+                    } ?: 0
+                val item = semanticPostActionMenu(key, semantic, descriptor.actionToken, count, accountKey)
                 directActions += item.copy(enabled = enabled, clickEvent = if (enabled) item.clickEvent else ClickEvent.Noop)
             } else if (descriptor.action in setOf(SemanticActionV1.Reply, SemanticActionV1.Quote) &&
-                capabilities.canExpose(PluginAbiV1.Capabilities.COMPOSE) &&
+                capabilities.composeCapability != null &&
                 accountKey != null
             ) {
                 val quote = descriptor.action == SemanticActionV1.Quote
@@ -539,6 +660,7 @@ internal class PluginWireMapperV1(
                                 if (quote) ActionMenu.Item.Text.Localized.Type.Quote else ActionMenu.Item.Text.Localized.Type.Reply,
                             ),
                         enabled = descriptor.enabled,
+                        count = (descriptor.count ?: repliesCount.takeUnless { quote })?.let(::UiNumber),
                         clickEvent =
                             if (descriptor.enabled) {
                                 ClickEvent.Deeplink(
@@ -658,7 +780,7 @@ internal class PluginWireMapperV1(
                         )
                     }.toImmutableList(),
             createdAt = Instant.parse(createdAt).toUi(),
-            visibility = visibility?.toUiVisibility(),
+            visibility = (extendedVisibility ?: visibility)?.toHost(),
             references =
                 (
                     references.map {
@@ -675,19 +797,36 @@ internal class PluginWireMapperV1(
                     .toImmutableList(),
             clickEvent = target?.let(::target) ?: detailRoute?.let { ClickEvent.Deeplink(it) } ?: ClickEvent.Noop,
             mediaClickPolicy =
-                if (detailType == PostDetailTypeV1.Post) {
+                if (openStatusMedia) {
                     UiTimelineV2.Post.MediaClickPolicy.OpenStatusMedia
                 } else {
                     UiTimelineV2.Post.MediaClickPolicy.OpenPostClickEvent
                 },
             accountType = accountType,
+            authorSubtitleInternal = authorSubtitle,
         )
     }
 
-    private fun RichTextV1.toUi() =
+    private fun RichTextV1.toUiDisplayName(sourceLanguages: List<String>): UiRichText {
+        val runs =
+            toUi(sourceLanguages)
+                .renderRuns
+                .filterIsInstance<RenderContent.Text>()
+                .flatMap { block ->
+                    block.runs.map { run ->
+                        when (run) {
+                            is RenderRun.Text -> run.copy(style = run.style.copy(link = null, imageLink = null))
+                            is RenderRun.Image -> run
+                        }
+                    }
+                }.toImmutableList()
+        return uiRichTextOf(listOf(RenderContent.Text(runs)), sourceLanguages = sourceLanguages)
+    }
+
+    private fun RichTextV1.toUi(sourceLanguages: List<String> = emptyList()) =
         when (format) {
             RichTextFormatV1.Plain -> {
-                value.toUiPlainText()
+                value.toUiPlainText(sourceLanguages)
             }
 
             RichTextFormatV1.Html -> {
@@ -695,7 +834,7 @@ internal class PluginWireMapperV1(
                 require(mediaNetwork || (html.getElementsByTag("img").isEmpty() && html.getElementsByTag("emoji").isEmpty())) {
                     "Plugin has no media network permission"
                 }
-                html.toUi().withProxy(mediaProxy)
+                html.toUi(sourceLanguages).withProxy(mediaProxy)
             }
         }
 
@@ -780,15 +919,6 @@ internal class PluginWireMapperV1(
 }
 
 private fun dev.dimension.flare.feature.plugin.wire.EntityKeyV1.toMicroBlogKey(): MicroBlogKey = MicroBlogKey(id, host)
-
-private fun VisibilityV1.toUiVisibility(): UiTimelineV2.Post.Visibility =
-    when (this) {
-        VisibilityV1.Public -> UiTimelineV2.Post.Visibility.Public
-        VisibilityV1.Unlisted -> UiTimelineV2.Post.Visibility.Home
-        VisibilityV1.Followers -> UiTimelineV2.Post.Visibility.Followers
-        VisibilityV1.Direct -> UiTimelineV2.Post.Visibility.Specified
-        VisibilityV1.Channel -> UiTimelineV2.Post.Visibility.Channel
-    }
 
 private fun dev.dimension.flare.feature.plugin.wire.ActionDescriptorV1.toSemanticPostAction(): SemanticPostAction? =
     when (action) {

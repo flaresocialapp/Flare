@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Flare plugin manifest \u2014 API v1/v2",
+  "title": "Flare plugin manifest — API v1/v2",
   "description": "Editor assistance for manifest structure and static rules. Flare remains authoritative for registration, unique IDs, origin approval, locale catalogs, cross-field values and runtime behavior. The Host never fetches the $schema URL.",
   "type": "object",
   "additionalProperties": false,
@@ -293,7 +293,18 @@
         "composeDefaults": {
           "anyOf": [
             {
-              "$ref": "#/definitions/compose"
+              "$ref": "#/definitions/composeV2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "composeDefaultsV3": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/composeV3"
             },
             {
               "type": "null"
@@ -506,7 +517,7 @@
             ],
             "properties": {
               "composeDefaults": {
-                "$ref": "#/definitions/compose"
+                "$ref": "#/definitions/composeV2"
               }
             }
           }
@@ -535,6 +546,80 @@
                 ],
                 "properties": {
                   "flare.datasource.compose/v2": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "type": "object",
+            "required": [
+              "capabilities"
+            ],
+            "properties": {
+              "capabilities": {
+                "type": "object",
+                "properties": {
+                  "flare.datasource.compose/v3": true
+                },
+                "required": [
+                  "flare.datasource.compose/v3"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "composeDefaultsV3"
+            ],
+            "properties": {
+              "composeDefaultsV3": {
+                "$ref": "#/definitions/composeV3"
+              },
+              "composeDefaults": {
+                "if": {
+                  "type": "object"
+                },
+                "then": {
+                  "type": "object",
+                  "properties": {
+                    "visibility": {
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "visibility"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "composeDefaultsV3"
+            ],
+            "properties": {
+              "composeDefaultsV3": {
+                "type": "object"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "required": [
+              "capabilities"
+            ],
+            "properties": {
+              "capabilities": {
+                "type": "object",
+                "required": [
+                  "flare.datasource.compose/v3"
+                ],
+                "properties": {
+                  "flare.datasource.compose/v3": true
                 }
               }
             }
@@ -1551,6 +1636,9 @@
         "flare.datasource.compose/v2": {
           "$ref": "#/definitions/capability-compose"
         },
+        "flare.datasource.compose/v3": {
+          "$ref": "#/definitions/capability-compose"
+        },
         "flare.datasource.notification/v1": {
           "$ref": "#/definitions/capability-notification"
         },
@@ -1857,6 +1945,18 @@
         "channel"
       ]
     },
+    "composeVisibilityValue": {
+      "type": "string",
+      "enum": [
+        "public",
+        "unlisted",
+        "followers",
+        "direct",
+        "channel",
+        "friends",
+        "selfOnly"
+      ]
+    },
     "composeText": {
       "type": "object",
       "additionalProperties": false,
@@ -1926,7 +2026,7 @@
         "allowed": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/visibility"
+            "$ref": "#/definitions/composeVisibilityValue"
           },
           "default": [],
           "minItems": 1,
@@ -1936,7 +2036,7 @@
         "default": {
           "allOf": [
             {
-              "$ref": "#/definitions/visibility"
+              "$ref": "#/definitions/composeVisibilityValue"
             }
           ],
           "default": "public"
@@ -2049,6 +2149,55 @@
       },
       "required": [
         "supportedTypes"
+      ]
+    },
+    "composeV2": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/compose"
+        },
+        {
+          "properties": {
+            "visibility": {
+              "if": {
+                "type": "object"
+              },
+              "then": {
+                "type": "object",
+                "properties": {
+                  "allowed": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/definitions/visibility"
+                    }
+                  },
+                  "default": {
+                    "$ref": "#/definitions/visibility"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "composeV3": {
+      "type": "object",
+      "allOf": [
+        {
+          "$ref": "#/definitions/compose"
+        },
+        {
+          "properties": {
+            "visibility": {
+              "$ref": "#/definitions/composeVisibility"
+            }
+          },
+          "required": [
+            "visibility"
+          ]
+        }
       ]
     },
     "composeType": {

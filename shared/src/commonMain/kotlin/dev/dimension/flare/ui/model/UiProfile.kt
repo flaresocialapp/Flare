@@ -35,6 +35,7 @@ public data class UiProfile public constructor(
     public val mark: SerializableImmutableList<Mark>,
     public val bottomContent: BottomContent?,
     public val pluginId: String? = null,
+    internal val clearedMarks: SerializableImmutableList<Mark> = persistentListOf(),
 ) {
     public constructor(
         key: MicroBlogKey,
@@ -97,9 +98,10 @@ public data class UiProfile public constructor(
             description = description ?: existing.description,
             sourceLanguages = if (sourceLanguages.isEmpty()) existing.sourceLanguages else sourceLanguages,
             matrices = matrices.mergeWith(existing.matrices),
-            mark = (existing.mark + mark).distinct().toPersistentList(),
+            mark = (existing.mark + mark).distinct().filterNot { it in clearedMarks }.toPersistentList(),
             bottomContent = bottomContent.mergeWith(existing.bottomContent),
             pluginId = pluginId,
+            clearedMarks = clearedMarks,
         )
     }
 

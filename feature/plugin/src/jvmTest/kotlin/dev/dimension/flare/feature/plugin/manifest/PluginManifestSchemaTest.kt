@@ -125,7 +125,7 @@ class PluginManifestSchemaTest {
             "hostIcon" to HostIconV1.serializer().descriptor,
             "timelineDisplay" to TimelineDisplayV1.serializer().descriptor,
             "deepLinkTargetType" to DeepLinkTargetTypeV1.serializer().descriptor,
-            "visibility" to VisibilityV1.serializer().descriptor,
+            "composeVisibilityValue" to VisibilityV1.serializer().descriptor,
         ).forEach { (name, descriptor) ->
             assertEquals(
                 (0 until descriptor.elementsCount).map(descriptor::getElementName).toSet(),
@@ -133,6 +133,14 @@ class PluginManifestSchemaTest {
                 name,
             )
         }
+        val visibility = VisibilityV1.serializer().descriptor
+        assertEquals(
+            VisibilityV1.entries
+                .filterNot(VisibilityV1::isExtended)
+                .map { visibility.getElementName(it.ordinal) }
+                .toSet(),
+            definitions.getValue("visibility").jsonObject.strings("enum"),
+        )
         val capabilities =
             definitions
                 .getValue("capabilities")

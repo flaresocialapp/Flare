@@ -323,23 +323,33 @@ public fun PluginManifestV1.validate(methodTable: PluginMethodTableV1? = null): 
         check(platform.deepLinks.size <= 64, "deepLink.count", "platform.deepLinks", "Too many Deep Link rules")
         val timelineIds = platform.timelines.mapTo(hashSetOf(), TimelineManifestV1::id)
         platform.deepLinks.forEachIndexed { index, rule -> validateDeepLink(rule, index, permissions, timelineIds, errors) }
-        platform.composeDefaults?.let {
-            runCatching(it::requireValid).onFailure { error ->
-                errors += ManifestIssueV1("compose.config", "platform.composeDefaults", error.message ?: "Invalid Compose config")
+        listOf(
+            Triple("platform.composeDefaults", PluginAbiV1.Capabilities.COMPOSE, platform.composeDefaults),
+            Triple("platform.composeDefaultsV3", PluginAbiV1.Capabilities.COMPOSE_V3, platform.composeDefaultsV3),
+        ).forEach { (path, capability, config) ->
+            val publishes = platform.hasOperation(capability, "publish")
+            if (config != null) {
+                val extended = capability == PluginAbiV1.Capabilities.COMPOSE_V3
+                runCatching {
+                    config.requireValid(allowExtendedVisibility = extended)
+                    require(!extended || config.visibility != null) { "compose/v3 requires explicit visibility defaults" }
+                }.onFailure { error ->
+                    errors += ManifestIssueV1("compose.config", path, error.message ?: "Invalid Compose config")
+                }
+                check(publishes, "compose.capability", path, "Compose publish operation is required")
             }
-            check(
-                platform.hasOperation(PluginAbiV1.Capabilities.COMPOSE, "publish"),
-                "compose.capability",
-                "platform.composeDefaults",
-                "Compose publish operation is required",
-            )
+            if (publishes) {
+                check(config != null, "compose.defaults", path, "Compose publish requires conservative manifest defaults")
+            }
         }
-        if (platform.hasOperation(PluginAbiV1.Capabilities.COMPOSE, "publish")) {
+        if (platform.hasOperation(PluginAbiV1.Capabilities.COMPOSE_V3, "publish") &&
+            platform.hasOperation(PluginAbiV1.Capabilities.COMPOSE, "publish")
+        ) {
             check(
-                platform.composeDefaults != null,
-                "compose.defaults",
-                "platform.composeDefaults",
-                "Compose publish requires conservative manifest defaults",
+                platform.composeDefaults?.visibility != null,
+                "compose.config",
+                "platform.composeDefaults.visibility",
+                "Legacy compose alongside compose/v3 requires explicit visibility defaults",
             )
         }
     }

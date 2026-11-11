@@ -27,6 +27,7 @@ public object PluginAbiV1 {
         public const val POST: String = "flare.datasource.post/v1"
         public const val RELATION: String = "flare.datasource.relation/v1"
         public const val COMPOSE: String = "flare.datasource.compose/v2"
+        public const val COMPOSE_V3: String = "flare.datasource.compose/v3"
         public const val NOTIFICATION: String = "flare.datasource.notification/v1"
         public const val LIST: String = "flare.datasource.list/v1"
         public const val DIRECT_MESSAGE: String = "flare.datasource.direct-message/v1"
@@ -53,6 +54,7 @@ public object PluginAbiV1 {
             Capabilities.POST to setOf("detail", "context", "delete", "mutate"),
             Capabilities.RELATION to setOf("state", "mutate"),
             Capabilities.COMPOSE to setOf("publish"),
+            Capabilities.COMPOSE_V3 to setOf("publish"),
             Capabilities.NOTIFICATION to setOf("page", "badge"),
             Capabilities.LIST to
                 setOf(
@@ -134,6 +136,7 @@ public object PluginAbiV1 {
                 Capabilities.POST -> "post"
                 Capabilities.RELATION -> "relation"
                 Capabilities.COMPOSE -> "compose"
+                Capabilities.COMPOSE_V3 -> "composeV3"
                 Capabilities.NOTIFICATION -> "notification"
                 Capabilities.LIST -> "list"
                 Capabilities.DIRECT_MESSAGE -> "directMessage"

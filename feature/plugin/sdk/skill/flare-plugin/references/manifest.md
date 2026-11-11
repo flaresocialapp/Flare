@@ -116,6 +116,7 @@ version omits the platform; see [update compatibility](publishing.md#updates-and
 | `profileTabs` | `[]` | Profile tab declarations; requires `profile.timeline` |
 | `deepLinks` | `[]` | Up to 64 structured rules; see [Deep Links](recipes.md#deep-links) |
 | `composeDefaults` | Omitted | Required conservative defaults when declaring `compose.publish` |
+| `composeDefaultsV3` | Omitted | Required defaults with visibility when declaring `composeV3.publish` |
 | `guest` | Omitted | `{ "enabled": true }` enables guest datasource access; object defaults enabled to true |
 | `credentialSchemaVersion` | `1` | Integer 1..1000000; changing it requires existing accounts to log in again |
 | `timelineSchemaVersion` | `1` | Integer 1..1000000; changes timeline identity; see [upgrades](publishing.md#updates-and-compatibility) |
@@ -258,7 +259,7 @@ Declare `flare.datasource.compose/v2` for `compose.publish`. The retired
 | `poll` | Optional `{ "maxOptions": 4 }`, range 2..100 |
 | `language` | Optional `{ "maxCount": 1 }`, range 1..32 |
 
-Visibility values are `public`, `unlisted`, `followers`, `direct`. Describe what
+Legacy visibility values are `public`, `unlisted`, `followers`, `direct`, and `channel`. Describe what
 the website actually supports. Login may return an instance config. When both sides define a section, the Host
 uses the stricter limits, intersects visibility/MIME constraints, and rejects
 empty intersections. When only one side defines an optional section, that section
@@ -270,6 +271,30 @@ Login must also include supportedTypes when returning a compose config. Its
 intersection with manifest supportedTypes must be nonempty; login cannot enable
 an undeclared mode. `media.minCountForNew` also applies to quotes. Only replies
 are exempt from the minimum attachment count.
+
+Declare `flare.datasource.compose/v3` and implement `composeV3.publish` for
+`friends` (friends only) and `selfOnly` (only the author). Supply the usual
+compose settings as `platform.composeDefaultsV3`, including a visibility
+object. For example, a platform that supports both private audiences can use
+
+```json
+{
+  "supportedTypes": ["new"],
+  "visibility": { "allowed": ["friends", "selfOnly"], "default": "selfOnly" }
+}
+```
+
+Login must negotiate `flare.datasource.compose/v3`. It can narrow the manifest
+settings with `composeConfigV3`. Accounts established on a Host that lacks v3
+can log in again on a supporting Host to negotiate it. The service receives
+the selected audience in `request.visibility` and must enforce its exact
+meaning on the website.
+
+For legacy publishing from the same package, declare and negotiate
+`flare.datasource.compose/v2` as well, with its own explicit
+`composeDefaults.visibility`. Use `composeConfig` for any per-account narrowing
+of that legacy config. A package with only v3 can still provide timelines on
+older additive Hosts.
 
 ## Frequent invalid combinations
 

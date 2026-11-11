@@ -178,7 +178,7 @@ internal class PluginDataSourceV1 private constructor(
                 } else {
                     null
                 },
-            compose = if (capabilities.canExpose(PluginAbiV1.Capabilities.COMPOSE)) ComposeCapabilityAdapter() else null,
+            compose = capabilities.composeCapability?.let(::ComposeCapabilityAdapter),
             relation = extraCapabilities.relation,
             notification = extraCapabilities.notification,
             list = extraCapabilities.list,
@@ -703,15 +703,20 @@ internal class PluginDataSourceV1 private constructor(
         }
     }
 
-    private inner class ComposeCapabilityAdapter :
-        ComposeDataSource,
+    private inner class ComposeCapabilityAdapter(
+        private val capabilityId: String,
+    ) : ComposeDataSource,
         AuthenticatedMicroblogDataSource by AuthenticatedDelegate() {
         override suspend fun publish(
             data: ComposeData,
             progress: () -> Unit,
         ) {
-            val config = requireNotNull(cachedComposeConfig) { "compose/v2 requires manifest defaults" }
+            val config = requireNotNull(cachedComposeConfig) { "Plugin compose requires manifest defaults" }
             require(data.type in config.supportedTypes) { "Unsupported compose type: ${data.type.name.lowercase()}" }
+            val visibility = requireNotNull(data.visibility).toWire()
+            require(capabilityId == PluginAbiV1.Capabilities.COMPOSE_V3 || !visibility.isExtended) {
+                "Extended visibility requires compose/v3"
+            }
             val assets = linkedMapOf<String, PluginAsset>()
             val wireAssets =
                 data.medias.map { media ->
@@ -728,12 +733,12 @@ internal class PluginDataSourceV1 private constructor(
             progress()
             val result =
                 invoker.invoke(
-                    capabilityId = PluginAbiV1.Capabilities.COMPOSE,
+                    capabilityId = capabilityId,
                     operation = "publish",
                     request =
                         ComposeRequestV2(
                             text = data.content,
-                            visibility = requireNotNull(data.visibility).toWire(),
+                            visibility = visibility,
                             languages = data.language,
                             assets = wireAssets,
                             sensitive = data.sensitive,
@@ -816,6 +821,7 @@ internal class PluginDataSourceV1 private constructor(
             val credentialAccess = PlatformDataSourceCredentialAccessV1(plugin, context)
             val account = credentialAccess.initial()
             val operations = account.effectiveCapabilities(plugin)
+            val platform = plugin.installed.manifest.socialPlatform
             val runtimeKey =
                 PluginRuntimeKeyV1.account(
                     plugin.installed.pluginId,
@@ -845,10 +851,15 @@ internal class PluginDataSourceV1 private constructor(
                 dynamicTimelineSpec = dynamicTimelineSpec,
                 coroutineScope = coroutineScope,
                 composeConfig =
-                    mergePluginComposeConfigV2(
-                        plugin.installed.manifest.socialPlatform.composeDefaults,
-                        account.snapshot.composeConfig,
-                    ),
+                    if ("publish" in operations[PluginAbiV1.Capabilities.COMPOSE_V3].orEmpty()) {
+                        mergePluginComposeConfigV2(
+                            platform.composeDefaultsV3,
+                            account.snapshot.composeConfigV3,
+                            allowExtendedVisibility = true,
+                        )
+                    } else {
+                        mergePluginComposeConfigV2(platform.composeDefaults, account.snapshot.composeConfig)
+                    },
                 loginProfile = account.snapshot.profile,
             )
         }
@@ -1003,16 +1014,19 @@ private fun UiTimelineV2.Post.Visibility.toWire(): VisibilityV1 =
         UiTimelineV2.Post.Visibility.Followers -> VisibilityV1.Followers
         UiTimelineV2.Post.Visibility.Specified -> VisibilityV1.Direct
         UiTimelineV2.Post.Visibility.Channel -> VisibilityV1.Channel
-        UiTimelineV2.Post.Visibility.Friends, UiTimelineV2.Post.Visibility.SelfOnly -> error("Unsupported plugin visibility: $this")
+        UiTimelineV2.Post.Visibility.Friends -> VisibilityV1.Friends
+        UiTimelineV2.Post.Visibility.SelfOnly -> VisibilityV1.SelfOnly
     }
 
-private fun VisibilityV1.toHost(): UiTimelineV2.Post.Visibility =
+internal fun VisibilityV1.toHost(): UiTimelineV2.Post.Visibility =
     when (this) {
         VisibilityV1.Public -> UiTimelineV2.Post.Visibility.Public
         VisibilityV1.Unlisted -> UiTimelineV2.Post.Visibility.Home
         VisibilityV1.Followers -> UiTimelineV2.Post.Visibility.Followers
         VisibilityV1.Direct -> UiTimelineV2.Post.Visibility.Specified
         VisibilityV1.Channel -> UiTimelineV2.Post.Visibility.Channel
+        VisibilityV1.Friends -> UiTimelineV2.Post.Visibility.Friends
+        VisibilityV1.SelfOnly -> UiTimelineV2.Post.Visibility.SelfOnly
     }
 
 private fun ComposeConfigV2?.toHostComposeConfig(): ComposeConfig {
@@ -1048,9 +1062,12 @@ private fun ComposeConfigV2?.toHostComposeConfig(): ComposeConfig {
 internal fun mergePluginComposeConfigV2(
     manifest: ComposeConfigV2?,
     instance: ComposeConfigV2?,
+    allowExtendedVisibility: Boolean = false,
 ): ComposeConfigV2? {
-    if (manifest == null) return instance?.also(ComposeConfigV2::requireValid)
-    if (instance == null) return manifest.also(ComposeConfigV2::requireValid)
+    manifest?.requireValid(allowExtendedVisibility)
+    instance?.requireValid(allowExtendedVisibility)
+    if (manifest == null) return instance
+    if (instance == null) return manifest
     val supportedTypes = manifest.supportedTypes intersect instance.supportedTypes
     require(supportedTypes.isNotEmpty()) { "Plugin compose supportedTypes do not overlap" }
     val media =
@@ -1126,7 +1143,7 @@ internal fun mergePluginComposeConfigV2(
                 instance.language == null -> manifest.language
                 else -> ComposeConfigV2.LanguageConfigV1(minOf(manifest.language.maxCount, instance.language.maxCount))
             },
-    ).also(ComposeConfigV2::requireValid)
+    ).also { it.requireValid(allowExtendedVisibility) }
 }
 
 private fun validateComposeData(

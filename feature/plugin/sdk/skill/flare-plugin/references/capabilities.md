@@ -15,6 +15,7 @@ in the manifest and negotiated login result. JavaScript methods live under
 | `post` | `post` | `detail` | `context`, `delete`, `mutate` | Internal post detail, thread context, and supported actions |
 | `relation` | `relation` | `state`, `mutate` | None | Follow/block/mute controls; nonempty static relationActions |
 | `compose` | `compose` | `publish` | None | Composer; requires composeDefaults.supportedTypes and an account; Reply/Quote actions and editor send honour the supported modes |
+| `compose/v3` | `composeV3` | `publish` | None | Composer with friends and selfOnly visibility. Requires composeDefaultsV3 and account negotiation. |
 | `notification` | `notification` | At least one of `page`, `badge` | Both may be declared | `page` supplies the list and requires notificationFilters; badge alone is not a displayable login capability |
 | `list` | `list` | `page`, `detail`, `create`, `update`, `delete`, `timeline`, `members`, `memberships`, `addMember`, `removeMember` | None | List browsing and management |
 | `direct-message` | `directMessage` | `rooms`, `room`, `messages`, `send`, `delete`, `leave`, `create`, `badge`, `canSend` | None | DM rooms, conversation, and related account controls |
