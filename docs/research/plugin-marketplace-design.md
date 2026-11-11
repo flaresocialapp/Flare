@@ -46,17 +46,19 @@ https://flareapp.moe/plugins/index.json
 
 市场预期 ID 单独传递到下载预览与大仓库再次确认流程；实际插件 ID 不匹配时丢弃预览并报错。不能直接使用安装器原有 `expectedPluginId`，因为它同时要求插件已从相同 GitHub 来源安装，属于更新约束。失败后可从同一市场条目重试，取消仍使用原安装取消逻辑。
 
+两个窗口共用安装暂存区。已有确认时，新的预览会提示先完成当前安装。市场在下载完成和提交安装时复查插件归属，防止覆盖另一窗口刚安装的同 ID 插件。
+
 `isInstalled` / `isManaged` 由共享管理状态提供，各端只渲染按钮。已安装插件显示“已安装”和“管理”；同 ID 本地草稿或开发中的插件显示“管理”，避免覆盖本地工作。安装成功后通过原插件状态流更新按钮，不另存一份已安装列表。
 
 ## 页面与搜索
 
-原插件管理页保留现有列表、空状态、更新检查、设置和扩展菜单。只在右上角 More 左侧增加商店图标，导航到独立市场页面。市场不提供投稿按钮或空的顶部 More；条目的 More 保留“查看仓库”。
+原插件管理页保留现有列表、空状态、更新检查、设置和扩展菜单。右上角 More 左侧的商店入口打开市场。市场不提供投稿按钮或空的顶部 More；条目的 More 保留“查看仓库”。
 
 | 平台 | 页面与搜索 | 刷新 |
 | --- | --- | --- |
 | Android | 现有 `FlareScaffold`、`SegmentedListItem`；使用历史记录页同款 Material `SearchBar` 和 `ExpandedFullScreenSearchBar`。从展开搜索结果安装前先收起搜索。 | 下拉刷新 |
 | iOS | 原生导航、`List` 和 `.searchable` | 原生下拉刷新 |
-| macOS | 原生导航、`List` 和 `.searchable`；保留设置窗口 pane 工具栏，操作按钮位于内容顶部。 | 保留刷新按钮 |
+| macOS | 商店图标旁显示「插件市场」，点击打开独立窗口；重复点击唤回已有窗口。两页使用相同的列表边距与图标、文字、操作列。 | 窗口工具栏提供搜索和刷新 |
 | Compose Desktop | 现有设置页 `CardExpanderItem`，使用历史记录页同款 Fluent `TextField` | 保留刷新按钮 |
 
 Apple 商店符号来自 [Open Symbols / Font Awesome store](https://opensymbols.dev/font-awesome/store)，接入现有 `FontAwesomeIcon` 和 asset catalog，SVG 保留来源及 CC BY 4.0 归属说明。

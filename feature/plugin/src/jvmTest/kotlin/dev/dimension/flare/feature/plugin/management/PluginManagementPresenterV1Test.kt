@@ -431,19 +431,22 @@ class PluginManagementPresenterV1Test {
         }
 
     @Test
-    fun closingAnOlderPresenterDoesNotDiscardAnotherPresentersPreview() =
+    fun closingThePresenterHoldingAPreviewLetsAnotherPresenterInstall() =
         runTest {
             val subsystem = subsystem()
             val dispatcher = StandardTestDispatcher(testScheduler)
             val older = testPluginManagementPresenter(subsystem, backgroundScope, operationDispatcher = dispatcher)
             val newer = testPluginManagementPresenter(subsystem, backgroundScope, operationDispatcher = dispatcher)
             try {
-                older.inspect(packagePath.toString())
-                newer.inspect(packagePath.toString())
+                val review = older.inspect(packagePath.toString())
+                assertFails { newer.inspect(packagePath.toString()) }
+                assertEquals(review, older.state.value.pendingInstall)
+                assertNull(newer.state.value.pendingInstall)
                 older.close()
                 runCurrent()
 
                 assertNull(older.state.value.pendingInstall)
+                newer.inspect(packagePath.toString())
                 assertNotNull(newer.state.value.pendingInstall)
                 assertTrue(FileSystem.SYSTEM.exists(subsystem.stateStore.paths.incoming))
                 newer.confirmInstall()

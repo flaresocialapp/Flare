@@ -161,6 +161,35 @@ class PluginInstallerTest {
         }
 
     @Test
+    fun inputCloseFailureReleasesTheStagingReservation() =
+        runBlocking<Unit> {
+            TestFppFactory.write(input)
+            var failClose = true
+            val failingFileSystem =
+                object : ForwardingFileSystem(fileSystem) {
+                    override fun source(file: Path): Source {
+                        val source = super.source(file)
+                        if (file != input) return source
+                        return object : okio.ForwardingSource(source) {
+                            override fun close() {
+                                super.close()
+                                if (failClose) throw IOException("synthetic close failure")
+                            }
+                        }
+                    }
+                }
+            val failingInstaller = PluginInstaller(failingFileSystem, stateStore)
+
+            assertFailsWith<IOException> { failingInstaller.inspect(input) }
+            assertFalse(fileSystem.exists(stateStore.paths.incoming))
+            failClose = false
+
+            val preview = failingInstaller.inspect(input)
+            failingInstaller.commit(preview, confirmed = true, activate = stateStore::install)
+            assertEquals(1, stateStore.desired.value.plugins.size)
+        }
+
+    @Test
     fun discardedPreviewDoesNotBlockCleanupAfterADeletionFailure() =
         runBlocking<Unit> {
             TestFppFactory.write(input)

@@ -31,9 +31,11 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import okio.FileSystem
 import okio.Path
@@ -64,6 +66,7 @@ class PluginGitHubManagementTest {
     private var reportedArchiveSize: Long? = null
     private var blocked = false
     private val downloadStarted = CompletableDeferred<Unit>()
+    private var downloadRelease: CompletableDeferred<Unit>? = null
     private var catalogStarted: CompletableDeferred<Unit>? = null
     private var catalogRelease: CompletableDeferred<Unit>? = null
     private var catalogStatus: HttpStatusCode? = null
@@ -94,7 +97,7 @@ class PluginGitHubManagementTest {
                         downloads++
                         if (blocked) {
                             downloadStarted.complete(Unit)
-                            awaitCancellation()
+                            downloadRelease?.await() ?: awaitCancellation()
                         }
                         val bytes = archives[request.url.encodedPath.substringAfterLast('/')]
                         if (bytes == null) {
@@ -966,6 +969,81 @@ class PluginGitHubManagementTest {
         }
 
     @Test
+    fun marketplaceDownloadPreservesTheOtherWindowReview() =
+        runBlocking { assertMarketplaceKeepsTheLocalInstall(confirmLocalWhileDownloading = false) }
+
+    @Test
+    fun marketplaceDownloadCannotReplaceAPluginInstalledDuringTheDownload() =
+        runBlocking { assertMarketplaceKeepsTheLocalInstall(confirmLocalWhileDownloading = true) }
+
+    private suspend fun assertMarketplaceKeepsTheLocalInstall(confirmLocalWhileDownloading: Boolean) =
+        coroutineScope {
+            withPresenters { subsystem, createPresenter ->
+                val marketplace = createPresenter()
+                val settings = createPresenter()
+                val input = root / "local.fpp"
+                TestFppFactory.write(input)
+                loadMarketplace(marketplace)
+
+                val release = CompletableDeferred<Unit>()
+                blocked = true
+                downloadRelease = release
+                val download =
+                    launch {
+                        val error = assertFailsWith<IllegalStateException> { marketplace.inspectMarketplace(PLUGIN_ID) }
+                        val expected =
+                            if (confirmLocalWhileDownloading) {
+                                "Plugin is already installed"
+                            } else {
+                                "Finish the pending plugin installation first"
+                            }
+                        assertEquals(expected, error.message)
+                    }
+                try {
+                    withTimeout(10_000) { downloadStarted.await() }
+                    val review = settings.inspect(input.toString())
+                    if (confirmLocalWhileDownloading) settings.confirmInstall()
+                    release.complete(Unit)
+                    withTimeout(10_000) { download.join() }
+                    assertNull(marketplace.state.value.pendingInstall)
+                    if (!confirmLocalWhileDownloading) {
+                        assertEquals(review, settings.state.value.pendingInstall)
+                        settings.confirmInstall()
+                    }
+                    assertEquals(
+                        PluginInstallSourceV1.Local,
+                        subsystem.stateStore.desired.value.plugins
+                            .getValue(PLUGIN_ID)
+                            .source,
+                    )
+                    assertTrue(fileSystem.list(subsystem.stateStore.paths.staging).isEmpty())
+                } finally {
+                    download.cancelAndJoin()
+                }
+            }
+        }
+
+    @Test
+    fun marketplaceConfirmationRejectsAnInstallThatAppearedAfterPreview() =
+        runBlocking {
+            withPresenter { subsystem, presenter ->
+                val input = root / "recoverable.fpp"
+                TestFppFactory.write(input)
+                val local = subsystem.installer.commit(subsystem.installer.inspect(input), confirmed = true, activate = {})
+                loadMarketplace(presenter)
+                presenter.inspectMarketplace(PLUGIN_ID)
+                assertNotNull(presenter.state.value.pendingInstall)
+
+                subsystem.mutationMutex.withLock { subsystem.stateStore.install(local) }
+                val error = assertFailsWith<IllegalStateException> { presenter.confirmInstall() }
+                assertEquals("Plugin is already installed", error.message)
+                assertEquals(local, subsystem.stateStore.desired.value.plugins[PLUGIN_ID])
+                assertNull(presenter.state.value.pendingInstall)
+                assertTrue(fileSystem.list(subsystem.stateStore.paths.staging).isEmpty())
+            }
+        }
+
+    @Test
     fun marketplaceMismatchDiscardsThePreviewAndAllowsRetryingTheSameEntry() =
         runBlocking {
             archives[FIRST_SHA] = archive("1.0.0", id = "other.plugin")
@@ -1049,7 +1127,10 @@ class PluginGitHubManagementTest {
         return fileSystem.read(path) { readByteArray() }
     }
 
-    private suspend fun withPresenter(block: suspend (PluginSubsystemV1, PluginManagementPresenterV1) -> Unit) {
+    private suspend fun withPresenter(block: suspend (PluginSubsystemV1, PluginManagementPresenterV1) -> Unit) =
+        withPresenters { subsystem, createPresenter -> block(subsystem, createPresenter()) }
+
+    private suspend fun withPresenters(block: suspend (PluginSubsystemV1, () -> PluginManagementPresenterV1) -> Unit) {
         val subsystem =
             PluginSubsystemV1(
                 appFiles =
@@ -1088,19 +1169,20 @@ class PluginGitHubManagementTest {
                     )
                 },
             )
-        val presenter =
-            PluginManagementPresenterV1(
-                subsystem,
-                scope,
-                github = client,
-                registry = { registry },
-                accounts = { accounts },
-                marketplace = marketplace,
-            )
+        val presenters = mutableListOf<PluginManagementPresenterV1>()
         try {
-            block(subsystem, presenter)
+            block(subsystem) {
+                PluginManagementPresenterV1(
+                    subsystem,
+                    scope,
+                    github = client,
+                    registry = { registry },
+                    accounts = { accounts },
+                    marketplace = marketplace,
+                ).also { presenters += it }
+            }
         } finally {
-            presenter.close()
+            presenters.forEach { it.close() }
             scope.cancel()
             subsystem.runtimePool.close()
             marketplace.close()

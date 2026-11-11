@@ -29,6 +29,7 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -130,7 +131,7 @@ public class PluginManagementPresenterV1(
     private val switcher by lazy { PluginRuntimeSwitcherV1(subsystem, registry(), accounts(), scope) }
     private val updates = MutableStateFlow(emptyMap<String, GitHubPluginVersionV1>())
     private val updateIssues = MutableStateFlow(emptyMap<String, PluginStateIssueV1>())
-    private var preview: PreparedPluginInstallV1? = null
+    private var preview: InstallPreview? = null
     private var pendingDownload: PendingGitHubDownload? = null
     private val mutableState = MutableStateFlow(snapshot())
     public val state: StateFlow<PluginManagementStateV1> = mutableState.asStateFlow()
@@ -233,12 +234,7 @@ public class PluginManagementPresenterV1(
             check(
                 preview == null && pendingDownload == null && mutableState.value.gitHubInstall == null,
             ) { "Finish the pending installation first" }
-            check(subsystem.stateStore.desired.value.plugins[pluginId] == null) { "Plugin is already installed" }
-            check(
-                subsystem.authoring.plugins.value
-                    .none { it.id == pluginId },
-            ) { "Manage the editable local plugin with this ID first" }
-            requireNotDeveloping(pluginId)
+            requireInstallTargetAvailable(pluginId, fromMarketplace = true)
             val entry =
                 requireNotNull(
                     mutableState.value.marketplace.plugins
@@ -327,19 +323,24 @@ public class PluginManagementPresenterV1(
         }
         val source = PluginInstallSourceV1.GitHub(catalog.repository, version.tag, version.commitSha, catalog.path)
         val prepared = subsystem.installer.inspect(archive, source, expectedPluginId)
-        if (marketplacePluginId != null && prepared.pluginId != marketplacePluginId) {
-            subsystem.installer.discard(prepared)
-            error("Downloaded plugin ID does not match the marketplace entry")
-        }
-        if (expectedPluginId != null &&
-            prepared.packageHash ==
-            subsystem.stateStore.desired.value.plugins[expectedPluginId]
-                ?.packageHash
-        ) {
-            subsystem.installer.discard(prepared)
-            updates.update { it - expectedPluginId }
-        } else {
-            preview = prepared
+        try {
+            if (marketplacePluginId != null) {
+                check(prepared.pluginId == marketplacePluginId) { "Downloaded plugin ID does not match the marketplace entry" }
+                requireInstallTargetAvailable(marketplacePluginId, fromMarketplace = true)
+            }
+            if (expectedPluginId != null &&
+                prepared.packageHash ==
+                subsystem.stateStore.desired.value.plugins[expectedPluginId]
+                    ?.packageHash
+            ) {
+                updates.update { it - expectedPluginId }
+            } else {
+                preview = InstallPreview(prepared, fromMarketplace = marketplacePluginId != null)
+            }
+        } finally {
+            if (preview?.prepared !== prepared) {
+                withContext(NonCancellable) { subsystem.installer.discard(prepared) }
+            }
         }
     }
 
@@ -348,6 +349,7 @@ public class PluginManagementPresenterV1(
             val pending = requireNotNull(pendingDownload) { "No repository download is pending" }
             pendingDownload = null
             mutableState.update { it.copy(needsRepositoryDownloadConfirmation = false) }
+            pending.marketplacePluginId?.let { requireInstallTargetAvailable(it, fromMarketplace = true) }
             prepareGitHub(
                 pending.catalog,
                 pending.version,
@@ -389,7 +391,7 @@ public class PluginManagementPresenterV1(
             subsystem.installer
                 .inspect(source)
                 .also { prepared ->
-                    preview = prepared
+                    preview = InstallPreview(prepared)
                 }.toReview()
         }
 
@@ -399,19 +401,18 @@ public class PluginManagementPresenterV1(
             subsystem.installer
                 .inspect(path.toPath())
                 .also { prepared ->
-                    preview = prepared
+                    preview = InstallPreview(prepared)
                 }.toReview()
         }
 
     public suspend fun confirmInstall() {
         runMutation(gitHubInstall = mutableState.value.gitHubInstall != null) {
-            val prepared = requireNotNull(preview) { "No plugin installation is pending" }
-            requireNotDeveloping(prepared.pluginId)
-            check(
-                subsystem.authoring.plugins.value
-                    .none { it.id == prepared.pluginId },
-            ) {
-                "Delete the editable local plugin before installing another package with this ID"
+            val (prepared, fromMarketplace) = requireNotNull(preview) { "No plugin installation is pending" }
+            try {
+                requireInstallTargetAvailable(prepared.pluginId, fromMarketplace)
+            } catch (error: IllegalStateException) {
+                if (fromMarketplace) clearPreview()
+                throw error
             }
             subsystem.installer.commit(prepared, confirmed = true, activate = switcher::install)
             updates.update { it - prepared.pluginId }
@@ -499,8 +500,28 @@ public class PluginManagementPresenterV1(
             development = subsystem.developmentState.value,
             authoredPlugins = subsystem.authoring.plugins.value,
             canRebuildIndex = !desired.indexHealthy,
-            pendingInstall = preview?.toReview(),
+            pendingInstall = preview?.prepared?.toReview(),
         )
+    }
+
+    private fun requireInstallTargetAvailable(
+        pluginId: String,
+        fromMarketplace: Boolean,
+    ) {
+        if (fromMarketplace) {
+            check(subsystem.stateStore.desired.value.plugins[pluginId] == null) { "Plugin is already installed" }
+        }
+        requireNotDeveloping(pluginId)
+        check(
+            subsystem.authoring.plugins.value
+                .none { it.id == pluginId },
+        ) {
+            if (fromMarketplace) {
+                "Manage the editable local plugin with this ID first"
+            } else {
+                "Delete the editable local plugin before installing another package with this ID"
+            }
+        }
     }
 
     private fun requireNotDeveloping(pluginId: String) {
@@ -516,7 +537,9 @@ public class PluginManagementPresenterV1(
         pendingDownload = null
         mutableState.update { it.copy(needsRepositoryDownloadConfirmation = false) }
         refreshState()
-        if (previous != null) subsystem.installer.discard(previous)
+        if (previous != null) {
+            withContext(NonCancellable) { subsystem.installer.discard(previous.prepared) }
+        }
     }
 
     private suspend fun runAuthoringAction(block: suspend () -> Unit) {
@@ -566,6 +589,11 @@ public class PluginManagementPresenterV1(
                 publish(busy = false)
             }
         }
+
+    private data class InstallPreview(
+        val prepared: PreparedPluginInstallV1,
+        val fromMarketplace: Boolean = false,
+    )
 
     private data class PendingGitHubDownload(
         val catalog: GitHubPluginCatalogV1,

@@ -9,13 +9,16 @@ import WebKit
 
 struct MacSettingsScreen: View {
     @Environment(\.openWindow) private var openWindow
-    @State private var selectedPane: MacSettingsPane = .accountManagement
+    @Binding var selectedPane: MacSettingsPane
 
     var body: some View {
         TabView(selection: $selectedPane) {
             ForEach(MacSettingsPane.allCases) { pane in
                 NavigationStack {
-                    pane.detail(selectedPane: $selectedPane) {
+                    pane.detail(
+                        selectedPane: $selectedPane,
+                        onOpenMarketplace: { openWindow(id: MacWindowID.pluginMarketplace) }
+                    ) {
                         MacMainWindowCoordinator.shared.open(route: .agentChat(Route.newGenericChatConversationId(), nil), openWindow: openWindow)
                     }
                 }
@@ -33,7 +36,7 @@ struct MacSettingsScreen: View {
     }
 }
 
-private enum MacSettingsPane: String, CaseIterable, Identifiable, Hashable {
+enum MacSettingsPane: String, CaseIterable, Identifiable, Hashable {
     case accountManagement
     case appearance
     case behavior
@@ -120,7 +123,11 @@ private enum MacSettingsPane: String, CaseIterable, Identifiable, Hashable {
     }
 
     @ViewBuilder
-    func detail(selectedPane: Binding<MacSettingsPane>, onCreateWithAI: @escaping () -> Void) -> some View {
+    func detail(
+        selectedPane: Binding<MacSettingsPane>,
+        onOpenMarketplace: @escaping () -> Void,
+        onCreateWithAI: @escaping () -> Void
+    ) -> some View {
         switch self {
         case .accountManagement:
             MacAccountManagementSettingsPane {
@@ -131,7 +138,7 @@ private enum MacSettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .behavior:
             MacBehaviorSettingsPane()
         case .plugins:
-            PluginManagementView(onCreateWithAI: onCreateWithAI)
+            PluginManagementView(onOpenMarketplace: onOpenMarketplace, onCreateWithAI: onCreateWithAI)
         case .localFilter:
             MacLocalFilterSettingsPane()
         case .proxy: ProxySettingsView()
