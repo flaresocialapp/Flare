@@ -724,4 +724,16 @@
     <string name="visibility_friends_description">僅互相關注的好友可以看到此微博</string>
     <string name="visibility_self">僅自己可見</string>
     <string name="visibility_self_description">僅你自己可以看到此微博</string>
+    <string name="plugin_installed">已安裝</string>
+    <string name="plugin_marketplace">外掛市集</string>
+    <string name="plugin_marketplace_empty">暫無可用外掛</string>
+    <string name="plugin_marketplace_failed">暫時無法載入外掛市集</string>
+    <string name="plugin_marketplace_cached">正在顯示上次儲存的清單。</string>
+    <string name="plugin_marketplace_refresh">重新整理</string>
+    <string name="plugin_marketplace_loading">正在載入外掛…</string>
+    <string name="plugin_marketplace_repository">查看儲存庫</string>
+    <string name="plugin_marketplace_manage">管理</string>
+    <string name="plugin_marketplace_install">安裝</string>
+    <string name="plugin_marketplace_local">本機外掛</string>
+    <string name="plugin_marketplace_search">搜尋外掛程式</string>
 </resources>

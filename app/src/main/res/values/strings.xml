@@ -1053,4 +1053,15 @@
     <string name="plugin_extension_revoke_message">This plugin will no longer be able to use %1$s. Automatic tasks for this account will also be turned off.</string>
     <string name="plugin_extension_automatic_description">Try once each day when you open or return to Flare. Retry failed or interrupted tasks manually. Timezone: %1$s.</string>
     <string name="plugin_extension_no_history">No tasks have run yet.</string>
+    <string name="plugin_installed">Installed</string>
+    <string name="plugin_marketplace">Marketplace</string>
+    <string name="plugin_marketplace_empty">No plugins available yet</string>
+    <string name="plugin_marketplace_failed">Unable to load the marketplace</string>
+    <string name="plugin_marketplace_cached">Showing the last saved list.</string>
+    <string name="plugin_marketplace_loading">Loading plugins…</string>
+    <string name="plugin_marketplace_repository">View repository</string>
+    <string name="plugin_marketplace_manage">Manage</string>
+    <string name="plugin_marketplace_install">Install</string>
+    <string name="plugin_marketplace_local">Local plugin</string>
+    <string name="plugin_marketplace_search">Search plugins</string>
 </resources>

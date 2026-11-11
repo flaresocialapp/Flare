@@ -66,6 +66,23 @@ public class PluginAppleFacadeV1 : PresenterBase<PluginManagementStateV1>() {
         presenter.openGitHubInstall()
     }
 
+    public fun loadMarketplace(forceRefresh: Boolean) {
+        presenter.loadMarketplace(forceRefresh)
+    }
+
+    @Throws(Exception::class)
+    public suspend fun refreshMarketplace() {
+        presenter.refreshMarketplace()
+    }
+
+    @Throws(Exception::class)
+    public suspend fun inspectMarketplace(pluginId: String) {
+        presenter.inspectMarketplace(pluginId)
+    }
+
+    @Throws(Exception::class)
+    public suspend fun marketplaceIcon(pluginId: String): String? = presenter.marketplaceIcon(pluginId)
+
     public fun clearGitHubInstallError() {
         presenter.clearGitHubInstallError()
     }

@@ -21,6 +21,7 @@ import dev.dimension.flare.feature.plugin.login.PluginFormLoginCoordinatorV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthLoginCoordinatorV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingStoreV1
 import dev.dimension.flare.feature.plugin.login.PluginWebCookieLoginCoordinatorV1
+import dev.dimension.flare.feature.plugin.marketplace.PluginMarketplace
 import dev.dimension.flare.feature.plugin.runtime.PluginRuntimePool
 import dev.dimension.flare.feature.plugin.storage.PluginStorageV1
 import dev.dimension.flare.model.PlatformRegistry
@@ -79,6 +80,7 @@ public class PluginSubsystemV1 internal constructor(
         PluginExtensionServiceV1(this, koinGet<AccountService>(), koinGet<CoroutineScope>())
     }
     public val github: GitHubPluginClient by lazy { GitHubPluginClient() }
+    public val marketplace: PluginMarketplace by lazy { PluginMarketplace(appFiles) }
 
     private val mutableRunning = MutableStateFlow(stateStore.running)
     public val running: StateFlow<dev.dimension.flare.feature.plugin.lifecycle.PluginRunningSnapshotV1> = mutableRunning.asStateFlow()

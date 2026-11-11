@@ -88,6 +88,7 @@ public enum FontAwesomeIcon: String, CaseIterable, Hashable, Identifiable, Senda
     case squareRss = "square-rss"
     case star = "star"
     case starFill = "star.fill"
+    case store = "store"
     case tableList = "table-list"
     case telegram = "telegram"
     case thumbtack = "thumbtack"

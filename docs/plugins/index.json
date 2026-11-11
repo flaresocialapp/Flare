@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "plugins": [
+    {
+      "id": "dev.maxlec.zhihu",
+      "name": "知乎",
+      "description": "知乎热榜、推荐、关注动态与回答/文章详情",
+      "repository": "https://github.com/anamaxlec/flare-zhihu-plugin",
+      "icon": "https://raw.githubusercontent.com/anamaxlec/flare-zhihu-plugin/557b6195db413fecc65468195c6646c668b64d64/assets/icon.png"
+    }
+  ]
+}

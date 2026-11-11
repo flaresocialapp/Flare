@@ -919,4 +919,16 @@
     <string name="plugin_large_repository_message">This repository download exceeds 20 MiB and will use more data and storage. Continue downloading?</string>
     <string name="plugin_continue_download">Continue download</string>
     <string name="plugin_github_path_hint">For a plugin in a subdirectory, add ?path=/plugins/example to the URL.</string>
+    <string name="plugin_installed">Installed</string>
+    <string name="plugin_marketplace">Marketplace</string>
+    <string name="plugin_marketplace_empty">No plugins available yet</string>
+    <string name="plugin_marketplace_failed">Unable to load the marketplace</string>
+    <string name="plugin_marketplace_cached">Showing the last saved list.</string>
+    <string name="plugin_marketplace_refresh">Refresh</string>
+    <string name="plugin_marketplace_loading">Loading plugins…</string>
+    <string name="plugin_marketplace_repository">View repository</string>
+    <string name="plugin_marketplace_manage">Manage</string>
+    <string name="plugin_marketplace_install">Install</string>
+    <string name="plugin_marketplace_local">Local plugin</string>
+    <string name="plugin_marketplace_search">Search plugins</string>
 </resources>

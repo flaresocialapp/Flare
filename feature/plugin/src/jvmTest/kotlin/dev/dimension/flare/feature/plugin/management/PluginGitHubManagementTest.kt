@@ -12,6 +12,7 @@ import dev.dimension.flare.feature.plugin.installer.TestFppFactory
 import dev.dimension.flare.feature.plugin.lifecycle.PluginInstallSourceV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingStoreV1
 import dev.dimension.flare.feature.plugin.login.PluginOAuthPendingV1
+import dev.dimension.flare.feature.plugin.marketplace.PluginMarketplace
 import dev.dimension.flare.ui.model.PluginMediaPermissions
 import dev.dimension.flare.ui.model.UiProfile
 import dev.dimension.flare.ui.model.createSampleUser
@@ -30,6 +31,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -924,6 +926,92 @@ class PluginGitHubManagementTest {
             }
         }
 
+    @Test
+    fun marketplaceInstallationUsesTheExistingReviewAndUpdatesInstalledState() =
+        runBlocking {
+            withPresenter { subsystem, presenter ->
+                loadMarketplace(presenter)
+                assertFalse(presenter.state.value.busy)
+                presenter.inspectMarketplace(PLUGIN_ID)
+                val review = assertNotNull(presenter.state.value.pendingInstall)
+                assertEquals(PLUGIN_ID, review.pluginId)
+                assertEquals(REPOSITORY_URL, review.sourceUrl)
+                assertNull(presenter.state.value.gitHubInstall)
+                assertTrue(
+                    subsystem.stateStore.desired.value.plugins
+                        .isEmpty(),
+                )
+                assertFails { presenter.inspectMarketplace(PLUGIN_ID) }
+                assertEquals(review, presenter.state.value.pendingInstall)
+                presenter.confirmInstall()
+                assertTrue(
+                    presenter.state.value.plugins
+                        .any { it.pluginId == PLUGIN_ID },
+                )
+                assertEquals(
+                    PLUGIN_ID,
+                    presenter.state.value.marketplace.plugins
+                        .single()
+                        .id,
+                )
+                assertFails { presenter.inspectMarketplace(PLUGIN_ID) }
+                presenter.checkUpdates(forceRefresh = false)
+                assertEquals(
+                    PLUGIN_ID,
+                    presenter.state.value.marketplace.plugins
+                        .single()
+                        .id,
+                )
+            }
+        }
+
+    @Test
+    fun marketplaceMismatchDiscardsThePreviewAndAllowsRetryingTheSameEntry() =
+        runBlocking {
+            archives[FIRST_SHA] = archive("1.0.0", id = "other.plugin")
+            withPresenter { subsystem, presenter ->
+                loadMarketplace(presenter)
+                assertFails { presenter.inspectMarketplace(PLUGIN_ID) }
+                assertNull(presenter.state.value.pendingInstall)
+                assertNotNull(presenter.state.value.error)
+                assertTrue(
+                    subsystem.stateStore.desired.value.plugins
+                        .isEmpty(),
+                )
+                archives[FIRST_SHA] = archive("1.0.0")
+                presenter.inspectMarketplace(PLUGIN_ID)
+                assertNull(presenter.state.value.error)
+                assertNotNull(presenter.state.value.pendingInstall)
+                presenter.cancelInstall()
+                assertNull(presenter.state.value.pendingInstall)
+            }
+        }
+
+    @Test
+    fun marketplaceIdentityCheckSurvivesLargeRepositoryConfirmation() =
+        runBlocking {
+            reportedArchiveSize = 21L * 1024 * 1024
+            archives[FIRST_SHA] = archive("1.0.0", id = "other.plugin")
+            withPresenter { subsystem, presenter ->
+                loadMarketplace(presenter)
+                presenter.inspectMarketplace(PLUGIN_ID)
+                assertTrue(presenter.state.value.needsRepositoryDownloadConfirmation)
+                assertFails { presenter.confirmRepositoryDownload() }
+                assertFalse(presenter.state.value.needsRepositoryDownloadConfirmation)
+                assertNull(presenter.state.value.pendingInstall)
+                assertTrue(
+                    subsystem.stateStore.desired.value.plugins
+                        .isEmpty(),
+                )
+            }
+        }
+
+    private suspend fun loadMarketplace(presenter: PluginManagementPresenterV1) {
+        withTimeout(5_000) { presenter.refreshMarketplace() }
+        assertFalse(presenter.state.value.marketplace.loading)
+        assertNull(presenter.state.value.marketplace.error)
+    }
+
     private fun multiPluginArchive(
         firstVersion: String,
         secondVersion: String,
@@ -991,13 +1079,31 @@ class PluginGitHubManagementTest {
                 },
             )
         }
-        val presenter = PluginManagementPresenterV1(subsystem, scope, github = client, registry = { registry }, accounts = { accounts })
+        val marketplace =
+            PluginMarketplace(
+                subsystem.appFiles,
+                MockEngine {
+                    respond(
+                        """{"schemaVersion":1,"plugins":[{"id":"$PLUGIN_ID","name":"Test","description":"Test plugin","repository":"$REPOSITORY_URL","icon":"https://raw.githubusercontent.com/owner/repo/$FIRST_SHA/icon.png"}]}""",
+                    )
+                },
+            )
+        val presenter =
+            PluginManagementPresenterV1(
+                subsystem,
+                scope,
+                github = client,
+                registry = { registry },
+                accounts = { accounts },
+                marketplace = marketplace,
+            )
         try {
             block(subsystem, presenter)
         } finally {
             presenter.close()
             scope.cancel()
             subsystem.runtimePool.close()
+            marketplace.close()
             org.koin.core.context
                 .stopKoin()
         }

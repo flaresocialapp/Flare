@@ -748,7 +748,14 @@ internal fun Router(
                 }
 
                 entry<Route.PluginManagement> {
-                    DesktopPluginManagementScreen(onBack = onBack, onCreateWithAI = { navigateToAgentChat(null) })
+                    DesktopPluginManagementScreen(
+                        onBack = onBack,
+                        onCreateWithAI = { navigateToAgentChat(null) },
+                        onOpenMarketplace = { navigate(Route.PluginMarketplace) },
+                    )
+                }
+                entry<Route.PluginMarketplace> {
+                    DesktopPluginManagementScreen(onBack = onBack, marketplace = true)
                 }
 
                 entry<Route.PostActionLayout> {
