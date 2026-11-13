@@ -8,9 +8,11 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import dev.dimension.flare.data.database.app.model.SubscriptionType
 import dev.dimension.flare.data.network.rss.RssService
 import dev.dimension.flare.data.network.rss.model.OpmlOutline
 import dev.dimension.flare.data.network.rss.model.decodeOpml
+import dev.dimension.flare.data.network.rss.toRssWebUrl
 import dev.dimension.flare.data.repository.SubscriptionRepository
 import dev.dimension.flare.data.repository.SubscriptionSourceInput
 import dev.dimension.flare.di.koinInject
@@ -19,6 +21,7 @@ import dev.dimension.flare.ui.presenter.PresenterBase
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.time.Clock
 
@@ -53,41 +56,54 @@ public class ImportOPMLPresenter(
                 val outlines =
                     opml.body.outlines
                         .flatMap { flattenOutlines(it) }
-                        .filter { !it.xmlUrl.isNullOrBlank() }
+                        .mapNotNull { outline ->
+                            outline.xmlUrl
+                                ?.takeUnless(String::isBlank)
+                                ?.toRssWebUrl()
+                                ?.let { url -> url to outline }
+                        }.distinctBy { (url, _) -> url }
 
                 totalCount = outlines.size
 
-                channelFlow {
-                    outlines
-                        .filter { it.xmlUrl != null }
-                        .forEach { outline ->
-                            launch {
-                                val url = outline.xmlUrl ?: return@launch
+                val legacySourcesByUrl =
+                    subscriptionRepository
+                        .observeAll()
+                        .first()
+                        .asSequence()
+                        .filter { it.type == SubscriptionType.RSS && it.url.isNotBlank() }
+                        .map { source -> source.url.toRssWebUrl() to source }
+                        .filter { (url, source) -> url != source.url }
+                        .toMap()
 
-                                val existing = subscriptionRepository.findByUrl(url)
-                                if (existing.isNotEmpty()) {
-                                    send(existing.first())
-                                    return@launch
+                channelFlow {
+                    outlines.forEach { (url, outline) ->
+                        launch {
+                            val existing =
+                                subscriptionRepository.findByUrlAndType(url, SubscriptionType.RSS).firstOrNull()
+                                    ?: legacySourcesByUrl[url]
+                            if (existing != null) {
+                                send(existing)
+                                return@launch
+                            }
+
+                            val icon =
+                                try {
+                                    fetchIcon(url)
+                                } catch (e: Exception) {
+                                    null
                                 }
 
-                                val icon =
-                                    try {
-                                        fetchIcon(url)
-                                    } catch (e: Exception) {
-                                        null
-                                    }
+                            val newSource =
+                                SubscriptionSourceInput(
+                                    url = url,
+                                    title = outline.title ?: outline.text,
+                                    icon = icon,
+                                    lastUpdateMillis = Clock.System.now().toEpochMilliseconds(),
+                                )
 
-                                val newSource =
-                                    SubscriptionSourceInput(
-                                        url = url,
-                                        title = outline.title ?: outline.text,
-                                        icon = icon,
-                                        lastUpdateMillis = Clock.System.now().toEpochMilliseconds(),
-                                    )
-
-                                send(subscriptionRepository.upsert(newSource))
-                            }
+                            send(subscriptionRepository.upsert(newSource))
                         }
+                    }
                 }.collect { source ->
                     importedSources.add(source)
                 }

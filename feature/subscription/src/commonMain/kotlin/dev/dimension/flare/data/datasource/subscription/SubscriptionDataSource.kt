@@ -157,9 +157,7 @@ public object KoinSubscriptionDataSource :
             SubscriptionType.RSS -> {
                 RssTimelineRemoteMediator(
                     url = url,
-                    fetchSource = {
-                        subscriptionRepository.findByUrl(it).firstOrNull()
-                    },
+                    subscriptionRepository = subscriptionRepository,
                 )
             }
 

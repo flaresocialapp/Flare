@@ -1,9 +1,12 @@
 package dev.dimension.flare.data.datasource.rss
 
+import dev.dimension.flare.data.database.app.model.SubscriptionType
 import dev.dimension.flare.data.datasource.microblog.paging.PagingRequest
 import dev.dimension.flare.data.network.rss.model.Feed
+import dev.dimension.flare.data.repository.SubscriptionSourceInput
 import dev.dimension.flare.ui.model.UiTimelineV2
 import dev.dimension.flare.ui.model.mapper.parseRssDateToInstant
+import dev.dimension.flare.ui.presenter.home.rss.FakeSubscriptionRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -12,6 +15,49 @@ import kotlin.test.assertNotNull
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class RssTimelineRemoteMediatorTest {
+    @Test
+    fun legacyFeedUsesHttpsForRequestsAndItsOriginalUrlForRssMetadata() =
+        runTest {
+            val url = "example.com/feed.xml"
+            val repository =
+                FakeSubscriptionRepository(
+                    listOf(
+                        SubscriptionSourceInput(url = url, title = "Mastodon", icon = null, type = SubscriptionType.MASTODON_PUBLIC),
+                        SubscriptionSourceInput(url = url, title = "My RSS feed", icon = null),
+                    ),
+                )
+            val mediator =
+                RssTimelineRemoteMediator(
+                    url = url,
+                    subscriptionRepository = repository,
+                    fetchFeed = { requestUrl ->
+                        assertEquals("https://example.com/feed.xml", requestUrl)
+                        Feed.Rss20(
+                            version = "2.0",
+                            channel =
+                                Feed.Rss20.Channel(
+                                    title = "Feed",
+                                    link = "https://example.com/",
+                                    description = "Posts",
+                                    items =
+                                        listOf(
+                                            Feed.Rss20.Item(title = "Post", link = "https://example.com/post", description = "Post"),
+                                        ),
+                                ),
+                        )
+                    },
+                    fetchIcon = { requestUrl ->
+                        assertEquals("https://example.com/feed.xml", requestUrl)
+                        null
+                    },
+                )
+
+            val result = mediator.load(pageSize = 1, request = PagingRequest.Refresh)
+
+            assertEquals("My RSS feed", (result.data.single() as UiTimelineV2.Feed).source.name)
+            assertEquals("rss_example.com/feed.xml", mediator.pagingKey)
+        }
+
     @Test
     fun feedItemsUsePublicationDateAsCreatedAt() =
         runTest {
@@ -54,9 +100,9 @@ class RssTimelineRemoteMediatorTest {
             val mediator =
                 RssTimelineRemoteMediator(
                     url = "https://example.com/rss",
+                    subscriptionRepository = FakeSubscriptionRepository(),
                     fetchFeed = { feed },
                     fetchIcon = { _ -> null },
-                    fetchSource = { _ -> null },
                 )
 
             val result =
