@@ -2,9 +2,11 @@ package dev.dimension.flare.ui.presenter.home.rss
 
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.moleculeFlow
+import dev.dimension.flare.data.database.app.model.SubscriptionType
 import dev.dimension.flare.data.repository.SubscriptionSourceInput
 import dev.dimension.flare.di.startKoin
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -140,6 +142,90 @@ class ImportOPMLPresenterTest {
 
             val df = sources.find { it.url == "https://daringfireball.net/feeds/main" }
             assertEquals("Daring Fireball", df?.title)
+        }
+
+    @Test
+    fun importsFeedUrlsWithMissingSchemesAsHttps() =
+        runTest {
+            val opmlContent =
+                """
+                <opml version="2.0">
+                    <body>
+                        <outline type="rss" text="Feed" xmlUrl="example.com/feed.xml"/>
+                        <outline type="rss" text="Same feed" xmlUrl="https://example.com/feed.xml"/>
+                        <outline type="rss" text="Protocol-relative feed" xmlUrl="//example.org/feed.xml"/>
+                        <outline type="rss" text="HTTP feed" xmlUrl="http://legacy.example/feed.xml"/>
+                    </body>
+                </opml>
+                """.trimIndent()
+            val presenter = ImportOPMLPresenter(opmlContent) { null }
+
+            val state = moleculeFlow(RecompositionMode.Immediate) { presenter.body() }.first { !it.importing }
+
+            assertNull(state.error)
+            assertEquals(
+                setOf("https://example.com/feed.xml", "https://example.org/feed.xml", "http://legacy.example/feed.xml"),
+                subscriptionRepository.currentSources.map { it.url }.toSet(),
+            )
+            assertEquals(3, subscriptionRepository.currentSources.size)
+            assertEquals(3, state.totalCount)
+            assertEquals(3, state.importedCount)
+        }
+
+    @Test
+    fun importsRssWhenTheSameUrlExistsWithAnotherSubscriptionType() =
+        runTest {
+            val url = "https://example.com/"
+            val mastodon =
+                subscriptionRepository.upsert(
+                    SubscriptionSourceInput(
+                        url = url,
+                        title = "Mastodon",
+                        icon = null,
+                        type = SubscriptionType.MASTODON_LOCAL,
+                    ),
+                )
+            val opmlContent =
+                """
+                <opml version="2.0">
+                    <body><outline type="rss" text="Feed" xmlUrl="$url"/></body>
+                </opml>
+                """.trimIndent()
+            val presenter = ImportOPMLPresenter(opmlContent) { null }
+
+            val state = moleculeFlow(RecompositionMode.Immediate) { presenter.body() }.first { !it.importing }
+
+            assertNull(state.error)
+            val rss = state.importedSources.single()
+            assertEquals(SubscriptionType.RSS, rss.type)
+            assertEquals(url, rss.url)
+            assertEquals(listOf(mastodon, rss), subscriptionRepository.currentSources)
+        }
+
+    @Test
+    fun reusesAnExistingRssSourceWithTheSameNormalizedUrl() =
+        runTest {
+            val legacySource =
+                subscriptionRepository.upsert(
+                    SubscriptionSourceInput(
+                        url = "example.com/feed.xml",
+                        title = "Existing feed",
+                        icon = null,
+                    ),
+                )
+            val opmlContent =
+                """
+                <opml version="2.0">
+                    <body><outline type="rss" text="Feed" xmlUrl="https://example.com/feed.xml"/></body>
+                </opml>
+                """.trimIndent()
+            val presenter = ImportOPMLPresenter(opmlContent) { null }
+
+            val state = moleculeFlow(RecompositionMode.Immediate) { presenter.body() }.first { !it.importing }
+
+            assertNull(state.error)
+            assertEquals(listOf(legacySource), state.importedSources)
+            assertEquals(listOf(legacySource), subscriptionRepository.currentSources)
         }
 
     @Test

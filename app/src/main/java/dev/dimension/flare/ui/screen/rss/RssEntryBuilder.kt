@@ -20,7 +20,7 @@ import compose.icons.FontAwesomeIcons
 import compose.icons.fontawesomeicons.Solid
 import compose.icons.fontawesomeicons.solid.SquareRss
 import dev.dimension.flare.data.model.IconType
-import dev.dimension.flare.data.model.tab.RssTimelineData
+import dev.dimension.flare.data.model.tab.UiTimelineTabItem
 import dev.dimension.flare.data.model.tab.toUiTimelineTabItem
 import dev.dimension.flare.data.platform.RssTimelineSpecs
 import dev.dimension.flare.ui.component.BottomSheetSceneStrategy
@@ -34,15 +34,16 @@ import dev.dimension.flare.ui.screen.home.TimelineScreen
 @OptIn(ExperimentalMaterial3AdaptiveApi::class, ExperimentalMaterial3Api::class)
 internal fun EntryProviderScope<NavKey>.rssEntryBuilder(
     navigate: (Route) -> Unit,
-    onBack: () -> Unit
+    onBack: () -> Unit,
 ) {
     entry<Route.Rss.Sources>(
-        metadata = ListDetailSceneStrategy.listPane(
-            sceneKey = "Rss",
-            detailPlaceholder = {
-                RssPlaceholder()
-            },
-        )
+        metadata =
+            ListDetailSceneStrategy.listPane(
+                sceneKey = "Rss",
+                detailPlaceholder = {
+                    RssPlaceholder()
+                },
+            ),
     ) {
         RssSourcesScreen(
             onAdd = {
@@ -52,44 +53,30 @@ internal fun EntryProviderScope<NavKey>.rssEntryBuilder(
                 navigate(Route.Rss.Edit(it))
             },
             onClicked = {
-                navigate(
-                    Route.Rss.Timeline(
-                        id = it.id,
-                        title = it.title,
-                        url = it.url,
-                        favIcon = it.favIcon,
-                    )
-                )
+                navigate(Route.Rss.Timeline(it))
             },
             onBack = onBack,
         )
     }
     entry<Route.Rss.Timeline>(
-        metadata = ListDetailSceneStrategy.listPane(
-            sceneKey = "Rss",
-            detailPlaceholder = {
-                RssPlaceholder()
-            },
-        )
+        metadata =
+            ListDetailSceneStrategy.listPane(
+                sceneKey = "Rss",
+                detailPlaceholder = {
+                    RssPlaceholder()
+                },
+            ),
     ) { args ->
         TimelineScreen(
-            tabItem = remember(args) {
-                RssTimelineSpecs.rss.candidate(
-                    data = RssTimelineData(args.url),
-                    title = UiText.Raw(args.title ?: args.url),
-                    icon =
-                        args.favIcon?.let {
-                            IconType.Url(args.favIcon)
-                        } ?: IconType.Material(UiIcon.Rss),
-                ).toUiTimelineTabItem()
-            },
+            tabItem = remember(args) { args.toTimelineTabItem() },
             onBack = onBack,
         )
     }
     entry<Route.Rss.Detail>(
-        metadata = ListDetailSceneStrategy.detailPane(
-            sceneKey = "Rss",
-        )
+        metadata =
+            ListDetailSceneStrategy.detailPane(
+                sceneKey = "Rss",
+            ),
     ) { args ->
         RssDetailScreen(
             url = args.url,
@@ -100,18 +87,18 @@ internal fun EntryProviderScope<NavKey>.rssEntryBuilder(
         )
     }
     entry<Route.Rss.Create>(
-        metadata = BottomSheetSceneStrategy.bottomSheet()
+        metadata = BottomSheetSceneStrategy.bottomSheet(),
     ) {
         RssSourceEditSheet(
             onDismissRequest = onBack,
             id = null,
             onImportOPML = {
                 navigate(Route.Rss.OPMLImport(it))
-            }
+            },
         )
     }
     entry<Route.Rss.Edit>(
-        metadata = BottomSheetSceneStrategy.bottomSheet()
+        metadata = BottomSheetSceneStrategy.bottomSheet(),
     ) { args ->
         RssSourceEditSheet(
             onDismissRequest = onBack,
@@ -122,7 +109,7 @@ internal fun EntryProviderScope<NavKey>.rssEntryBuilder(
         )
     }
     entry<Route.Rss.OPMLImport>(
-        metadata = BottomSheetSceneStrategy.bottomSheet()
+        metadata = BottomSheetSceneStrategy.bottomSheet(),
     ) { args ->
         OPMLImportSheet(
             uri = args.url.toUri(),
@@ -131,25 +118,32 @@ internal fun EntryProviderScope<NavKey>.rssEntryBuilder(
     }
 }
 
+internal fun Route.Rss.Timeline.toTimelineTabItem(): UiTimelineTabItem =
+    RssTimelineSpecs
+        .candidate(
+            url = url,
+            type = type,
+            title = UiText.Raw(title ?: url),
+            icon = favIcon?.let { IconType.Url(it) } ?: IconType.Material(UiIcon.Rss),
+        ).toUiTimelineTabItem()
 
 @Composable
-internal fun RssPlaceholder(
-    modifier: Modifier = Modifier,
-) {
+internal fun RssPlaceholder(modifier: Modifier = Modifier) {
     FlareScaffold(
         modifier = modifier,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(it),
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(it),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(8.dp, alignment = Alignment.CenterVertically),
         ) {
             FAIcon(
                 FontAwesomeIcons.Solid.SquareRss,
                 contentDescription = null,
-                modifier = Modifier.size(64.dp)
+                modifier = Modifier.size(64.dp),
             )
         }
     }

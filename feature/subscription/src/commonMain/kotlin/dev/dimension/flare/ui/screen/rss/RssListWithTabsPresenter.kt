@@ -5,8 +5,6 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import dev.dimension.flare.data.database.app.model.SubscriptionType
 import dev.dimension.flare.data.model.IconType
-import dev.dimension.flare.data.model.tab.RssTimelineData
-import dev.dimension.flare.data.model.tab.SubscriptionTimelineData
 import dev.dimension.flare.data.model.tab.UiTimelineTabItem
 import dev.dimension.flare.data.model.tab.toUiTimelineTabItem
 import dev.dimension.flare.data.platform.RssTimelineSpecs
@@ -22,31 +20,19 @@ public class RssListWithTabsPresenter : PresenterBase<RssListWithTabsPresenter.S
     private val pinTabsPresenter by lazy {
         object : PinTabsPresenter<UiRssSource>() {
             override fun getTimelineTabItem(item: UiRssSource): UiTimelineTabItem =
-                if (item.type == SubscriptionType.RSS) {
-                    RssTimelineSpecs.rss
-                        .candidate(
-                            data = RssTimelineData(item.url),
-                            title = UiText.Raw(item.title ?: item.url),
-                            icon = item.favIcon?.let { IconType.Url(it) } ?: IconType.Material(UiIcon.Rss),
-                        ).toUiTimelineTabItem()
-                } else {
-                    RssTimelineSpecs.subscription
-                        .candidate(
-                            data =
-                                SubscriptionTimelineData(
-                                    subscriptionUrl = item.url,
-                                    subscriptionType = item.type,
-                                ),
-                            title = UiText.Raw(item.title ?: item.url),
-                            icon =
-                                item.favIcon?.let { IconType.Url(it) }
-                                    ?: if (item.type == SubscriptionType.RSS) {
-                                        IconType.Material(UiIcon.Rss)
-                                    } else {
-                                        IconType.FavIcon(item.host)
-                                    },
-                        ).toUiTimelineTabItem()
-                }
+                RssTimelineSpecs
+                    .candidate(
+                        url = item.url,
+                        type = item.type,
+                        title = UiText.Raw(item.title ?: item.url),
+                        icon =
+                            item.favIcon?.let { IconType.Url(it) }
+                                ?: if (item.type == SubscriptionType.RSS) {
+                                    IconType.Material(UiIcon.Rss)
+                                } else {
+                                    IconType.FavIcon(item.host)
+                                },
+                    ).toUiTimelineTabItem()
         }
     }
 

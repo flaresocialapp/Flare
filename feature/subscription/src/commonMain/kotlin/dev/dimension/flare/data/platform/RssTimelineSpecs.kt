@@ -1,10 +1,13 @@
 package dev.dimension.flare.data.platform
 
+import dev.dimension.flare.data.database.app.model.SubscriptionType
 import dev.dimension.flare.data.datasource.microblog.paging.RemoteLoader
 import dev.dimension.flare.data.datasource.rss.RssDataSource
+import dev.dimension.flare.data.model.IconType
 import dev.dimension.flare.data.model.tab.AllRssTimelineData
 import dev.dimension.flare.data.model.tab.RssTimelineData
 import dev.dimension.flare.data.model.tab.SubscriptionTimelineData
+import dev.dimension.flare.data.model.tab.TimelineCandidate
 import dev.dimension.flare.data.model.tab.TimelineLoaderContext
 import dev.dimension.flare.data.model.tab.TimelineLoaderFactory
 import dev.dimension.flare.data.model.tab.TimelineSpec
@@ -15,6 +18,7 @@ import dev.dimension.flare.data.subscription.SubscriptionTimelineLoaderFactory
 import dev.dimension.flare.di.koinInject
 import dev.dimension.flare.ui.model.UiIcon
 import dev.dimension.flare.ui.model.UiStrings
+import dev.dimension.flare.ui.model.UiText
 import dev.dimension.flare.ui.model.UiTimelineV2
 import dev.dimension.flare.ui.model.asType
 import kotlinx.collections.immutable.ImmutableList
@@ -59,6 +63,19 @@ public data object RssTimelineSpecs {
                     RssDataSource.fetchLoader(it.subscriptionType, it.subscriptionUrl)
                 },
         )
+
+    @HiddenFromObjC
+    public fun candidate(
+        url: String,
+        type: SubscriptionType,
+        title: UiText,
+        icon: IconType,
+    ): TimelineCandidate<*> =
+        if (type == SubscriptionType.RSS) {
+            rss.candidate(RssTimelineData(url), title, icon)
+        } else {
+            subscription.candidate(SubscriptionTimelineData(url, type), title, icon)
+        }
 
     public fun timelineSpecs(
         allRssTimelineLoaderFactory: TimelineLoaderFactory<AllRssTimelineData>,

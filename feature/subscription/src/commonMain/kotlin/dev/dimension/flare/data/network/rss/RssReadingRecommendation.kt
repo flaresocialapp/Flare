@@ -73,5 +73,9 @@ internal expect fun Throwable.isRssTransportSecurityFailure(): Boolean
 
 internal fun String.toRssWebUrl(): String =
     trim().let {
-        if (it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true)) it else "https://$it"
+        when {
+            it.startsWith("http://", ignoreCase = true) || it.startsWith("https://", ignoreCase = true) -> it
+            it.startsWith("//") -> "https:$it"
+            else -> "https://$it"
+        }
     }

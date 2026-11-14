@@ -3,6 +3,7 @@ package dev.dimension.flare.ui.route
 import androidx.compose.runtime.Immutable
 import androidx.navigation3.runtime.NavKey
 import dev.dimension.flare.common.SerializableImmutableList
+import dev.dimension.flare.data.database.app.model.SubscriptionType
 import dev.dimension.flare.data.model.ProxyRef
 import dev.dimension.flare.data.model.tab.TimelineDeepLinkRouteResolver
 import dev.dimension.flare.data.model.tab.UiSourceTimelineTabItem
@@ -12,6 +13,7 @@ import dev.dimension.flare.feature.agent.localhistory.LocalHistoryAgentTarget
 import dev.dimension.flare.model.AccountType
 import dev.dimension.flare.model.MicroBlogKey
 import dev.dimension.flare.ui.model.UiMedia
+import dev.dimension.flare.ui.model.UiRssSource
 import dev.dimension.flare.ui.presenter.login.LoginCookieSnapshot
 import dev.dimension.flare.ui.presenter.login.LoginEffect
 import dev.dimension.flare.ui.presenter.login.ReloginTarget
@@ -195,7 +197,16 @@ internal sealed interface Route : NavKey {
             val url: String,
             val title: String?,
             val favIcon: String?,
-        ) : Rss
+            val type: SubscriptionType,
+        ) : Rss {
+            constructor(source: UiRssSource) : this(
+                id = source.id,
+                url = source.url,
+                title = source.title,
+                favIcon = source.favIcon,
+                type = source.type,
+            )
+        }
 
         @Serializable
         data class Detail(
