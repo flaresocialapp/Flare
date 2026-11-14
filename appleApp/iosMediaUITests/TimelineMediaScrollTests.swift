@@ -32,6 +32,105 @@ final class TimelineMediaScrollTests: XCTestCase {
     }
 
     @MainActor
+    func testCarouselContinuesScrollingDuringDeceleration() throws {
+        let app = openTimeline(carousel: true)
+        defer { app.terminate() }
+
+        let carousel = app.collectionViews["timeline-media-carousel"].firstMatch
+        XCTAssertTrue(carousel.waitForExistence(timeout: 10))
+        let initialTimelineOffsetY = try XCTUnwrap(measurements(in: app)["timelineOffsetY"])
+
+        // Vertical drag starting on an idle carousel must still scroll the outer timeline.
+        let center = carousel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let above = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+        center.press(forDuration: 0.05, thenDragTo: above, withVelocity: .slow, thenHoldForDuration: 0.2)
+        let verticalMetrics = try measurements(in: app)
+        XCTAssertGreaterThan(try XCTUnwrap(verticalMetrics["timelineOffsetY"]) - initialTimelineOffsetY, 60)
+        XCTAssertEqual(try XCTUnwrap(verticalMetrics["carouselOffsetX"]), 0, accuracy: 2)
+
+        let list = app.collectionViews["timeline-list"]
+        list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25)).press(
+            forDuration: 0.05,
+            thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)),
+            withVelocity: .slow,
+            thenHoldForDuration: 0.2
+        )
+        app.buttons["timeline-scroll-reset"].tap()
+        XCTAssertTrue(carousel.waitForExistence(timeout: 5))
+        let restingTimelineOffsetY = try XCTUnwrap(measurements(in: app)["timelineOffsetY"])
+
+        let frame = carousel.frame
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        let right = origin.withOffset(CGVector(dx: frame.minX + frame.width * 0.85, dy: frame.midY))
+        let left = origin.withOffset(CGVector(dx: frame.minX + frame.width * 0.15, dy: frame.midY))
+
+        // 1. Continue scrolling forward in the same direction during inertia.
+        try withQuiescenceSkipped(in: app) {
+            right.press(forDuration: 0.05, thenDragTo: left, withVelocity: .fast, thenHoldForDuration: 0)
+            try waitForDeceleration(in: app, minimumOffsetX: 60)
+            right.press(forDuration: 0.02, thenDragTo: left, withVelocity: .slow, thenHoldForDuration: 0.25)
+        }
+
+        let forwardRaw = app.staticTexts["timeline-scroll-metrics"].label
+        let afterContinue = try measurements(in: app)
+        XCTAssertEqual(try XCTUnwrap(afterContinue["touchesDuringDeceleration"]), 1, forwardRaw)
+        XCTAssertEqual(try XCTUnwrap(afterContinue["decelerationCatchDrags"]), 1, forwardRaw)
+        let forwardTouchOffset = try XCTUnwrap(afterContinue["decelerationTouchOffsetX"])
+        let forwardFinalOffset = try XCTUnwrap(afterContinue["carouselOffsetX"])
+        XCTAssertGreaterThan(
+            forwardFinalOffset - forwardTouchOffset, 120,
+            "Carousel must continue scrolling forward when dragged during inertia: \(forwardRaw)"
+        )
+        XCTAssertEqual(try XCTUnwrap(afterContinue["timelineOffsetY"]), restingTimelineOffsetY, accuracy: 2, forwardRaw)
+
+        // 2. Catch and reverse scrolling direction during inertia.
+        try withQuiescenceSkipped(in: app) {
+            right.press(forDuration: 0.05, thenDragTo: left, withVelocity: .fast, thenHoldForDuration: 0)
+            try waitForDeceleration(in: app, minimumOffsetX: forwardFinalOffset + 60)
+            left.press(forDuration: 0.02, thenDragTo: right, withVelocity: .slow, thenHoldForDuration: 0.25)
+        }
+
+        let reverseRaw = app.staticTexts["timeline-scroll-metrics"].label
+        let afterReverse = try measurements(in: app)
+        XCTAssertEqual(try XCTUnwrap(afterReverse["touchesDuringDeceleration"]), 2, reverseRaw)
+        XCTAssertEqual(try XCTUnwrap(afterReverse["decelerationCatchDrags"]), 2, reverseRaw)
+        let reverseTouchOffset = try XCTUnwrap(afterReverse["decelerationTouchOffsetX"])
+        let reverseFinalOffset = try XCTUnwrap(afterReverse["carouselOffsetX"])
+        XCTAssertGreaterThan(
+            reverseTouchOffset - reverseFinalOffset, 120,
+            "Carousel must reverse scrolling when caught and dragged back during inertia: \(reverseRaw)"
+        )
+        XCTAssertEqual(try XCTUnwrap(afterReverse["timelineOffsetY"]), restingTimelineOffsetY, accuracy: 2, reverseRaw)
+    }
+
+    @MainActor
+    private func withQuiescenceSkipped(in app: XCUIApplication, _ body: () throws -> Void) rethrows {
+        let selector = Selector(("setCurrentInteractionOptions:"))
+        guard app.responds(to: selector) else {
+            XCTFail("XCUIApplication does not respond to setCurrentInteractionOptions:")
+            return
+        }
+        // 0x1 | 0x2 skips pre- and post-event quiescence so follow-up gestures land mid-deceleration.
+        app.setValue(0x3, forKey: "currentInteractionOptions")
+        defer { app.setValue(0, forKey: "currentInteractionOptions") }
+        try body()
+    }
+
+    @MainActor
+    private func waitForDeceleration(in app: XCUIApplication, minimumOffsetX: Double, timeout: TimeInterval = 3) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let values = try? measurements(in: app),
+               (values["carouselDecelerating"] ?? 0) == 1,
+               (values["carouselOffsetX"] ?? 0) >= minimumOffsetX {
+                return
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+        }
+        XCTFail("Carousel did not enter momentum deceleration past \(minimumOffsetX)pt: \(app.staticTexts["timeline-scroll-metrics"].label)")
+    }
+
+    @MainActor
     private func assertReverseScrolling(fast: Bool) throws {
         guard #available(iOS 27.0, *) else { throw XCTSkip("Navigation bar minimization requires iOS 27") }
         let app = openTimeline()
@@ -53,10 +152,11 @@ final class TimelineMediaScrollTests: XCTestCase {
     }
 
     @MainActor
-    private func openTimeline() -> XCUIApplication {
+    private func openTimeline(carousel: Bool = false) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()
         app.launchArguments = ["--timeline-media-scroll-test", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        if carousel { app.launchArguments.append("--timeline-media-carousel") }
         app.launch()
         let list = app.collectionViews["timeline-list"]
         XCTAssertTrue(list.waitForExistence(timeout: 20))

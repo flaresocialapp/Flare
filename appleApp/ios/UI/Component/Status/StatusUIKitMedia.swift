@@ -387,6 +387,12 @@ private final class HorizontalMediaCollectionView: UICollectionView {
         guard gestureRecognizer === panGestureRecognizer else {
             return super.gestureRecognizerShouldBegin(gestureRecognizer)
         }
+        guard super.gestureRecognizerShouldBegin(gestureRecognizer) else {
+            return false
+        }
+        if isDecelerating {
+            return true
+        }
         let velocity = panGestureRecognizer.velocity(in: self)
         return abs(velocity.x) > abs(velocity.y)
     }
