@@ -5,10 +5,10 @@
     <string name="changelog_current"><![CDATA[
             <span>Version %1$s:</span>
             <ul>
-                <li>Videor kommer ihåg uppspelningshastigheten, med nya alternativ upp till 16×.</li>
-                <li>Växla mellan originaltext och översättning i artiklar, RSS-inlägg och galleridetaljer.</li>
-                <li>Sök och Upptäck visar bara avsnitt som det valda kontot stöder.</li>
-                <li>Åtgärdade vissa problem med webbinloggning.</li>
+                <li>Videor kommer ihåg din uppspelningshastighet, med nya alternativ upp till 16×.</li>
+                <li>Växla mellan original och översatt text i artiklar, RSS poster och information om galleriet.</li>
+                <li>Sök och Upptäck visa endast de avsnitt som stöds av det valda kontot.</li>
+                <li>Fixade några webbinloggningsfel.</li>
             </ul>
         ]]></string>
 </resources>
