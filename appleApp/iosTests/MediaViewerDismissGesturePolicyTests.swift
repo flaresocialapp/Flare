@@ -410,11 +410,27 @@ final class MediaViewerDismissGesturePolicyTests: XCTestCase {
                 )
             )
 
-            scrollView.contentOffset.y = 0
+            // 30pt below the top edge is outside the relaxed tolerance.
+            scrollView.contentOffset.y = 10
             XCTAssertFalse(
                 MediaViewerDismissGesturePolicy.shouldBeginDismissPan(
                     in: scrollView,
                     velocityY: 500
+                )
+            )
+
+            // 20pt below the top edge still counts as resting at the edge.
+            scrollView.contentOffset.y = 0
+            XCTAssertTrue(
+                MediaViewerDismissGesturePolicy.shouldBeginDismissPan(
+                    in: scrollView,
+                    velocityY: 500
+                )
+            )
+            XCTAssertFalse(
+                MediaViewerDismissGesturePolicy.shouldBeginDismissPan(
+                    in: scrollView,
+                    velocityY: -500
                 )
             )
 
@@ -487,6 +503,160 @@ final class MediaViewerDismissGesturePolicyTests: XCTestCase {
                     velocityY: -500
                 )
             )
+        }
+    }
+
+    func testOverscrollEdgeRequiresReachingTheEdgeAndPushingPastIt() {
+        let edge = { (offset: CGFloat, velocity: CGFloat) in
+            MediaViewerDismissGesturePolicy.overscrollEdge(
+                contentOffsetY: offset,
+                minimumOffsetY: -20,
+                maximumOffsetY: 630,
+                fingerVelocityY: velocity
+            )
+        }
+        // Mid-image drags keep scrolling.
+        XCTAssertNil(edge(300, 800))
+        XCTAssertNil(edge(300, -800))
+        // Close to, but not at, the edge keeps scrolling so the image can finish reaching it.
+        XCTAssertNil(edge(0, 800))
+        XCTAssertNil(edge(600, -800))
+        // At or rubber-banding past the top while pulling down.
+        XCTAssertEqual(edge(-20, 800), 1)
+        XCTAssertEqual(edge(-35, 800), 1)
+        XCTAssertNil(edge(-20, -800))
+        // At or past the bottom while pushing up.
+        XCTAssertEqual(edge(630, -800), -1)
+        XCTAssertEqual(edge(650, -800), -1)
+        XCTAssertNil(edge(630, 800))
+        // Content that does not scroll is handled by the regular dismiss pan.
+        XCTAssertNil(
+            MediaViewerDismissGesturePolicy.overscrollEdge(
+                contentOffsetY: 0,
+                minimumOffsetY: 0,
+                maximumOffsetY: 0,
+                fingerVelocityY: 800
+            )
+        )
+    }
+
+    func testOverscrollHandoffStartsFromTheRubberBandDistance() {
+        XCTAssertEqual(
+            MediaViewerDismissGesturePolicy.overscrollAmount(contentOffsetY: -35, edgeOffsetY: -20, edge: 1),
+            15
+        )
+        XCTAssertEqual(
+            MediaViewerDismissGesturePolicy.overscrollAmount(contentOffsetY: 650, edgeOffsetY: 630, edge: -1),
+            20
+        )
+        XCTAssertEqual(
+            MediaViewerDismissGesturePolicy.overscrollAmount(contentOffsetY: -10, edgeOffsetY: -20, edge: 1),
+            0
+        )
+    }
+
+    func testOverscrollTranslationEndsWhenTheFingerReturnsPastTheEdge() {
+        XCTAssertEqual(
+            MediaViewerDismissGesturePolicy.overscrollTranslationY(locationY: 460, baseLocationY: 400, edge: 1),
+            60
+        )
+        XCTAssertNil(
+            MediaViewerDismissGesturePolicy.overscrollTranslationY(locationY: 400, baseLocationY: 400, edge: 1)
+        )
+        XCTAssertNil(
+            MediaViewerDismissGesturePolicy.overscrollTranslationY(locationY: 380, baseLocationY: 400, edge: 1)
+        )
+        XCTAssertEqual(
+            MediaViewerDismissGesturePolicy.overscrollTranslationY(locationY: 340, baseLocationY: 400, edge: -1),
+            -60
+        )
+        XCTAssertNil(
+            MediaViewerDismissGesturePolicy.overscrollTranslationY(locationY: 420, baseLocationY: 400, edge: -1)
+        )
+    }
+
+    func testOverscrollDismissNeedsLessTravelThanARegularDrag() {
+        // 120pt of an 800pt page: short of a regular dismiss, enough past a tall image's edge.
+        XCTAssertFalse(
+            MediaViewerDismissGesturePolicy.shouldDismiss(translationY: 120, velocityY: 0, containerHeight: 800)
+        )
+        XCTAssertTrue(
+            MediaViewerDismissGesturePolicy.shouldDismissOverscroll(
+                translationY: 120, velocityY: 0, containerHeight: 800, edge: 1
+            )
+        )
+        XCTAssertTrue(
+            MediaViewerDismissGesturePolicy.shouldDismissOverscroll(
+                translationY: -120, velocityY: 0, containerHeight: 800, edge: -1
+            )
+        )
+        // A short pull released slowly springs back.
+        XCTAssertFalse(
+            MediaViewerDismissGesturePolicy.shouldDismissOverscroll(
+                translationY: 40, velocityY: 0, containerHeight: 800, edge: 1
+            )
+        )
+        // A short but quick pull dismisses.
+        XCTAssertTrue(
+            MediaViewerDismissGesturePolicy.shouldDismissOverscroll(
+                translationY: 40, velocityY: 300, containerHeight: 800, edge: 1
+            )
+        )
+    }
+
+    func testFlickThatOnlyReachesTheEdgeDoesNotDismiss() {
+        // Scrolling velocity carried into the edge is not a pull to close.
+        XCTAssertFalse(
+            MediaViewerDismissGesturePolicy.shouldDismissOverscroll(
+                translationY: 4, velocityY: 2_000, containerHeight: 800, edge: 1
+            )
+        )
+        XCTAssertFalse(
+            MediaViewerDismissGesturePolicy.shouldDismissOverscroll(
+                translationY: -20, velocityY: -2_000, containerHeight: 800, edge: -1
+            )
+        )
+        XCTAssertTrue(
+            MediaViewerDismissGesturePolicy.shouldDismissOverscroll(
+                translationY: 32, velocityY: 2_000, containerHeight: 800, edge: 1
+            )
+        )
+    }
+
+    func testReleaseKeepsAFlingBackIntoTheImage() {
+        XCTAssertTrue(
+            MediaViewerDismissGesturePolicy.shouldStopScrollAtEdgeOnRelease(didDismiss: true, velocityY: -500, edge: 1)
+        )
+        XCTAssertTrue(
+            MediaViewerDismissGesturePolicy.shouldStopScrollAtEdgeOnRelease(didDismiss: false, velocityY: 200, edge: 1)
+        )
+        XCTAssertFalse(
+            MediaViewerDismissGesturePolicy.shouldStopScrollAtEdgeOnRelease(didDismiss: false, velocityY: -500, edge: 1)
+        )
+        XCTAssertFalse(
+            MediaViewerDismissGesturePolicy.shouldStopScrollAtEdgeOnRelease(didDismiss: false, velocityY: 500, edge: -1)
+        )
+    }
+
+    func testOverscrollDismissNeverGoesTowardsTheImage() {
+        // Flinging back into the image cancels instead of dismissing the other way.
+        XCTAssertFalse(
+            MediaViewerDismissGesturePolicy.shouldDismissOverscroll(
+                translationY: 40, velocityY: -2_000, containerHeight: 800, edge: 1
+            )
+        )
+        XCTAssertFalse(
+            MediaViewerDismissGesturePolicy.shouldDismissOverscroll(
+                translationY: -40, velocityY: 2_000, containerHeight: 800, edge: -1
+            )
+        )
+    }
+
+    func testEdgeOffsetPinsTheMatchingEdge() async {
+        await MainActor.run {
+            let scrollView = Self.makeTallImageScrollView()
+            XCTAssertEqual(MediaViewerDismissGesturePolicy.edgeOffsetY(in: scrollView, edge: 1), -20)
+            XCTAssertEqual(MediaViewerDismissGesturePolicy.edgeOffsetY(in: scrollView, edge: -1), 630)
         }
     }
 

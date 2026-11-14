@@ -18,6 +18,7 @@ struct MediaViewerTestFixture: View {
     private let withoutPost = ProcessInfo.processInfo.arguments.contains("--without-post")
     private let hidePostActions = ProcessInfo.processInfo.arguments.contains("--hide-post-actions")
     private let translationSettings = ProcessInfo.processInfo.arguments.contains("--translation-settings")
+    private let tallImage = ProcessInfo.processInfo.arguments.contains("--tall-image")
 
     var body: some View {
         VStack {
@@ -137,6 +138,9 @@ struct MediaViewerTestFixture: View {
     }
 
     private func makeMedia(index: Int = 0) async -> any UiMedia {
+        if tallImage, !video {
+            return await makeTallImage()
+        }
         let image = UIGraphicsImageRenderer(size: CGSize(width: 320, height: 240)).image { context in
             (index == 0 ? UIColor.systemTeal : UIColor.systemOrange).setFill()
             context.fill(CGRect(x: 0, y: 0, width: 320, height: 240))
@@ -174,6 +178,23 @@ struct MediaViewerTestFixture: View {
         }
         return UiMediaVideo(url: videoURL.absoluteString, thumbnailUrl: imageURL.absoluteString, description: "Fixture video", height: 240, width: 320, customHeaders: nil, proxy: ProxyRef.Unbound.shared, downloadUrl: nil,
                             kind: ProcessInfo.processInfo.arguments.contains("--live-photo") ? .livePhoto : ProcessInfo.processInfo.arguments.contains("--gif-video") ? .gif : .video)
+    }
+
+    /// A long screenshot-style image that the viewer shows at full width inside a vertical scroll view.
+    private func makeTallImage() async -> any UiMedia {
+        let size = CGSize(width: 320, height: 2_400)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { context in
+            for band in 0..<Int(size.height / 200) {
+                (band.isMultiple(of: 2) ? UIColor.systemTeal : UIColor.systemIndigo).setFill()
+                context.fill(CGRect(x: 0, y: CGFloat(band) * 200, width: size.width, height: 200))
+            }
+        }
+        let imageURL = FileManager.default.temporaryDirectory.appendingPathComponent("media-fixture-tall.png")
+        try? image.pngData()?.write(to: imageURL)
+        try? await ImageCache.default.store(image, forKey: imageURL.absoluteString, toDisk: false)
+        return UiMediaImage(url: imageURL.absoluteString, previewUrl: imageURL.absoluteString, description: "Fixture tall image", height: 2_400, width: 320, sensitive: false, customHeaders: nil, proxy: ProxyRef.Unbound.shared)
     }
 
     private func richText(_ text: String) -> UiRichText {
