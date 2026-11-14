@@ -674,17 +674,28 @@ struct MediaViewerScreen: View {
 
     private func endDismissGesture(_ pan: MediaViewerDismissPan) -> Bool {
         guard !isDismissing else { return true }
-        guard MediaViewerDismissGesturePolicy.shouldDismiss(
-            translationY: pan.translation.y,
-            velocityY: pan.velocity.y,
-            containerHeight: pan.containerSize.height
-        ) else {
+        let shouldDismiss: Bool
+        if let edge = pan.overscrollEdge {
+            shouldDismiss = MediaViewerDismissGesturePolicy.shouldDismissOverscroll(
+                translationY: pan.translation.y,
+                velocityY: pan.velocity.y,
+                containerHeight: pan.containerSize.height,
+                edge: edge
+            )
+        } else {
+            shouldDismiss = MediaViewerDismissGesturePolicy.shouldDismiss(
+                translationY: pan.translation.y,
+                velocityY: pan.velocity.y,
+                containerHeight: pan.containerSize.height
+            )
+        }
+        guard shouldDismiss else {
             cancelDismissGesture()
             return false
         }
 
         isDismissing = true
-        let direction = MediaViewerDismissGesturePolicy.dismissDirection(
+        let direction = pan.overscrollEdge ?? MediaViewerDismissGesturePolicy.dismissDirection(
             translationY: pan.translation.y,
             velocityY: pan.velocity.y
         )
@@ -868,6 +879,8 @@ private struct MediaViewerDismissPan {
     let velocity: CGPoint
     let startLocation: CGPoint
     let containerSize: CGSize
+    /// Set when a tall image's scroll drag was continued past its top (1) or bottom (-1) edge.
+    var overscrollEdge: CGFloat? = nil
 }
 
 private struct MediaViewerDismissGestureHost: UIViewRepresentable {
@@ -932,6 +945,12 @@ private struct MediaViewerDismissGestureHost: UIViewRepresentable {
         private var chromeTapRecognizer: UITapGestureRecognizer?
         private var panStartLocation: CGPoint = .zero
         private var panDidBegin = false
+        /// A tall image's own scroll view, watched so a drag that reaches its edge can turn into a dismiss.
+        private weak var overscrollScrollView: UIScrollView?
+        private weak var overscrollZoomScrollView: UIScrollView?
+        private var overscrollEdge: CGFloat?
+        private var overscrollBaseLocation: CGPoint = .zero
+        private var overscrollStartLocation: CGPoint = .zero
 
         init(
             onChanged: @escaping (MediaViewerDismissPan) -> Void,
@@ -981,6 +1000,8 @@ private struct MediaViewerDismissGestureHost: UIViewRepresentable {
             touchedZoomScrollViewInitialOffset = nil
             panRecognizer = nil
             chromeTapRecognizer = nil
+            cancelOverscrollHandoff()
+            observeOverscroll(of: nil, zoomScrollView: nil)
         }
 
         @objc private func handleChromeTap(_ recognizer: UITapGestureRecognizer) {
@@ -1085,6 +1106,15 @@ private struct MediaViewerDismissGestureHost: UIViewRepresentable {
                 MediaViewerDismissGesturePolicy.hasScrollableVerticalContent($0)
             }
             touchedZoomScrollViewInitialOffset = touchedZoomScrollView?.contentOffset
+            // Only a tall image scrolling inside the pager's zoom view hands its edge drag to the dismiss.
+            if let vertical = touchedVerticalScrollView,
+               let zoom = touchedZoomScrollView,
+               vertical !== zoom,
+               vertical.isDescendant(of: zoom) {
+                observeOverscroll(of: vertical, zoomScrollView: zoom)
+            } else {
+                observeOverscroll(of: nil, zoomScrollView: nil)
+            }
             return true
         }
 
@@ -1119,6 +1149,138 @@ private struct MediaViewerDismissGestureHost: UIViewRepresentable {
             MediaViewerDismissGesturePolicy.allowsSimultaneousRecognition(
                 chromeTap: gestureRecognizer === chromeTapRecognizer,
                 otherIsTap: otherGestureRecognizer is UITapGestureRecognizer
+            )
+        }
+
+        private func observeOverscroll(of scrollView: UIScrollView?, zoomScrollView: UIScrollView?) {
+            // The watched page went away mid-handoff (LazyPager reuse, or the image switching layout),
+            // so no end event will arrive. Release the media instead of leaving it part-way dismissed.
+            if overscrollEdge != nil, overscrollScrollView == nil {
+                cancelOverscrollHandoff()
+            }
+            // Never swap the watched view in the middle of a handoff.
+            guard overscrollEdge == nil else { return }
+            overscrollZoomScrollView = zoomScrollView
+            guard overscrollScrollView !== scrollView else { return }
+            overscrollScrollView?.panGestureRecognizer.removeTarget(
+                self,
+                action: #selector(handleOverscrollPan(_:))
+            )
+            overscrollScrollView = scrollView
+            // Added after UIScrollView's own target, so it runs after the scroll view applied each pan
+            // update. Pinning the offset and stopping deceleration on release both rely on that order.
+            scrollView?.panGestureRecognizer.addTarget(self, action: #selector(handleOverscrollPan(_:)))
+        }
+
+        private func cancelOverscrollHandoff() {
+            guard overscrollEdge != nil else { return }
+            overscrollEdge = nil
+            onCancelled()
+        }
+
+        /// A tall image's scroll drag that reaches an edge keeps going as a dismiss in the same gesture.
+        /// The image stays pinned to that edge while the finger past it drives the dismiss transform.
+        @objc private func handleOverscrollPan(_ recognizer: UIPanGestureRecognizer) {
+            guard let sourceView,
+                  let scrollView = recognizer.view as? UIScrollView,
+                  scrollView === overscrollScrollView else { return }
+            let location = recognizer.location(in: sourceView)
+            let velocity = recognizer.velocity(in: sourceView)
+
+            switch recognizer.state {
+            case .began, .changed:
+                if let edge = overscrollEdge {
+                    // A second finger is a pinch, not a dismiss.
+                    guard recognizer.numberOfTouches <= 1 else {
+                        cancelOverscrollHandoff()
+                        return
+                    }
+                    let edgeOffsetY = MediaViewerDismissGesturePolicy.edgeOffsetY(in: scrollView, edge: edge)
+                    guard let translationY = MediaViewerDismissGesturePolicy.overscrollTranslationY(
+                        locationY: location.y,
+                        baseLocationY: overscrollBaseLocation.y,
+                        edge: edge
+                    ) else {
+                        // The finger came back past the edge: the image scrolls again, from the edge
+                        // by only the distance the finger moved back past it.
+                        overscrollEdge = nil
+                        scrollView.contentOffset.y = edgeOffsetY - (location.y - overscrollBaseLocation.y)
+                        onChanged(overscrollPan(translationY: 0, location: location, velocity: velocity, edge: edge))
+                        return
+                    }
+                    if scrollView.contentOffset.y != edgeOffsetY {
+                        scrollView.contentOffset.y = edgeOffsetY
+                    }
+                    onChanged(overscrollPan(translationY: translationY, location: location, velocity: velocity, edge: edge))
+                } else {
+                    guard enabled, !panDidBegin, recognizer.numberOfTouches <= 1, overscrollZoomIsAtMinimum,
+                          let edge = MediaViewerDismissGesturePolicy.overscrollEdge(
+                              in: scrollView,
+                              fingerVelocityY: velocity.y
+                          ) else { return }
+                    let edgeOffsetY = MediaViewerDismissGesturePolicy.edgeOffsetY(in: scrollView, edge: edge)
+                    let alreadyPulled = MediaViewerDismissGesturePolicy.overscrollAmount(
+                        contentOffsetY: scrollView.contentOffset.y,
+                        edgeOffsetY: edgeOffsetY,
+                        edge: edge
+                    )
+                    overscrollEdge = edge
+                    overscrollStartLocation = location
+                    // Start from the rubber-band distance so the media does not jump at the handoff.
+                    overscrollBaseLocation = CGPoint(x: location.x, y: location.y - alreadyPulled * edge)
+                    scrollView.contentOffset.y = edgeOffsetY
+                    onChanged(overscrollPan(
+                        translationY: alreadyPulled * edge,
+                        location: location,
+                        velocity: velocity,
+                        edge: edge
+                    ))
+                }
+            case .ended:
+                guard let edge = overscrollEdge else { return }
+                overscrollEdge = nil
+                let didDismiss = onEnded(overscrollPan(
+                    translationY: location.y - overscrollBaseLocation.y,
+                    location: location,
+                    velocity: velocity,
+                    edge: edge
+                ))
+                // Stop the scroll view's bounce at the edge, but keep a deliberate fling back into the image.
+                if MediaViewerDismissGesturePolicy.shouldStopScrollAtEdgeOnRelease(
+                    didDismiss: didDismiss,
+                    velocityY: velocity.y,
+                    edge: edge
+                ) {
+                    let edgeOffsetY = MediaViewerDismissGesturePolicy.edgeOffsetY(in: scrollView, edge: edge)
+                    scrollView.setContentOffset(CGPoint(x: scrollView.contentOffset.x, y: edgeOffsetY), animated: false)
+                }
+            case .cancelled, .failed:
+                cancelOverscrollHandoff()
+            default:
+                break
+            }
+        }
+
+        private var overscrollZoomIsAtMinimum: Bool {
+            guard let zoom = overscrollZoomScrollView else { return true }
+            return zoom.zoomScale <= zoom.minimumZoomScale + 0.001
+        }
+
+        private func overscrollPan(
+            translationY: CGFloat,
+            location: CGPoint,
+            velocity: CGPoint,
+            edge: CGFloat
+        ) -> MediaViewerDismissPan {
+            MediaViewerDismissPan(
+                translation: CGPoint(
+                    x: translationY == 0 ? 0 : location.x - overscrollBaseLocation.x,
+                    y: translationY
+                ),
+                velocity: velocity,
+                startLocation: overscrollStartLocation,
+                containerSize: sourceView?.bounds.size ?? .zero,
+                overscrollEdge: edge
             )
         }
 

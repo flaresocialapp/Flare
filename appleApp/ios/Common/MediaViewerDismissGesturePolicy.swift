@@ -19,6 +19,13 @@ enum MediaViewerDismissGesturePolicy {
     static let projectionDuration: CGFloat = 0.499
     static let minimumScale: CGFloat = 0.6
     static let scrollEdgeTolerance: CGFloat = 1
+    /// How close to an edge of a tall image a fresh drag may start and still dismiss.
+    static let dismissEdgeTolerance: CGFloat = 24
+    /// Fraction of the page height a drag continued past a tall image's edge must be projected to travel.
+    static let overscrollDistanceThreshold: CGFloat = 0.12
+    /// Travel past the edge required before release velocity counts, so a flick that merely
+    /// reaches the edge (whose velocity comes from scrolling) does not close the viewer.
+    static let minimumOverscrollTravel: CGFloat = 32
     /// Movement that is clearly paging, so the dismiss pan can release the scroll view.
     static let horizontalYieldDistance: CGFloat = 10
     /// The dismiss pan does not share a drag. A chrome tap may still land with the double-tap zoom.
@@ -153,12 +160,74 @@ enum MediaViewerDismissGesturePolicy {
         let vertical = velocityY != 0 ? velocityY : translationY
         let range = verticalScrollRange(for: scrollView)
         if vertical > 0 {
-            return scrollView.contentOffset.y <= range.minimum + scrollEdgeTolerance
+            return scrollView.contentOffset.y <= range.minimum + dismissEdgeTolerance
         }
         if vertical < 0 {
-            return scrollView.contentOffset.y >= range.maximum - scrollEdgeTolerance
+            return scrollView.contentOffset.y >= range.maximum - dismissEdgeTolerance
         }
         return false
+    }
+
+    /// The edge a tall image's own scroll drag has reached while the finger keeps pushing past it.
+    /// Returns 1 for the top edge (finger moving down), -1 for the bottom edge (finger moving up).
+    static func overscrollEdge(
+        contentOffsetY: CGFloat,
+        minimumOffsetY: CGFloat,
+        maximumOffsetY: CGFloat,
+        fingerVelocityY: CGFloat
+    ) -> CGFloat? {
+        guard maximumOffsetY - minimumOffsetY > scrollEdgeTolerance else { return nil }
+        if fingerVelocityY > 0, contentOffsetY <= minimumOffsetY + scrollEdgeTolerance {
+            return 1
+        }
+        if fingerVelocityY < 0, contentOffsetY >= maximumOffsetY - scrollEdgeTolerance {
+            return -1
+        }
+        return nil
+    }
+
+    @MainActor
+    static func overscrollEdge(in scrollView: UIScrollView, fingerVelocityY: CGFloat) -> CGFloat? {
+        guard scrollView.isScrollEnabled else { return nil }
+        let range = verticalScrollRange(for: scrollView)
+        return overscrollEdge(
+            contentOffsetY: scrollView.contentOffset.y,
+            minimumOffsetY: range.minimum,
+            maximumOffsetY: range.maximum,
+            fingerVelocityY: fingerVelocityY
+        )
+    }
+
+    /// Offset that keeps a tall image pinned to the edge while the overscroll drives the dismiss transform.
+    @MainActor
+    static func edgeOffsetY(in scrollView: UIScrollView, edge: CGFloat) -> CGFloat {
+        let range = verticalScrollRange(for: scrollView)
+        return edge > 0 ? range.minimum : range.maximum
+    }
+
+    /// Distance already rubber-banded past the edge when the handoff starts, so the media does not jump.
+    static func overscrollAmount(
+        contentOffsetY: CGFloat,
+        edgeOffsetY: CGFloat,
+        edge: CGFloat
+    ) -> CGFloat {
+        max(0, (edgeOffsetY - contentOffsetY) * edge)
+    }
+
+    /// Dismiss translation for a drag that was handed off at `baseLocationY`. Nil once the finger returns past it.
+    static func overscrollTranslationY(
+        locationY: CGFloat,
+        baseLocationY: CGFloat,
+        edge: CGFloat
+    ) -> CGFloat? {
+        let translation = locationY - baseLocationY
+        guard translation * edge > 0 else { return nil }
+        return translation
+    }
+
+    /// Release pins the image to the edge unless it is being flung back into the content.
+    static func shouldStopScrollAtEdgeOnRelease(didDismiss: Bool, velocityY: CGFloat, edge: CGFloat) -> Bool {
+        didDismiss || velocityY * edge >= 0
     }
 
     static func transform(
@@ -192,6 +261,19 @@ enum MediaViewerDismissGesturePolicy {
         guard containerHeight > 0 else { return false }
         let projected = projectedTranslationY(translationY: translationY, velocityY: velocityY)
         return abs(projected) >= containerHeight * distanceThreshold
+    }
+
+    /// A drag continued past a tall image's edge dismisses with less travel, but only away from that edge.
+    static func shouldDismissOverscroll(
+        translationY: CGFloat,
+        velocityY: CGFloat,
+        containerHeight: CGFloat,
+        edge: CGFloat
+    ) -> Bool {
+        guard containerHeight > 0 else { return false }
+        guard translationY * edge >= minimumOverscrollTravel else { return false }
+        let projected = projectedTranslationY(translationY: translationY, velocityY: velocityY)
+        return projected * edge >= containerHeight * overscrollDistanceThreshold
     }
 
     static func dismissDirection(

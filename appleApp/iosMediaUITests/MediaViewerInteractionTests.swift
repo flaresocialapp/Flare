@@ -10,11 +10,13 @@ final class MediaViewerInteractionTests: XCTestCase {
         hidePostActions: Bool = false,
         translation: Bool = false,
         translationError: Bool = false,
-        zeroHeightSummary: Bool = false
+        zeroHeightSummary: Bool = false,
+        tallImage: Bool = false
     ) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["--media-viewer-test", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         if video { app.launchArguments.append("--video") }
+        if tallImage { app.launchArguments.append("--tall-image") }
         if translation { app.launchArguments.append("--image-translation-fixture") }
         if translationError { app.launchArguments.append("--image-translation-error-fixture") }
         if withoutPost { app.launchArguments.append("--without-post") }
@@ -442,6 +444,59 @@ final class MediaViewerInteractionTests: XCTestCase {
     @MainActor func testImageSwipeUpWithoutPost() { assertDismisses(upward: true, withoutPost: true) }
     @MainActor func testVideoSwipeDownWithSummary() { assertDismisses(upward: false, video: true) }
     @MainActor func testVideoSwipeUpWithSummary() { assertDismisses(upward: true, video: true) }
+
+    @MainActor
+    func testTallImageDragContinuedPastTopEdgeDismisses() {
+        let app = openMedia(withoutPost: true, tallImage: true)
+        defer { app.terminate() }
+        // Scroll into the image without momentum.
+        let lower = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+        let upper = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+        lower.press(forDuration: 0.05, thenDragTo: upper, withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertFalse(app.staticTexts["Media dismissed"].exists, "Scrolling into a tall image must not dismiss")
+
+        // One drag scrolls back to the top and keeps pulling about 17% of the screen past it:
+        // short of a regular 25% dismiss, enough for the 12% overscroll threshold.
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.1)
+        XCTAssertTrue(
+            app.staticTexts["Media dismissed"].waitForExistence(timeout: 4),
+            "Pulling a tall image past its top edge in the same drag must dismiss the viewer"
+        )
+    }
+
+    @MainActor
+    func testTallImageDragContinuedPastBottomEdgeDismisses() {
+        let app = openMedia(withoutPost: true, tallImage: true)
+        defer { app.terminate() }
+        let lower = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+        let upper = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15))
+        var drags = 0
+        // Momentum-free drags scroll through the image; the one that runs past the bottom closes it.
+        while drags < 8, !app.staticTexts["Media dismissed"].exists {
+            lower.press(forDuration: 0.05, thenDragTo: upper, withVelocity: .slow, thenHoldForDuration: 0.1)
+            drags += 1
+            _ = app.staticTexts["Media dismissed"].waitForExistence(timeout: 1.5)
+        }
+        XCTAssertTrue(app.staticTexts["Media dismissed"].exists, "Pushing past a tall image's bottom edge must dismiss")
+        XCTAssertGreaterThanOrEqual(drags, 3, "The image must scroll before the bottom edge dismisses it")
+    }
+
+    @MainActor
+    func testTallImageDragWithinContentDoesNotDismiss() {
+        let app = openMedia(withoutPost: true, tallImage: true)
+        defer { app.terminate() }
+        let lower = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+        let upper = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+        lower.press(forDuration: 0.05, thenDragTo: upper, withVelocity: .slow, thenHoldForDuration: 0.3)
+        // Scrolling back less than was scrolled down stays inside the image.
+        let middle = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+        let lowerMiddle = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+        middle.press(forDuration: 0.05, thenDragTo: lowerMiddle, withVelocity: .slow, thenHoldForDuration: 0.3)
+        XCTAssertFalse(app.staticTexts["Media dismissed"].waitForExistence(timeout: 1.5))
+        XCTAssertTrue(app.buttons["Close"].exists)
+    }
 
     @MainActor
     func testImagePagingAndCloseWithSummary() {
