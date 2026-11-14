@@ -41,9 +41,35 @@ private struct TimelineMediaScrollTestView: UIViewControllerRepresentable {
     }
 }
 
+private final class CarouselTouchProbe: UIGestureRecognizer, UIGestureRecognizerDelegate {
+    private let onTouchBegan: () -> Void
+
+    init(onTouchBegan: @escaping () -> Void) {
+        self.onTouchBegan = onTouchBegan
+        super.init(target: nil, action: nil)
+        cancelsTouchesInView = false
+        delaysTouchesBegan = false
+        delaysTouchesEnded = false
+        delegate = self
+    }
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        onTouchBegan()
+        state = .failed
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        true
+    }
+}
+
 private final class TimelineScrollMeasurements: NSObject {
     let controller = UITimelineCollectionViewController(detailStatusKey: nil)
     var displayLink: CADisplayLink?
+    private let usesCarousel = ProcessInfo.processInfo.arguments.contains("--timeline-media-carousel")
     private var list: TimelineCollectionView {
         controller.view.subviews.compactMap { $0 as? TimelineCollectionView }.first!
     }
@@ -54,17 +80,32 @@ private final class TimelineScrollMeasurements: NSObject {
     private var maxHeightChange: CGFloat = 0
     private var minTopInset = CGFloat.greatestFiniteMagnitude
     private var maxTopInset: CGFloat = 0
+    private weak var observedCarousel: UICollectionView?
+    private var activelyDecelerating = false
+    private var pendingDecelerationCatch = false
+    private var touchesDuringDeceleration = 0
+    private var decelerationCatchDrags = 0
+    private var decelerationTouchOffsetX: CGFloat = 0
 
     override init() {
         super.init()
         let helper = TimelinePresentationAppearancePatchHelper.shared
+        var patch = helper.setLimitSingleMediaHeight(patch: helper.empty, value: true)
+        if usesCarousel {
+            patch = helper.setMediaLayout(patch: patch, value: .carousel)
+        }
         controller.appearance = TimelineUIKitAppearance(timeline: helper.resolve(
             base: TimelineAppearance.companion.Default,
-            patch: helper.setLimitSingleMediaHeight(patch: helper.empty, value: true)))
+            patch: patch))
         var input = TimelineContent()
         input.state = .loaded
         input.items = (0..<100).map {
-            .post(makeTimelineTestRow($0, imageHeight: 1_600, mediaCount: 1, textRepeatCount: $0 % 4))
+            .post(makeTimelineTestRow(
+                $0,
+                imageHeight: usesCarousel ? 600 : 1_600,
+                mediaCount: usesCarousel ? 16 : 1,
+                textRepeatCount: $0 % 4
+            ))
         }
         controller.submit(input, columns: 1)
         controller.loadViewIfNeeded()
@@ -101,11 +142,33 @@ private final class TimelineScrollMeasurements: NSObject {
         maxHeightChange = 0
         minTopInset = .greatestFiniteMagnitude
         maxTopInset = 0
-        publish()
+        activelyDecelerating = false
+        pendingDecelerationCatch = false
+        touchesDuringDeceleration = 0
+        decelerationCatchDrags = 0
+        decelerationTouchOffsetX = 0
+        let media = firstMediaView()
+        let carousel = currentCarousel(in: media)
+        carousel?.setContentOffset(.zero, animated: false)
+        publish(media: media, carousel: carousel)
     }
 
     @objc private func sample() {
-        defer { publish() }
+        let media = firstMediaView()
+        let carousel = currentCarousel(in: media)
+        if let carousel {
+            if pendingDecelerationCatch && carousel.isDragging && carousel.panGestureRecognizer.state == .changed {
+                decelerationCatchDrags += 1
+                pendingDecelerationCatch = false
+            }
+            if carousel.isDecelerating && !carousel.isTracking {
+                activelyDecelerating = true
+            } else if !carousel.isDecelerating && !carousel.isDragging && !carousel.isTracking {
+                activelyDecelerating = false
+                pendingDecelerationCatch = false
+            }
+        }
+        defer { publish(media: media, carousel: carousel) }
         guard list.isDragging else { previous = nil; return }
         minTopInset = min(minTopInset, list.safeAreaInsets.top)
         maxTopInset = max(maxTopInset, list.safeAreaInsets.top)
@@ -131,16 +194,63 @@ private final class TimelineScrollMeasurements: NSObject {
         }
     }
 
-    private func publish() {
-        let media = list.visibleCells.lazy.flatMap(descendants).compactMap { $0 as? StatusMediaUIView }.first
+    private func firstMediaView() -> StatusMediaUIView? {
+        for indexPath in list.indexPathsForVisibleItems.sorted() {
+            guard let cell = list.cellForItem(at: indexPath),
+                  let media = firstSubview(ofType: StatusMediaUIView.self, in: cell) else { continue }
+            return media
+        }
+        return nil
+    }
+
+    private func currentCarousel(in media: StatusMediaUIView?) -> UICollectionView? {
+        guard usesCarousel else { return nil }
+        guard let carousel = media?.subviews.compactMap({ $0 as? UICollectionView }).first(where: { !$0.isHidden }) else {
+            return nil
+        }
+        if observedCarousel !== carousel {
+            observedCarousel?.accessibilityIdentifier = nil
+            activelyDecelerating = false
+            pendingDecelerationCatch = false
+            observedCarousel = carousel
+            carousel.accessibilityIdentifier = "timeline-media-carousel"
+            if !(carousel.gestureRecognizers ?? []).contains(where: { $0 is CarouselTouchProbe }) {
+                carousel.addGestureRecognizer(CarouselTouchProbe { [weak self, weak carousel] in
+                    guard let self, let carousel, self.observedCarousel === carousel else { return }
+                    if carousel.isDecelerating || self.activelyDecelerating {
+                        self.touchesDuringDeceleration += 1
+                        self.decelerationTouchOffsetX = carousel.contentOffset.x
+                        self.pendingDecelerationCatch = true
+                    } else {
+                        self.pendingDecelerationCatch = false
+                    }
+                })
+            }
+        }
+        return carousel
+    }
+
+    private func publish(media: StatusMediaUIView?, carousel: UICollectionView?) {
         let values: [String: CGFloat] = [
             "samples": CGFloat(samples), "maxError": maxError, "maxHeightChange": maxHeightChange,
-            "topInsetRange": max(maxTopInset - minTopInset, 0), "mediaHeight": media?.bounds.height ?? 0
+            "topInsetRange": max(maxTopInset - minTopInset, 0), "mediaHeight": media?.bounds.height ?? 0,
+            "timelineOffsetY": list.contentOffset.y,
+            "carouselOffsetX": carousel?.contentOffset.x ?? 0,
+            "carouselDecelerating": carousel?.isDecelerating == true ? 1 : 0,
+            "touchesDuringDeceleration": CGFloat(touchesDuringDeceleration),
+            "decelerationCatchDrags": CGFloat(decelerationCatchDrags),
+            "decelerationTouchOffsetX": decelerationTouchOffsetX,
         ]
         let data = try! JSONSerialization.data(withJSONObject: values, options: .sortedKeys)
         label.text = String(decoding: data, as: UTF8.self)
     }
 
-    private func descendants(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(descendants) }
+    private func firstSubview<T: UIView>(ofType _: T.Type, in view: UIView) -> T? {
+        if let match = view as? T { return match }
+        for subview in view.subviews {
+            if let match = firstSubview(ofType: T.self, in: subview) { return match }
+        }
+        return nil
+    }
 }
 #endif
