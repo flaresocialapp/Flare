@@ -670,7 +670,8 @@ final class StatusUIKitView: UIView, UIGestureRecognizerDelegate, ManualLayoutMe
         let isAttachment = child === mediaViewStorage || child === normalCardViewStorage ||
             child === compatCardViewStorage || child === quotesContainerStorage
         if followsHeader && !usesSideAvatar && !isQuote { return 8 }
-        if child === actionsContainerStorage || (followsHeader && isText) { return 2 }
+        if followsHeader && isText { return isQuote ? 4 : 2 }
+        if child === actionsContainerStorage { return 2 }
         if isAttachment && !(child === quotesContainerStorage && previousChild === mediaViewStorage) { return 10 }
         return 8
     }
@@ -1577,15 +1578,10 @@ private final class QuotesContainerView: UIView, ManualLayoutMeasurable, Timelin
         super.init(frame: frame)
         layer.cornerRadius = 16
         layer.borderWidth = 1
-        layer.borderColor = UIColor.separator.cgColor
+        useSeparatorBorderColor()
         clipsToBounds = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        layer.borderColor = UIColor.separator.cgColor
-    }
 
     func setChildren(_ desired: [UIView]) {
         syncManagedSubviews(parent: self, current: &managedChildren, desired: desired)

@@ -23,7 +23,7 @@ final class StatusCardUIView: UIView, ManualLayoutMeasurable, TimelineHeightProv
         clipsToBounds = true
         layer.cornerRadius = cornerRadius
         layer.borderWidth = 1
-        layer.borderColor = UIColor.separator.cgColor
+        useSeparatorBorderColor()
 
         mediaContainer.clipsToBounds = true
         mediaContainer.addSubview(media)
@@ -177,7 +177,7 @@ final class StatusCompatCardUIView: UIView, ManualLayoutMeasurable, TimelineHeig
         clipsToBounds = true
         layer.cornerRadius = cornerRadius
         layer.borderWidth = 1
-        layer.borderColor = UIColor.separator.cgColor
+        useSeparatorBorderColor()
 
         mediaWrap.clipsToBounds = true
         mediaWrap.addSubview(media)

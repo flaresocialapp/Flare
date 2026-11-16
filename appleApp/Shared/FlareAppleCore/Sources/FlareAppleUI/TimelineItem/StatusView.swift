@@ -187,7 +187,13 @@ public struct StatusView: View {
         } else {
             actionsFollowHeader ? 8 : 2
         }
-        let bodyTopSpacing: CGFloat = user == nil || replyToHandle != nil ? 0 : (hasFullWidthHeader || !hasPreMediaText ? 8 : 2)
+        let bodyTopSpacing: CGFloat = if user == nil || replyToHandle != nil {
+            0
+        } else if hasFullWidthHeader || !hasPreMediaText {
+            8
+        } else {
+            isQuote && !isGalleryFallback ? 4 : 2
+        }
 
         VStack(
             alignment: .leading,

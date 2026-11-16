@@ -208,7 +208,6 @@ public fun CommonStatusComponent(
         val isGalleryFallback = LocalEffectiveTimelineDisplayMode.current == TimelineDisplayMode.Gallery
         val usesSideAvatar = !appearanceSettings.fullWidthPost && !isQuote && !isDetail
         val hasFullWidthHeader = !usesSideAvatar && !isQuote && item.user != null
-        val headerSpacing = if (hasFullWidthHeader) 8.dp else 2.dp
         val sideAvatarTopInset = with(LocalDensity.current) { (PlatformTheme.typography.postBody.fontSize * 0.25f).toDp() }
         val replyToHandle = item.replyToHandle?.takeIf { showReplyTo }
         val translationDisplayed = item.translationDisplayState == TranslationDisplayState.Translated
@@ -222,7 +221,14 @@ public fun CommonStatusComponent(
                 item.contentWarning?.visiblePostText(translationDisplayed, showOriginal).orEmpty()
             }
         val showsDetailTranslation = isDetail && !item.content.original.isEmpty && appearanceSettings.showTranslateButton
-        val hasBodyContent = visibleContent.any { !it.isEmpty } || visibleContentWarning.any { !it.isEmpty } || item.poll != null
+        val hasTextContent = visibleContent.any { !it.isEmpty } || visibleContentWarning.any { !it.isEmpty }
+        val hasBodyContent = hasTextContent || item.poll != null
+        val headerSpacing =
+            when {
+                hasFullWidthHeader -> 8.dp
+                isQuote && !isGalleryFallback && hasTextContent -> 4.dp
+                else -> 2.dp
+            }
         val hasBodyAfterReply = hasBodyContent || showsDetailTranslation
         val hasPreMediaBody = replyToHandle != null || hasBodyAfterReply
         val showsImages = item.images.isNotEmpty() && showMedia

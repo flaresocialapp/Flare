@@ -47,6 +47,7 @@ import dev.dimension.flare.data.model.TimelineMediaLayout
 import dev.dimension.flare.data.model.VideoAutoplay
 import dev.dimension.flare.data.model.appearance.TimelineAppearance
 import dev.dimension.flare.model.MicroBlogKey
+import dev.dimension.flare.ui.component.FlareDividerDefaults
 import dev.dimension.flare.ui.component.LocalNetworkImageAllowHardware
 import dev.dimension.flare.ui.component.LocalTimelineAppearance
 import dev.dimension.flare.ui.component.platform.LocalWindowSizeClass
@@ -125,7 +126,7 @@ class StatusHeaderSpacingTest {
     }
 
     @Test
-    fun quotedAuthorUsesTwoDpBeforeBodyAndFourBeforeReply() {
+    fun quotedAuthorUsesFourDpBeforeBodyAndReply() {
         assertBodyAndReplySpacing(isQuote = true)
     }
 
@@ -202,9 +203,11 @@ class StatusHeaderSpacingTest {
             )
         var translation by mutableStateOf(TranslationDisplayState.Translated)
         lateinit var bodyStyle: TextStyle
+        var mediaBorderColor = Color.Unspecified
         compose.setContent {
             FluentTheme(colors = darkColors()) {
                 bodyStyle = PlatformTheme.typography.postBody
+                mediaBorderColor = FlareDividerDefaults.color
                 CompositionLocalProvider(
                     LocalTimelineAppearance provides TimelineAppearance(fullWidthPost = false, showPlatformLogo = true),
                     LocalNetworkImageAllowHardware provides false,
@@ -264,7 +267,11 @@ class StatusHeaderSpacingTest {
             }
         }
         val mediaPixels = mediaNode.captureToImage().toPixelMap()
-        assertEquals(Color(0xFFB3B3B3).toArgb(), mediaPixels[mediaPixels.width / 2, 0].toArgb(), "Media border")
+        val expectedBorder = Color(mediaBorderColor.compositeOver(Color(fill)).toArgb())
+        val borderPixel = mediaPixels[mediaPixels.width / 2, 0]
+        assertEquals(expectedBorder.red, borderPixel.red, 0.004f, "Media border red")
+        assertEquals(expectedBorder.green, borderPixel.green, 0.004f, "Media border green")
+        assertEquals(expectedBorder.blue, borderPixel.blue, 0.004f, "Media border blue")
         assertEquals(fill, mediaPixels[mediaPixels.width / 2, 1].toArgb(), "First pixel inside the media border")
         System.getenv("FLARE_POST_SCREENSHOT")?.let { path ->
             val pixels = compose.onNodeWithTag("component-spacing").captureToImage().toPixelMap()
@@ -779,7 +786,12 @@ class StatusHeaderSpacingTest {
         isQuote: Boolean,
         fullWidthPost: Boolean = false,
     ) {
-        val headerGap = if (fullWidthPost) 8f else 2f
+        val headerGap =
+            when {
+                isQuote -> 4f
+                fullWidthPost -> 8f
+                else -> 2f
+            }
         val sample = samplePost()
         var post by mutableStateOf(sample)
         showPost(isQuote = isQuote, fullWidthPost = fullWidthPost) { post }

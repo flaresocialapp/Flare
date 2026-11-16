@@ -1238,7 +1238,7 @@ private final class MediaGridCellView: UIView, UIContextMenuInteractionDelegate,
     override init(frame: CGRect) {
         super.init(frame: frame)
         clipsToBounds = true
-        layer.borderColor = UIColor(white: 179.0 / 255, alpha: 1).cgColor
+        useSeparatorBorderColor()
         mediaView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(mediaView)
         NSLayoutConstraint.activate([

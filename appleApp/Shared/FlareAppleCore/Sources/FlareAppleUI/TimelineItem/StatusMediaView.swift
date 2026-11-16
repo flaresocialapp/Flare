@@ -24,6 +24,7 @@ struct StatusMediaView: View {
     @State private var isBlur: Bool
     @State private var activeCarouselIndex: Int?
     @Environment(\.timelinePlaybackCoordinator) private var playback
+    @Environment(\.timelineGalleryFallback) private var isGalleryFallback
     @State private var carouselID = UUID().uuidString
     @State private var carouselOffset: CGFloat?
     @State private var verticalOffset: CGFloat?
@@ -262,7 +263,8 @@ struct StatusMediaView: View {
     }
 
     private func mediaOutline<Shape: InsettableShape>(_ shape: Shape) -> some View {
-        shape.strokeBorder(Color(white: 179.0 / 255), lineWidth: 1 / displayScale)
+        let borderColor = isGalleryFallback ? Color(white: 179.0 / 255) : .flareSeparator
+        return shape.strokeBorder(borderColor, lineWidth: 1 / displayScale)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }

@@ -190,6 +190,22 @@ final class StatusPostPresentationTests: XCTestCase {
         XCTAssertEqual(try height(replyTo: "@context") - height(replyTo: nil), promptHeight + 8 - 10, accuracy: 1)
     }
 
+    func testSwiftUIQuoteSeparatesUserRowAndBodyByFourPoints() throws {
+        let row = try XCTUnwrap(makeTimelineTestRow(1, mediaCount: 0, textRepeatCount: 0) as? UiTimelineV2.TimelinePostItem)
+        let profile = try XCTUnwrap(row.post.user)
+        func height(text: String, user: UiProfile?) throws -> CGFloat {
+            let quote = replyPost("quote", text: text, user: user, replyToHandle: nil)
+            let renderer = ImageRenderer(content:
+                StatusView(data: quote, isQuote: true, forceHideActions: true).frame(width: 346)
+            )
+            renderer.scale = 3
+            return CGFloat(try XCTUnwrap(renderer.cgImage).height) / renderer.scale
+        }
+        let header = try height(text: "", user: profile)
+        let body = try height(text: "Quoted text", user: nil)
+        XCTAssertEqual(try height(text: "Quoted text", user: profile) - header - body, 4, accuracy: 0.5)
+    }
+
     func testPostGeometryUsesTheSameInsetsForLayoutAndMeasurement() throws {
         let row = try XCTUnwrap(makeTimelineTestRow(1, mediaCount: 0, textRepeatCount: 1) as? UiTimelineV2.TimelinePostItem)
         let appearance = StatusUIKitAppearance(timeline: TimelineAppearance.companion.Default)
@@ -440,19 +456,33 @@ final class StatusPostPresentationTests: XCTestCase {
         let body = try XCTUnwrap(view.subviews.compactMap { $0 as? RichTextUIView }.first)
         let media = try XCTUnwrap(view.subviews.compactMap { $0 as? StatusMediaContentUIView }.first)
         let mediaTile = try XCTUnwrap(descendants(media).first { $0.layer.borderWidth > 0 })
-        XCTAssertEqual(mediaTile.layer.borderColor, UIColor(white: 179.0 / 255, alpha: 1).cgColor)
+        XCTAssertEqual(mediaTile.layer.borderColor, UIColor.separator.resolvedColor(with: mediaTile.traitCollection).cgColor)
         XCTAssertEqual(mediaTile.layer.borderWidth * max(mediaTile.traitCollection.displayScale, 1), 1, accuracy: 0.01)
         let quoted = try XCTUnwrap(descendants(view).compactMap { $0 as? StatusUIKitView }.first { $0 !== view })
         let quoteContainer = try XCTUnwrap(quoted.superview)
+        let quoteHeader = try XCTUnwrap(quoted.subviews.first { $0 is UserOnelineUIView })
+        let quoteBody = try XCTUnwrap(quoted.subviews.first { $0 is RichTextUIView })
         let actions = try XCTUnwrap(descendants(view).compactMap { $0 as? StatusActionsUIView }.first)
         let actionFrame = actions.convert(actions.bounds, to: view)
         XCTAssertEqual(media.frame.minY - body.frame.maxY, 10)
         XCTAssertEqual(quoteContainer.frame.minY - media.frame.maxY, 8)
         XCTAssertEqual(quoted.frame.minX, 12)
         XCTAssertEqual(quoted.frame.minY, 12)
+        XCTAssertEqual(quoteBody.frame.minY - quoteHeader.frame.maxY, 4)
         XCTAssertEqual(actionFrame.minY - quoteContainer.frame.maxY, 2)
         XCTAssertEqual(actionFrame.minX, body.frame.minX - 4)
         XCTAssertEqual(actionFrame.width, body.frame.width + 8)
+
+        let borderedViews = [mediaTile, quoteContainer, StatusCardUIView(cornerRadius: 16), StatusCompatCardUIView(cornerRadius: 16)]
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            for borderedView in borderedViews {
+                borderedView.traitOverrides.userInterfaceStyle = style
+                borderedView.updateTraitsIfNeeded()
+                XCTAssertEqual(borderedView.traitCollection.userInterfaceStyle, style)
+                XCTAssertEqual(borderedView.layer.borderColor,
+                               UIColor.separator.resolvedColor(with: borderedView.traitCollection).cgColor)
+            }
+        }
     }
 
     func testMediaOverflowIsInsideTheBorderAndClearsOnReuse() throws {
@@ -471,7 +501,7 @@ final class StatusPostPresentationTests: XCTestCase {
         let label = try XCTUnwrap(descendants(view).compactMap { $0 as? UILabel }.first { $0.text == "+1" })
         let overlay = try XCTUnwrap(label.superview)
         let tile = try XCTUnwrap(overlay.superview)
-        XCTAssertEqual(tile.layer.borderColor, UIColor(white: 179.0 / 255, alpha: 1).cgColor)
+        XCTAssertEqual(tile.layer.borderColor, UIColor.separator.resolvedColor(with: tile.traitCollection).cgColor)
         XCTAssertEqual(overlay.frame.origin, tile.bounds.origin)
         XCTAssertEqual(overlay.frame.width, tile.bounds.width, accuracy: 0.001)
         XCTAssertEqual(overlay.frame.height, tile.bounds.height, accuracy: 0.001)

@@ -4,6 +4,19 @@ import FlareAppleUI
 import KotlinSharedUI
 import FlareAppleCore
 
+extension UIView {
+    func useSeparatorBorderColor() {
+        updateSeparatorBorderColor()
+        registerForTraitChanges(UITraitCollection.systemTraitsAffectingColorAppearance) { (view: UIView, _) in
+            view.updateSeparatorBorderColor()
+        }
+    }
+
+    private func updateSeparatorBorderColor() {
+        layer.borderColor = UIColor.separator.resolvedColor(with: traitCollection).cgColor
+    }
+}
+
 extension UILabel {
     func setPostText(_ text: String?, preferredContentSizeCategory: UIContentSizeCategory = .medium,
                      fontSizeAdjustment: CGFloat = 0) {

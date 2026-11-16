@@ -13,6 +13,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.LocalDensity
@@ -41,13 +42,16 @@ import dev.dimension.flare.compose.ui.hide_sensitive_media
 import dev.dimension.flare.compose.ui.media_play_video
 import dev.dimension.flare.compose.ui.media_view_alt_text
 import dev.dimension.flare.compose.ui.show_sensitive_media
+import dev.dimension.flare.data.model.TimelineDisplayMode
 import dev.dimension.flare.data.model.VideoAutoplay
 import dev.dimension.flare.data.model.appearance.TimelineAppearance
+import dev.dimension.flare.ui.component.status.LocalEffectiveTimelineDisplayMode
 import dev.dimension.flare.ui.component.status.StatusMediaComponent
 import dev.dimension.flare.ui.model.UiMedia
 import dev.dimension.flare.ui.model.createSampleStatus
 import dev.dimension.flare.ui.model.createSampleUser
 import io.github.composefluent.FluentTheme
+import io.github.composefluent.darkColors
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import org.jetbrains.compose.resources.stringResource
@@ -64,16 +68,20 @@ class StatusSingleMediaHeightTest {
     val compose = createComposeRule()
 
     @Test
-    fun mediaOverflowKeepsTheOpaqueBorderOnTheLastTile() {
+    fun mediaOverflowUsesTheQuoteBorderColorAndKeepsTheGalleryBorder() {
         val file = Files.createTempFile("grid-media", ".png").toFile().apply { deleteOnExit() }
         ImageIO.write(BufferedImage(20, 20, BufferedImage.TYPE_INT_RGB), "png", file)
         val uri = file.toPath().toUri().toString()
         val images = List(10) { UiMedia.Image(uri, uri, "Grid item $it", 20f, 20f, false) }.toImmutableList()
         val post = createSampleStatus(createSampleUser()).copy(images = images)
+        var mediaBorderColor = Color.Unspecified
+        var displayMode by mutableStateOf(TimelineDisplayMode.Plain)
         compose.setContent {
-            FluentTheme {
+            FluentTheme(colors = darkColors()) {
+                mediaBorderColor = FlareDividerDefaults.color
                 CompositionLocalProvider(
                     LocalTimelineAppearance provides TimelineAppearance(limitMediaGridToNine = true),
+                    LocalEffectiveTimelineDisplayMode provides displayMode,
                     LocalNetworkImageAllowHardware provides false,
                     LocalDensity provides Density(1f),
                 ) {
@@ -96,8 +104,11 @@ class StatusSingleMediaHeightTest {
             pixels[pixels.width / 2, pixels.height / 4].toArgb() == Color.Black.toArgb()
         }
         val pixels = tile.captureToImage().toPixelMap()
-        assertEquals(Color(0xFFB3B3B3).toArgb(), pixels[pixels.width / 2, 0].toArgb(), "Overflow tile border")
+        assertEquals(mediaBorderColor.compositeOver(Color.Black).toArgb(), pixels[pixels.width / 2, 0].toArgb(), "Overflow tile border")
         assertEquals(Color.Black.toArgb(), pixels[pixels.width / 2, 1].toArgb(), "First pixel inside the overflow tile border")
+        compose.runOnIdle { displayMode = TimelineDisplayMode.Gallery }
+        val galleryPixels = tile.captureToImage().toPixelMap()
+        assertEquals(Color(0xFFB3B3B3).toArgb(), galleryPixels[galleryPixels.width / 2, 0].toArgb(), "Gallery fallback border")
     }
 
     @Test

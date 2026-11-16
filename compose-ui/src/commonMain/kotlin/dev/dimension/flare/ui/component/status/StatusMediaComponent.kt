@@ -68,12 +68,14 @@ import dev.dimension.flare.compose.ui.media_play_video
 import dev.dimension.flare.compose.ui.media_view_alt_text
 import dev.dimension.flare.compose.ui.show_sensitive_media
 import dev.dimension.flare.compose.ui.status_sensitive_media
+import dev.dimension.flare.data.model.TimelineDisplayMode
 import dev.dimension.flare.data.model.TimelineMediaLayout
 import dev.dimension.flare.data.model.VideoAutoplay
 import dev.dimension.flare.ui.component.AdaptiveGrid
 import dev.dimension.flare.ui.component.AdaptiveGridOverflow
 import dev.dimension.flare.ui.component.AudioPlayer
 import dev.dimension.flare.ui.component.FAIcon
+import dev.dimension.flare.ui.component.FlareDividerDefaults
 import dev.dimension.flare.ui.component.LocalTimelineAppearance
 import dev.dimension.flare.ui.component.LocalTimelineCarouselItem
 import dev.dimension.flare.ui.component.LocalTimelinePlayback
@@ -471,10 +473,16 @@ private fun StatusMediaItem(
     val viewAltTextLabel = stringResource(Res.string.media_view_alt_text)
     val appearanceSettings = LocalTimelineAppearance.current
     val mediaActionConfig = LocalTimelineMediaActionConfig.current
+    val borderColor =
+        if (LocalEffectiveTimelineDisplayMode.current == TimelineDisplayMode.Gallery) {
+            Color(0xFFB3B3B3)
+        } else {
+            FlareDividerDefaults.color
+        }
     var isMenuExpanded by remember(media.url) {
         mutableStateOf(false)
     }
-    Box(modifier = modifier.border(Dp.Hairline, Color(0xFFB3B3B3), shape)) {
+    Box(modifier = modifier.border(Dp.Hairline, borderColor, shape)) {
         CompositionLocalProvider(
             LocalTimelineAppearance provides
                 appearanceSettings.copy(
