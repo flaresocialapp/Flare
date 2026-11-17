@@ -556,6 +556,71 @@ jobs:
         run: ./gradlew jvmTest :desktopApp:test
       - name: Build and package Windows
         run: ./gradlew :desktopApp:check :desktopApp:build :desktopApp:packageReleaseAppx -x ktlintCheck --stacktrace
+      - name: Verify Windows AppX secp256k1 launcher
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $appx = Get-ChildItem 'desktopApp/build/compose/binaries/main-release/appx/*.appx' |
+            Select-Object -First 1
+          if (!$appx) { throw 'No release AppX found' }
+          $unpacked = Join-Path $env:RUNNER_TEMP 'flare-appx-2871'
+          [IO.Compression.ZipFile]::ExtractToDirectory($appx.FullName, $unpacked)
+          $cfg = @(Get-ChildItem $unpacked -Recurse -File -Filter 'Flare.cfg')
+          if ($cfg.Count -ne 1) { throw "Expected one Flare.cfg, got $($cfg.Count)" }
+          $appDir = $cfg[0].DirectoryName
+          $option = @(Get-Content $cfg[0].FullName |
+            Where-Object { $_.StartsWith('java-options=-Dfr.acinq.secp256k1.lib.path=') })
+          if ($option.Count -ne 1 -or $option[0] -cne 'java-options=-Dfr.acinq.secp256k1.lib.path=$APPDIR/resources') {
+            throw "Unexpected secp256k1 launcher configuration: $option"
+          }
+          $nativeDir = $option[0].Split('=', 3)[2].Replace('$APPDIR', $appDir)
+          $dll = Join-Path $nativeDir 'secp256k1-jni.dll'
+          if (!(Test-Path -LiteralPath $dll -PathType Leaf)) { throw 'Missing DLL at the launcher path' }
+          Write-Host "$($appx.Name): verified $($option[0])"
+          Write-Host "Bundled DLL SHA256: $((Get-FileHash -LiteralPath $dll).Hash)"
+
+          $classpath = (Get-ChildItem $appDir -Recurse -File -Filter '*.jar' |
+            Where-Object { $_.Name -match '^(quartz-jvm|secp256k1-kmp-|kotlin-stdlib)' }).FullName -join ';'
+          if (!$classpath) { throw 'No bundled Quartz JNI classpath' }
+          $java = Join-Path $env:JAVA_HOME 'bin/java.exe'
+          $probe = Join-Path $env:RUNNER_TEMP 'AppxNostrProbe.java'
+          @'
+          import com.vitorpamplona.quartz.utils.Secp256k1Instance;
+          import java.util.HexFormat;
+
+          class AppxNostrProbe {
+              public static void main(String[] args) {
+                  byte[] fixture = new byte[32];
+                  fixture[31] = 1;
+                  try {
+                      String key = HexFormat.of().formatHex(
+                          Secp256k1Instance.INSTANCE.compressedPubKeyFor(fixture)
+                      );
+                      if (args.length != 0) throw new AssertionError("Expected missing JNI resource");
+                      if (!key.equals("0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798")) {
+                          throw new AssertionError("Wrong public key");
+                      }
+                      System.out.println("Packaged Quartz and DLL derived the expected public key on " +
+                          System.getProperty("os.name") + " / " + System.getProperty("os.arch"));
+                  } catch (ExceptionInInitializerError error) {
+                      if (args.length != 0) {
+                          for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+                              if (cause instanceof IllegalStateException &&
+                                  cause.getMessage().contains("No native library found")) {
+                                  System.out.println("Without the launcher option, reproduced missing JNI resource");
+                                  return;
+                              }
+                          }
+                      }
+                      throw error;
+                  }
+              }
+          }
+          '@ | Set-Content -LiteralPath $probe
+          & $java '--enable-native-access=ALL-UNNAMED' -cp $classpath $probe 'expect-missing'
+          if ($LASTEXITCODE -ne 0) { throw 'Missing-resource control failed' }
+          & $java '--enable-native-access=ALL-UNNAMED' "-Dfr.acinq.secp256k1.lib.path=$nativeDir" -cp $classpath $probe
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged secp256k1 initialization failed' }
       - name: Build appxbundle with same version as appx
         shell: pwsh
         run: |
