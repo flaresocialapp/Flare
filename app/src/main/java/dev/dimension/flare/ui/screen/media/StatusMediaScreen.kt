@@ -6,10 +6,8 @@ import android.content.Context
 import android.os.Build
 import android.view.WindowManager
 import android.widget.Toast
-import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -53,7 +51,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -69,7 +66,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -79,7 +75,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -108,8 +103,6 @@ import androidx.media3.ui.compose.state.rememberPlayPauseButtonState
 import androidx.window.core.layout.WindowSizeClass
 import coil3.annotation.ExperimentalCoilApi
 import coil3.imageLoader
-import coil3.memory.MemoryCache
-import coil3.size.Size
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -150,7 +143,6 @@ import dev.dimension.flare.ui.component.UgoiraPlayer
 import dev.dimension.flare.ui.component.VideoPlayer
 import dev.dimension.flare.ui.component.accessibleDescription
 import dev.dimension.flare.ui.component.placeholder
-import dev.dimension.flare.ui.component.rememberMediaImageRequest
 import dev.dimension.flare.ui.component.status.CommonStatusComponent
 import dev.dimension.flare.ui.component.status.ListEmptyView
 import dev.dimension.flare.ui.component.status.LocalStatusBackgroundColor
@@ -183,14 +175,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import me.saket.telephoto.ExperimentalTelephotoApi
-import me.saket.telephoto.zoomable.DoubleClickToZoomListener
-import me.saket.telephoto.zoomable.Viewport
 import me.saket.telephoto.zoomable.ZoomSpec
-import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
-import me.saket.telephoto.zoomable.rememberZoomableImageState
 import me.saket.telephoto.zoomable.rememberZoomableState
-import me.saket.telephoto.zoomable.spatial.CoordinateSpace
 import me.saket.telephoto.zoomable.zoomable
 import moe.tlaster.precompose.molecule.producePresenter
 import moe.tlaster.swiper.Swiper
@@ -406,6 +392,50 @@ internal fun MediaViewerScreen(
                                 // Keep the loading placeholder attached to the image originally tapped.
                                 key = { index -> if (medias is UiState.Success) index else initialIndex },
                             ) { index ->
+                                val media = mediaItems.getOrNull(index)
+                                val entryPreview =
+                                    if (medias is UiState.Loading ||
+                                        index == initialIndex
+                                    ) {
+                                        preview.toUiImage(proxy = previewProxy)
+                                    } else {
+                                        null
+                                    }
+                                if (media is UiMedia.Image || media is UiMedia.Gif ||
+                                    (media != null && pagerState.currentPage != index) ||
+                                    (medias is UiState.Loading && entryPreview != null)
+                                ) {
+                                    ImageItem(
+                                        media =
+                                            when (media) {
+                                                is UiMedia.Image, is UiMedia.Gif -> translation.displayed(media)
+                                                else -> media?.preview
+                                            },
+                                        entryPreview = entryPreview,
+                                        description = media?.accessibleDescription(),
+                                        modifier = Modifier.fillMaxSize(),
+                                        translating = media != null && translation.item(media).loading,
+                                        onLoadError = {
+                                            if (media != null) {
+                                                val result = translation.displayed(media)
+                                                if (result.url != media.url) translation.imageFailed(media, result.url)
+                                            }
+                                        },
+                                        onClick = { state.setShowUi(!state.showUi) },
+                                        setLockPager = {
+                                            if (pagerState.currentPage == index) {
+                                                state.setLockPager(it, updateControls = !isBigScreen)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            if (media != null) {
+                                                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                state.setShowSheet(true)
+                                            }
+                                        },
+                                    )
+                                    return@HorizontalPager
+                                }
                                 AnimatedContent(
                                     medias,
                                     transitionSpec = {
@@ -427,44 +457,7 @@ internal fun MediaViewerScreen(
                                                 }
                                                 return@onSuccess
                                             }
-                                            if (pagerState.currentPage != index || media is UiMedia.Image || media is UiMedia.Gif) {
-                                                ImageItem(
-                                                    translating = translation.item(media).loading,
-                                                    modifier =
-                                                        Modifier
-                                                            .fillMaxSize(),
-                                                    media =
-                                                        if (media is UiMedia.Image ||
-                                                            media is UiMedia.Gif
-                                                        ) {
-                                                            translation.displayed(media)
-                                                        } else {
-                                                            media.preview
-                                                        },
-                                                    onLoadError = {
-                                                        val result = translation.displayed(media)
-                                                        if (result.url != media.url) translation.imageFailed(media, result.url)
-                                                    },
-                                                    description = media.accessibleDescription(),
-                                                    onClick = {
-                                                        state.setShowUi(!state.showUi)
-                                                    },
-                                                    setLockPager = {
-                                                        if (pagerState.currentPage == index) {
-                                                            if (!isBigScreen) {
-                                                                state.setShowUi(!it)
-                                                            }
-                                                            state.setLockPager(it)
-                                                        }
-                                                    },
-                                                    onLongClick = {
-                                                        hapticFeedback.performHapticFeedback(
-                                                            HapticFeedbackType.LongPress,
-                                                        )
-                                                        state.setShowSheet(true)
-                                                    },
-                                                )
-                                            } else if (media is UiMedia.Ugoira) {
+                                            if (media is UiMedia.Ugoira) {
                                                 val zoom = rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 10f))
                                                 LaunchedEffect(zoom.zoomFraction) { state.setLockPager((zoom.zoomFraction ?: 0f) > .01f) }
                                                 UgoiraPlayer(media, Modifier.fillMaxSize().zoomable(zoom))
@@ -524,31 +517,13 @@ internal fun MediaViewerScreen(
                                                 )
                                             }
                                         }.onLoading {
-                                            if (preview != null) {
-                                                ImageItem(
-                                                    media = preview.toUiImage(proxy = previewProxy),
-                                                    description = null,
-                                                    onClick = { /*TODO*/ },
-                                                    setLockPager = {
-                                                        if (!isBigScreen) {
-                                                            state.setShowUi(!it)
-                                                        }
-                                                        state.setLockPager(it)
-                                                    },
-                                                    modifier =
-                                                        Modifier
-                                                            .fillMaxSize(),
-                                                    onLongClick = { },
-                                                )
-                                            } else {
-                                                Box(
-                                                    modifier =
-                                                        Modifier
-                                                            .aspectRatio(1f)
-                                                            .fillMaxSize()
-                                                            .placeholder(true),
-                                                )
-                                            }
+                                            Box(
+                                                modifier =
+                                                    Modifier
+                                                        .aspectRatio(1f)
+                                                        .fillMaxSize()
+                                                        .placeholder(true),
+                                            )
                                         }
                                 }
                             }
@@ -1430,106 +1405,6 @@ private const val NORMAL_PLAYBACK_SPEED = 1f
 private const val FAST_PLAYBACK_SPEED = 2f
 private const val MEDIA_VIEWER_PRESENTER_KEY = "media_viewer"
 
-@OptIn(ExperimentalTelephotoApi::class)
-@Composable
-internal fun ImageItem(
-    media: UiMedia?,
-    description: String?,
-    onClick: () -> Unit,
-    onLongClick: () -> Unit,
-    setLockPager: (Boolean) -> Unit,
-    modifier: Modifier = Modifier,
-    onLoadError: () -> Unit = {},
-    translating: Boolean = false,
-) {
-    val loadingEffect by animateFloatAsState(
-        targetValue = if (translating) 1f else 0f,
-        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
-        label = "Image translation loading",
-    )
-    val loadingDescription = stringResource(R.string.image_translation_loading)
-    val currentOnLoadError by rememberUpdatedState(onLoadError)
-    val currentOnClick by rememberUpdatedState(onClick)
-    val currentOnLongClick by rememberUpdatedState(onLongClick)
-    val currentSetLockPager by rememberUpdatedState(setLockPager)
-    val scope = rememberCoroutineScope()
-    val zoomableState =
-        rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 10f))
-    LaunchedEffect(zoomableState.zoomFraction) {
-        zoomableState.zoomFraction?.let {
-            currentSetLockPager(it > 0.01f)
-        } ?: currentSetLockPager(false)
-    }
-    BackHandler(
-        enabled = (zoomableState.zoomFraction ?: 0f) > 0.01f,
-    ) {
-        scope.launch {
-            zoomableState.resetZoom()
-        }
-    }
-    var imageAspect by remember { mutableFloatStateOf(0f) }
-    var loadedMediaKey by remember { mutableStateOf<String?>(null) }
-    var previousCacheKey by remember { mutableStateOf<MemoryCache.Key?>(null) }
-    val currentMediaKey by rememberUpdatedState(media?.cacheKey)
-    val baseRequest = rememberMediaImageRequest(media, crossfade = false)
-    val request =
-        remember(baseRequest) {
-            val requestedKey = media?.cacheKey
-            baseRequest
-                .newBuilder()
-                .size(Size.ORIGINAL)
-                .apply { previousCacheKey?.let { placeholderMemoryCacheKey(it) } }
-                .listener(onError = { _, _ ->
-                    if (requestedKey == currentMediaKey) {
-                        loadedMediaKey = requestedKey
-                        currentOnLoadError()
-                    }
-                }, onSuccess = { _, result ->
-                    if (requestedKey == currentMediaKey) {
-                        previousCacheKey = result.memoryCacheKey
-                        loadedMediaKey = requestedKey
-                        if (result.image.width > 0) imageAspect = result.image.height.toFloat() / result.image.width
-                    }
-                })
-                .build()
-        }
-    val isLongImage = imageAspect > 19.5f / 9f
-    val alignment = if (isLongImage) Alignment.TopCenter else Alignment.Center
-    val contentScale = if (isLongImage) ContentScale.FillWidth else ContentScale.Fit
-
-    Box(modifier) {
-        ZoomableAsyncImage(
-            model = request,
-            contentDescription = description,
-            state = rememberZoomableImageState(zoomableState),
-            modifier =
-                Modifier
-                    .matchParentSize()
-                    .blur((8 * loadingEffect).dp)
-                    .alpha(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 1f else 1f - 0.2f * loadingEffect),
-            contentScale = contentScale,
-            alignment = alignment,
-            onClick = {
-                currentOnClick()
-            },
-            onLongClick = {
-                currentOnLongClick()
-            },
-            onDoubleClick = DoubleClickToZoomListener.cycle(2f),
-        )
-        AnimatedVisibility(
-            visible = translating || (media != null && !media.isRemote && loadedMediaKey != media.cacheKey),
-            modifier = Modifier.align(Alignment.Center),
-            enter = fadeIn(MaterialTheme.motionScheme.defaultEffectsSpec()),
-            exit = fadeOut(MaterialTheme.motionScheme.defaultEffectsSpec()),
-        ) {
-            LoadingIndicator(
-                modifier = if (translating) Modifier.semantics { contentDescription = loadingDescription } else Modifier,
-            )
-        }
-    }
-}
-
 @Composable
 private fun statusMediaPresenter(
     statusKey: MicroBlogKey,
@@ -1611,8 +1486,12 @@ private fun mediaViewerPresenter(
             currentPage = value
         }
 
-        fun setLockPager(value: Boolean) {
+        fun setLockPager(
+            value: Boolean,
+            updateControls: Boolean = false,
+        ) {
             lockPager = value
+            if (updateControls) showUi = !value
         }
 
         fun setLandscapeViewing(value: Boolean) {
