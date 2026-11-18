@@ -354,8 +354,13 @@ internal fun MediaViewerScreen(
         originalOrientation = state.originalOrientation,
         setOriginalOrientation = state::setOriginalOrientation,
     )
-    LaunchedEffect(pagerState.currentPage) {
-        state.setCurrentPage(pagerState.currentPage)
+
+    // The single loading page belongs to the media the user tapped, even at a nonzero index.
+    val pageKey: (Int) -> Int = { index -> if (medias is UiState.Success) index else initialIndex }
+
+    val currentPageKey = pageKey(pagerState.currentPage)
+    LaunchedEffect(currentPageKey) {
+        state.setCurrentPage(currentPageKey)
         isFastPlayback = false
     }
     MediaViewerPlaybackTheme {
@@ -389,20 +394,15 @@ internal fun MediaViewerScreen(
                             HorizontalPager(
                                 state = pagerState,
                                 userScrollEnabled = !state.lockPager,
-                                // Keep the loading placeholder attached to the image originally tapped.
-                                key = { index -> if (medias is UiState.Success) index else initialIndex },
+                                key = pageKey,
                             ) { index ->
                                 val media = mediaItems.getOrNull(index)
+                                val page = pageKey(index)
+                                val isCurrentPage = page == currentPageKey
                                 val entryPreview =
-                                    if (medias is UiState.Loading ||
-                                        index == initialIndex
-                                    ) {
-                                        preview.toUiImage(proxy = previewProxy)
-                                    } else {
-                                        null
-                                    }
+                                    if (page == initialIndex) preview.toUiImage(proxy = previewProxy) else null
                                 if (media is UiMedia.Image || media is UiMedia.Gif ||
-                                    (media != null && pagerState.currentPage != index) ||
+                                    (media != null && !isCurrentPage) ||
                                     (medias is UiState.Loading && entryPreview != null)
                                 ) {
                                     ImageItem(
@@ -412,6 +412,7 @@ internal fun MediaViewerScreen(
                                                 else -> media?.preview
                                             },
                                         entryPreview = entryPreview,
+                                        isCurrentPage = isCurrentPage,
                                         description = media?.accessibleDescription(),
                                         modifier = Modifier.fillMaxSize(),
                                         translating = media != null && translation.item(media).loading,
@@ -422,11 +423,7 @@ internal fun MediaViewerScreen(
                                             }
                                         },
                                         onClick = { state.setShowUi(!state.showUi) },
-                                        setLockPager = {
-                                            if (pagerState.currentPage == index) {
-                                                state.setLockPager(it, updateControls = !isBigScreen)
-                                            }
-                                        },
+                                        setLockPager = { state.setPageZoomed(page, it, updateControls = !isBigScreen) },
                                         onLongClick = {
                                             if (media != null) {
                                                 hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -459,7 +456,12 @@ internal fun MediaViewerScreen(
                                             }
                                             if (media is UiMedia.Ugoira) {
                                                 val zoom = rememberZoomableState(zoomSpec = ZoomSpec(maxZoomFactor = 10f))
-                                                LaunchedEffect(zoom.zoomFraction) { state.setLockPager((zoom.zoomFraction ?: 0f) > .01f) }
+                                                LaunchedEffect(zoom.zoomFraction) {
+                                                    state.setPageZoomed(
+                                                        page,
+                                                        (zoom.zoomFraction ?: 0f) > .01f,
+                                                    )
+                                                }
                                                 UgoiraPlayer(media, Modifier.fillMaxSize().zoomable(zoom))
                                             } else if (media is UiMedia.Video) {
                                                 val selectedSpeed = playbackSettings.speedFor(media)
@@ -1452,8 +1454,8 @@ private fun mediaViewerPresenter(
     var showUi by remember {
         mutableStateOf(true)
     }
-    var lockPager by remember {
-        mutableStateOf(false)
+    var zoomedPage by remember {
+        mutableStateOf<Int?>(null)
     }
     var isLandscapeViewing by remember {
         mutableStateOf(false)
@@ -1467,7 +1469,7 @@ private fun mediaViewerPresenter(
     object {
         val showUi = showUi
         val currentPage = currentPage
-        val lockPager = lockPager
+        val lockPager = zoomedPage == currentPage
         val showSheet = showSheet
         val isLandscapeViewing = isLandscapeViewing
         val originalOrientation = originalOrientation
@@ -1477,7 +1479,7 @@ private fun mediaViewerPresenter(
         }
 
         fun setShowUi(value: Boolean) {
-            if (!lockPager) {
+            if (zoomedPage != currentPage) {
                 showUi = value
             }
         }
@@ -1486,12 +1488,17 @@ private fun mediaViewerPresenter(
             currentPage = value
         }
 
-        fun setLockPager(
-            value: Boolean,
+        fun setPageZoomed(
+            page: Int,
+            zoomed: Boolean,
             updateControls: Boolean = false,
         ) {
-            lockPager = value
-            if (updateControls) showUi = !value
+            if (zoomed) {
+                zoomedPage = page
+            } else if (zoomedPage == page) {
+                zoomedPage = null
+            }
+            if (updateControls && page == currentPage) showUi = !zoomed
         }
 
         fun setLandscapeViewing(value: Boolean) {

@@ -21,6 +21,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -79,6 +81,7 @@ internal fun ImageItem(
     onLoadError: () -> Unit = {},
     translating: Boolean = false,
     entryPreview: UiMedia.Image? = null,
+    isCurrentPage: Boolean = true,
 ) {
     val loadingEffect by animateFloatAsState(
         targetValue = if (translating) 1f else 0f,
@@ -91,11 +94,11 @@ internal fun ImageItem(
     val scope = rememberCoroutineScope()
     val zoom = rememberZoomableState(ZoomSpec(maxZoomFactor = 10f), autoApplyTransformations = false)
     val isZoomed by remember(zoom) { derivedStateOf { zoom.isZoomedIn } }
-    LaunchedEffect(isZoomed) { currentSetLockPager(isZoomed) }
+    LaunchedEffect(isCurrentPage, isZoomed) { if (isCurrentPage) currentSetLockPager(isZoomed) }
     DisposableEffect(zoom) {
         onDispose { if (isZoomed) currentSetLockPager(false) }
     }
-    BackHandler(enabled = isZoomed) { scope.launch { zoom.resetZoom() } }
+    BackHandler(enabled = isCurrentPage && isZoomed) { scope.launch { zoom.resetZoom() } }
 
     var loadedMediaKey by remember { mutableStateOf<String?>(null) }
     var previousCacheKey by remember { mutableStateOf<MemoryCache.Key?>(null) }
@@ -184,7 +187,8 @@ private fun ProgressiveImage(
             ?: tiled?.source?.preview?.let { Size(it.width.toFloat(), it.height.toFloat()) }
             ?: fullPainter?.let { it.intrinsicSize.takeIf(Size::isUsable) ?: viewport.takeIf(Size::isUsable) }
 
-    var contentSize by remember { mutableStateOf<Size?>(null) }
+    // Telephoto saves pan offsets in content pixels. Restore the size that gives those offsets their meaning.
+    var contentSize by rememberSaveable(stateSaver = ImageSizeSaver) { mutableStateOf<Size?>(null) }
     var heldBounds by remember { mutableStateOf<Rect?>(null) }
     var fingersDown by remember { mutableStateOf(false) }
     val changingSize = (contentSize != null && contentSize != fullSize) || heldBounds != null
@@ -267,6 +271,12 @@ private fun ProgressiveImage(
 
 private val ZoomableState.isZoomedIn: Boolean
     get() = contentTransformation.scaleMetadata.userZoom > 1.01f
+
+private val ImageSizeSaver =
+    Saver<Size?, FloatArray>(
+        save = { it?.let { size -> floatArrayOf(size.width, size.height) } },
+        restore = { (width, height) -> Size(width, height) },
+    )
 
 private val DoubleTapZoom =
     DoubleClickToZoomListener { zoom, position ->
