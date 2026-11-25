@@ -146,7 +146,7 @@ defineFlareSocialPlugin({ capabilities: { post: {
   },
 }, manga: {
   detail(request): MangaV1 {
-    return { key: request.key, title: "Manga", readingDirection: "rtl", status: "ongoing", chapters: [{ id: "1", title: "Ch 1" }] };
+    return { key: request.key, title: "Manga", cover: { ...media, type: "image" }, readingDirection: "rtl", status: "ongoing", chapters: [{ id: "1", title: "Ch 1" }] };
   },
   pages(request): MangaPagesV1 {
     const chapterTarget: NavigationTargetV1 = { type: "mangaChapter", key: request.key, chapterId: request.chapterId };
@@ -156,7 +156,11 @@ defineFlareSocialPlugin({ capabilities: { post: {
 } } });
 // @ts-expect-error MangaPageV1 media accepts only image or gif.
 const invalidMangaPage: MangaPageV1 = { id: "p-video", media: { id: "m2", type: "video", url: "https://cdn.example.org/1.mp4" } };
-void invalidMangaPage;
+// @ts-expect-error Manga cover accepts only image.
+const invalidMangaCover: MangaV1 = { key: profile.key, title: "Manga", cover: { ...media, type: "gif" } };
+// @ts-expect-error A manga page image callback can only resolve image or gif.
+const invalidMangaPageImage: NonNullable<MangaServiceV1["pageImage"]> = () => ({ ...media, type: "video" });
+void [invalidMangaPage, invalidMangaCover, invalidMangaPageImage];
 const md5: Promise<string> = flare.crypto.md5("abc");
 const extracted: Promise<Record<string, JsonValue>> = flare.html.extract({
   html: "<main><a href='/1'>One</a></main>",
@@ -220,7 +224,7 @@ defineFlareSocialPlugin({
           endReached: false,
         };
       },
-      pageImage(request: MangaPageImageRequestV1): MediaV1 {
+      pageImage(request: MangaPageImageRequestV1): MangaPageMediaV1 {
         const attempt: number | undefined = request.attempt;
         const reason: MangaPageImageReasonV1 | undefined = request.reason;
         const failedUrl: string | undefined = request.failedUrl;

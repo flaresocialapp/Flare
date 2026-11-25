@@ -7,7 +7,7 @@ repository root. Each selected directory contains a complete plugin:
 
 ```text
 manifest.json
-plugin.js             # required for platform, translation or platformExtension
+plugin.js             # required for platform, translation, platformExtension or timelineProcessor
 assets/icon.png
 locales/en.json       # optional; other BCP-47 catalogs as needed
 settings/             # optional offline page and all its dependencies
@@ -19,7 +19,8 @@ The package must contain exactly one `assets/icon.<extension>`: `png`, `jpg`,
 The icon is kept unchanged, limited to 2 MiB and 1024×1024 pixels. SVG is not
 supported. PNG remains the default in the templates.
 
-Translation, offline settings and platform extensions require Host API v2.
+Translation, offline settings, platform extensions and timeline processors
+require Host API v2.
 Use the SDK for the target Flare build. A settings-only package can omit the
 background script, social platform and login methods. See [Flare and SDK versions](../README.md#match-flare-and-the-sdk)
 and [the settings-only manifest](storage-and-settings.md#settings-only-package).
@@ -135,9 +136,17 @@ first plugin is offered an update. The second keeps its installed tag/SHA until
 its own runtime files change. A missing directory or failed check appears as a
 plugin issue; retry after fixing the snapshot or connection.
 
-Install, update, and uninstall take effect immediately. Installed plugins are always enabled. There are no general plugin lifecycle or credential migration callbacks. Optional account capability renegotiation runs in the background after upgrades. Media
-grants follow the running package; cached media retains plugin ownership and
-rechecks that package's permission. Missing plugins cannot restore their media.
+Install, update, and uninstall take effect immediately. Timeline processing has
+its own switch in **Settings → Plugins**. File and GitHub installations include
+timeline post access in the permission review when a processor is declared.
+Local AI processors start disabled. Adding an unapproved HTTP origin or
+requesting media network access for the first time requires enabling the local
+processor again. See the [processor contract](../ABI.md#timeline-post-processing).
+
+There are no general plugin lifecycle or credential migration callbacks.
+Optional account capability renegotiation runs in the background after
+upgrades. Media grants follow the running package. Loading cached media
+requires its owning package to be running with media access.
 Uninstall records removal before account cleanup. Once that record is saved,
 account-cleanup or final-index-write failures keep the plugin stopped across
 restart; retry deletion from management to finish. Updating or reinstalling
@@ -165,7 +174,7 @@ may add its first platform. Settings-only plugins do not need a synthetic platfo
 | Timeline IDs/parameters change incompatibly | Consider timelineSchemaVersion; it changes timeline identities and retires old specs. Explain that existing selections may need reconfiguration |
 | Capabilities removed | Running capabilities are filtered by the new manifest |
 | Ordinary datasource operations newly declared compared with the account's saved manifest | Current Host admits those new operations without re-negotiating login; do not assume a new login will gate them |
-| Add account-http, compose/v3, or new compose modes | Implement [account capability renegotiation](authentication.md#account-capability-renegotiation) to enable them for existing accounts without login; manifest declarations alone do not bypass saved restrictions |
+| Add account-http, session-challenge, compose/v3, or new compose modes | Implement [account capability renegotiation](authentication.md#account-capability-renegotiation) to enable them for existing accounts without login. See [session challenge recovery](authentication.md#session-challenge-recovery-api-v2) for the required declaration. |
 | Previously declared operation was not negotiated for the account | A successful renegotiation can enable it; otherwise it remains unavailable |
 | Package hash changes | Account adapter invalidates cached content when refreshing its persisted package snapshot |
 | Additive fields, detail types, item/media/action variants, capabilities or operations | Compatible Hosts ignore unsupported extensions; known content keeps its behavior and validation. Unknown detail/navigation types are inert, with no URL fallback |

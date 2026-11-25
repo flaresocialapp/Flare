@@ -1,6 +1,6 @@
 ---
 name: flare-plugin
-description: Create, extend, debug, and prepare GitHub distribution for Flare Plugin API v1/v2 plugins. Use when implementing a website adapter, editing a Flare plugin manifest or classic JavaScript entrypoint, extending existing built-in or plugin-provided accounts, adding text translation, plugin storage or an offline settings page, adding login or datasource capabilities, or diagnosing Flare plugin installation and runtime errors.
+description: Create, extend, debug, and prepare GitHub distribution for Flare Plugin API v1/v2 plugins. Use when implementing a website adapter, editing a Flare plugin manifest or classic JavaScript entrypoint, adding timeline widgets or manga reading, extending existing accounts, adding translation, storage, settings, login or datasource capabilities, or diagnosing plugin installation and runtime errors.
 ---
 
 # Flare Plugin
@@ -73,11 +73,17 @@ Read the references needed for the task:
 
 | Task | Read |
 | --- | --- |
-| Detection, OAuth, password, token import, form, Cookie, credential refresh, v2 pending/CAS | [Authentication](references/authentication.md) |
+| Detection, OAuth, password, token import, form, Cookie, QR, credential refresh, v2 pending/CAS | [Authentication](references/authentication.md) |
 | Manual SSO redirects, response headers, body/header tokens, native retry limits | [Runtime/HTTP](references/runtime-http.md) |
 | Text translation, namespace revisions, offline page SDK and cache dependencies | [Storage, translation and settings](references/storage-and-settings.md) |
 | Map remote entities, HTML, media, identity, cursor pagination, opaque tokens | [Wire data](references/wire-data.md) |
 | Open a native replies/sublist page from a post or quote without home tabs | [Temporary timeline pages](references/capabilities.md#api-v2-temporary-timeline-pages) and [page recipe](references/recipes.md#temporary-timeline-pages-api-v2) |
+| Process matching timeline posts and return native widgets | [Processor manifest](references/manifest.md#timeline-processor), [ABI](ABI.md#timeline-post-processing), [widget example](examples/timeline-processor/README.md) |
+| Open manga detail and chapters, with optional deferred page images | [Manga recipe](references/recipes.md#manga), [reader example](examples/manga-reader/README.md) |
+| Extract structured fields from HTML using the Host parser | [HTML extraction](references/runtime-http.md#html-extraction-and-entity-decoding-api-v2) |
+| Offer timelines without login or restrict a platform to known origins | [Guest access](references/recipes.md#guest-access), [fixed-site selection](references/authentication.md#recommended-origins-and-single-site-plugins-api-v2) |
+| Recover an authenticated session through a WebView challenge | [Session challenge recovery](references/authentication.md#session-challenge-recovery-api-v2) |
+| Offer bookmarks or favourites without a native post detail | [Post and semantic actions](references/recipes.md#post-and-semantic-actions) |
 | Implement capabilities, guest access, actions, Deep Links, localization | [Recipes](references/recipes.md) and the relevant [capability row](references/capabilities.md) |
 | Diagnose a rejected package, missing UI, failed request, or retired runtime | [Troubleshooting and limits](references/troubleshooting.md) |
 | Check the generated files and exercise behavior | [Testing](references/testing.md) |

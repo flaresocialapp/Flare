@@ -308,7 +308,7 @@ interface MangaServiceV1 {
   detail(request: EntityRequestV1, context: PluginInvocationContextV1): MaybePromise<MangaV1>;
   pages(request: MangaPagesRequestV1, context: PluginInvocationContextV1): MaybePromise<MangaPagesV1>;
   /** Executed across up to 3 parallel isolated worker VMs; use flare.storage for cross-page shared state, not module globals. */
-  pageImage?(request: MangaPageImageRequestV1, context: PluginInvocationContextV1): MaybePromise<MediaV1>;
+  pageImage?(request: MangaPageImageRequestV1, context: PluginInvocationContextV1): MaybePromise<MangaPageMediaV1>;
   comments?(request: EntityPageRequestV1, context: PluginInvocationContextV1): MaybePromise<PageV1<TimelineItemV1>>;
   recommendations?(request: EntityPageRequestV1, context: PluginInvocationContextV1): MaybePromise<PageV1<TimelineItemV1>>;
 }
@@ -795,7 +795,7 @@ interface MangaV1 {
   title: string;
   altTitles?: string[];
   /** Image media only; requires permissions.mediaNetwork. */
-  cover?: MediaV1;
+  cover?: MediaV1 & { type: "image" };
   author?: ProfileV1;
   authors?: string[];
   artists?: string[];
@@ -827,10 +827,11 @@ interface MangaPagesRequestV1 {
   /** Optional cursor for sequential chunk paging; mutually exclusive with offset. */
   cursor?: string;
 }
+type MangaPageMediaV1 = MediaV1 & { type: "image" | "gif" };
 interface MangaPageV1 {
   id: string;
   /** Image or GIF media only; mutually exclusive with pageToken. */
-  media?: MediaV1 & { type: "image" | "gif" };
+  media?: MangaPageMediaV1;
   /** Allowed only when manga.pageImage is declared and negotiated. */
   pageToken?: string;
   previewUrl?: string;

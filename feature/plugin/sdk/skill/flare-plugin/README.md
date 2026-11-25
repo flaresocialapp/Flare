@@ -15,6 +15,7 @@ for that build. Check the feature's [Host API requirements](references/manifest.
 | [Flare 1.8.0](https://github.com/flaresocialapp/Flare/releases/tag/1.8.0) | Host API v1. Pin `flare-plugin-sdk@0.1.0-beta.10` and use the [skill from that SDK tag](https://github.com/flaresocialapp/Flare/tree/plugin-sdk-v0.1.0-beta.10/feature/plugin/sdk/skill/flare-plugin). |
 | Flare build with Host API v2 before QR login support | Pin [`flare-plugin-sdk@0.1.0-beta.11`](https://www.npmjs.com/package/flare-plugin-sdk/v/0.1.0-beta.11) and use the [skill from that SDK tag](https://github.com/flaresocialapp/Flare/tree/plugin-sdk-v0.1.0-beta.11/feature/plugin/sdk/skill/flare-plugin). |
 | Flare build with QR login or configurable post detail tabs | Pin [`flare-plugin-sdk@0.1.0-beta.12`](https://www.npmjs.com/package/flare-plugin-sdk/v/0.1.0-beta.12) and use the [skill from that SDK tag](https://github.com/flaresocialapp/Flare/tree/plugin-sdk-v0.1.0-beta.12/feature/plugin/sdk/skill/flare-plugin). |
+| Flare build with timeline processors, manga, or the other features below | Pin [`flare-plugin-sdk@0.1.0-beta.13`](https://www.npmjs.com/package/flare-plugin-sdk/v/0.1.0-beta.13) and use the [skill from that SDK tag](https://github.com/flaresocialapp/Flare/tree/plugin-sdk-v0.1.0-beta.13/feature/plugin/sdk/skill/flare-plugin). |
 
 Host API v2 is included on `master` starting with the [V2 merge commit](https://github.com/flaresocialapp/Flare/commit/85c82a46d7738cb4010bda6a9bd09e4e50bb6e68).
 SDK `0.1.0-beta.11` introduced the V2 schema and the WebView settings module at
@@ -25,6 +26,14 @@ SDK `0.1.0-beta.11` introduced the V2 schema and the WebView settings module at
 SDK `0.1.0-beta.12` adds the QR login and configurable post detail tab contracts.
 Each feature requires a Flare build that includes its host implementation.
 [QR login](https://github.com/flaresocialapp/Flare/pull/2843) · [Post detail tabs](https://github.com/flaresocialapp/Flare/pull/2853)
+
+SDK `0.1.0-beta.13` describes these features for Host `apiVersion: 2`. Choose
+a Flare build that includes the implementation for each feature you use.
+
+| Feature | Flare build must include |
+| --- | --- |
+| Timeline post processing and widgets | [Timeline processor merge](https://github.com/flaresocialapp/Flare/commit/dcbc5df17dea5213c8dbf0356282075f74ad4d37) |
+| Manga detail and reader, native HTML extraction, recommended origins and fixed-site selection, standalone guest origin, session challenge recovery, and `post.mutate` without `post.detail` | [Manga and guest plugin merge](https://github.com/flaresocialapp/Flare/commit/39cc9b8ee622845c9354d58508cd68d0dca08137) |
 
 `npm view flare-plugin-sdk dist-tags --json` shows the rolling `next` channel.
 Pin the SDK version for reproducible builds. For features newer than the
@@ -205,11 +214,11 @@ cases matter. It should identify gaps rather than invent website endpoints.
 
 ## Start a plugin repository
 
-1. With Node 22 or newer, create the social starter for a Flare build with QR
-   login or configurable post detail tabs.
+1. With Node 22 or newer, create the social starter with the SDK for your
+   target Flare build. This example uses `0.1.0-beta.13`.
 
    ```sh
-   npx flare-plugin-sdk@0.1.0-beta.12 init my-plugin
+   npx flare-plugin-sdk@0.1.0-beta.13 init my-plugin
    cd my-plugin
    npm install
    ```
@@ -258,9 +267,15 @@ Flare reads the selected directory in the latest stable repository snapshot. Add
 | JSON editor completion and static manifest checks | [JSON Schema](manifest.schema.json), [editor setup](references/manifest.md#json-schema-and-editor-support) |
 | Capabilities, minimum methods, and UI requirements | [Capabilities](references/capabilities.md) |
 | API v2 post/quote navigation and temporary reply lists | [Page contract](references/capabilities.md#api-v2-temporary-timeline-pages), [recipe](references/recipes.md#temporary-timeline-pages-api-v2), [offline showcase](examples/timeline-showcase/README.md) |
+| API v2 timeline post processing and widgets | [Processor manifest](references/manifest.md#timeline-processor), [ABI](ABI.md#timeline-post-processing), [widget example](examples/timeline-processor/README.md) |
+| API v2 manga detail and chapter reader | [Manga recipe](references/recipes.md#manga), [paging and image resolution](references/wire-data.md#manga-pagination-and-parallel-image-resolution), [reader example](examples/manga-reader/README.md) |
+| API v2 native HTML parsing | [HTML extraction and entity decoding](references/runtime-http.md#html-extraction-and-entity-decoding-api-v2) |
+| API v2 standalone guest origin and fixed-site selection | [Guest access](references/recipes.md#guest-access), [fixed-site selection](references/authentication.md#recommended-origins-and-single-site-plugins-api-v2) |
+| API v2 interactive session recovery for saved accounts | [Session challenge recovery](references/authentication.md#session-challenge-recovery-api-v2) |
+| API v2 actions without post detail | [Post and semantic actions](references/recipes.md#post-and-semantic-actions) |
 | Platform engines, async completion, HTTP, permissions, credentials, and state | [Runtime and HTTP](references/runtime-http.md) |
 | Text translation, plugin storage revisions and offline settings SDK | [Storage, translation and settings](references/storage-and-settings.md) |
-| Detection and all five login methods | [Authentication](references/authentication.md) |
+| Detection and login methods, including QR | [Authentication](references/authentication.md) |
 | DTO mapping, pagination, media, and opaque tokens | [Wire data](references/wire-data.md) |
 | Capability implementations, guest, localization, and Deep Links | [Recipes](references/recipes.md) |
 | Errors, resource limits, and recovery | [Troubleshooting](references/troubleshooting.md) |

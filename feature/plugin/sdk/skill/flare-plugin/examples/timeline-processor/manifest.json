@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/flare-plugin-sdk@0.1.0-beta.13/skill/flare-plugin/manifest.schema.json",
+  "schemaVersion": 1,
+  "apiVersion": 2,
+  "id": "dev.dimension.flare.sample.link-count",
+  "version": "0.1.0",
+  "name": "Link Count",
+  "description": "Shows how many HTTPS links a timeline post contains",
+  "timelineProcessor": {
+    "apiVersion": 1,
+    "filter": { "requireLinks": true }
+  }
+}

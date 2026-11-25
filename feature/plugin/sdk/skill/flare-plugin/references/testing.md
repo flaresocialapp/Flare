@@ -214,9 +214,11 @@ GitHub repository and stable tag, if publication was authorized and completed:
 | Manifest fields, defaults, validation | manifest.md; template and Pixelfed manifests |
 | Capability/UI matrix and service recipes | capabilities.md, recipes.md |
 | Temporary pages, reply context and refresh | capabilities.md; timeline showcase; Host page/paging/refresh tests |
+| Timeline processing and widget results | [Link Count example](../examples/timeline-processor/README.md) and its SDK fixture test |
+| Guest manga detail, chapter pages and deferred images | [Manga reader example](../examples/manga-reader/README.md) and its SDK fixture test |
 | Platform engines, HTTP, credentials, permissions | runtime-http.md; template requestJson helper |
 | Translation, generic storage and offline settings | storage-and-settings.md; translation-settings example and focused acceptance above |
-| Five login methods and detection | authentication.md; template token login and Pixelfed OAuth |
+| Login methods and detection, including QR | authentication.md; template token login and Pixelfed OAuth |
 | Mapping, identity, paging, tokens | wire-data.md; template and Pixelfed |
 | Advanced features, guest, localization, Deep Links | recipes.md |
 | Failure diagnosis, limits, recovery | troubleshooting.md |

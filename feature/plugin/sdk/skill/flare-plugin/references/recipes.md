@@ -388,7 +388,7 @@ or `{ type: "mangaChapter", key, chapterId }` on `PostV1.target` to jump straigh
 | --- | --- | --- |
 | detail | EntityRequestV1 | MangaV1 |
 | pages | MangaPagesRequestV1 (`{ key, chapterId, entityToken?, chapterToken?, offset?, limit?, cursor? }`) | MangaPagesV1 (`{ pages, offset?, totalCount?, nextCursor?, endReached? }`) |
-| pageImage (optional) | MangaPageImageRequestV1 (`{ key, chapterId, pageId, pageToken, entityToken?, chapterToken?, attempt?, reason?, failedUrl? }`) | MediaV1 (`image` or `gif` only) |
+| pageImage (optional) | MangaPageImageRequestV1 (`{ key, chapterId, pageId, pageToken, entityToken?, chapterToken?, attempt?, reason?, failedUrl? }`) | MangaPageMediaV1 (`image` or `gif` only) |
 | comments / recommendations (optional) | EntityPageRequestV1 | PageV1<TimelineItemV1> |
 
 Return `chapters` (or up to 32 `chapterGroups`, up to 5,000 chapters total) in

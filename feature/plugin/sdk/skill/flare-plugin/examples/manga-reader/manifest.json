@@ -1,0 +1,31 @@
+{
+  "$schema": "https://unpkg.com/flare-plugin-sdk@0.1.0-beta.13/skill/flare-plugin/manifest.schema.json",
+  "schemaVersion": 1,
+  "apiVersion": 2,
+  "id": "dev.dimension.flare.sample.manga-reader",
+  "version": "0.1.0",
+  "name": "Manga Reader Sample",
+  "description": "A guest timeline with one series and one chapter",
+  "permissions": { "mediaNetwork": true },
+  "platform": {
+    "id": "MangaReaderSample",
+    "name": "Manga Reader Sample",
+    "guest": { "enabled": true, "origin": "https://example.org" },
+    "recommendedOrigins": [{ "origin": "https://example.org" }],
+    "allowCustomOrigin": false,
+    "capabilities": {
+      "flare.datasource.timeline/v1": {
+        "operations": { "page": { "directions": ["refresh"] } }
+      },
+      "flare.datasource.manga/v1": {
+        "operations": { "detail": {}, "pages": {}, "pageImage": {} }
+      }
+    },
+    "timelines": [{
+      "id": "reader",
+      "title": "Sample manga",
+      "icon": "Featured",
+      "defaultForNewAccount": true
+    }]
+  }
+}

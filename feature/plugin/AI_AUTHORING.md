@@ -16,9 +16,11 @@ imported and GitHub-installed plugins are outside their scope.
 
 The Agent uses the SDK bundled with the running Flare build. In a build with
 Host API v2, ask for social services, text translation, offline settings or
-actions for existing accounts. A settings-only plugin can provide just its page
-and metadata. Settings pages and Plugin tasks are available on iOS, Android and
-native macOS. The assistant can submit packaged HTML, JS/MJS, CSS and JSON text
+actions for existing accounts. A build with
+[timeline processing](sdk/skill/flare-plugin/ABI.md#timeline-post-processing)
+lets the assistant create widgets for matching posts. A settings-only plugin can
+provide just its page and metadata. Settings pages and Plugin tasks are available
+on iOS, Android and native macOS. The assistant can submit packaged HTML, JS/MJS, CSS and JSON text
 files with the settings SDK. See the [v2 developer contract](sdk/skill/flare-plugin/references/storage-and-settings.md)
 and [Flare and SDK versions](sdk/skill/flare-plugin/README.md#match-flare-and-the-sdk).
 
@@ -41,12 +43,15 @@ errors. Stopping, closing or deleting a conversation does not cancel accepted
 updates. Opening a different conversation can manage the same plugin by ID.
 Plugin names do not control chat titles.
 
-Local AI plugins are enabled by default and automatically approved after source
-validation, including permission and credential format changes. Login, upload and
-writes already in progress still delay switching; Flare does not cancel or repeat
-them. Pending updates can be cancelled from Settings without opening a conversation.
-File and GitHub installations continue to require the normal installation review.
-The plugin management UI does not expose enable/disable switches.
+Local AI plugin packages activate after source validation, including updates to
+permissions and credential formats. In-progress logins, uploads and writes
+finish before the update switches versions. Pending updates can be cancelled
+from Settings without opening a conversation. File and GitHub installations
+require installation review.
+
+Timeline processing for a local AI plugin starts off. Turn it on in
+**Settings → Plugins**. If an update adds an unapproved HTTP origin or requests
+media network access for the first time, turn processing on again.
 
 Invalid sources remain saved and editable while the last working installation
 continues running. A failed update restores the working version. **Cancel update**
