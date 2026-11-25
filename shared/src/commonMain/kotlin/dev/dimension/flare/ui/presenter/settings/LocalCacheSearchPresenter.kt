@@ -6,10 +6,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.paging.Pager
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.filter
 import androidx.paging.map
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.database.cache.CacheDatabase
 import dev.dimension.flare.data.database.cache.model.TranslationDisplayOptions
@@ -84,7 +84,7 @@ public class LocalCacheSearchPresenter : PresenterBase<LocalCacheSearchPresenter
                     }
                 }
             }.map {
-                it.collectAsLazyPagingItems()
+                it.collectAsPagingItems()
             }.toPagingState()
         val data =
             remember(paging, allAccounts) {
@@ -102,7 +102,7 @@ public class LocalCacheSearchPresenter : PresenterBase<LocalCacheSearchPresenter
                     }
                 }
             }.map {
-                it.collectAsLazyPagingItems()
+                it.collectAsPagingItems()
             }.toPagingState()
 
         val userHistory =
@@ -119,7 +119,7 @@ public class LocalCacheSearchPresenter : PresenterBase<LocalCacheSearchPresenter
                             it.user.content.withProxy(ProxyRef.forAccountType(it.data.accountType as AccountType))
                         }
                 }
-            }.collectAsLazyPagingItems().toPagingState()
+            }.collectAsPagingItems().toPagingState()
 
         val searchUser =
             remember(query) {
@@ -139,7 +139,7 @@ public class LocalCacheSearchPresenter : PresenterBase<LocalCacheSearchPresenter
                     )
                 }
             }.map {
-                it.collectAsLazyPagingItems()
+                it.collectAsPagingItems()
             }.toPagingState()
 
         return object : State {

@@ -5,8 +5,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.refreshSuspend
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.datasource.misskey.MisskeyDataSource
@@ -50,7 +50,7 @@ public class AntennasListPresenter(
                 .map {
                     remember {
                         it.antennasList().cachedIn(scope)
-                    }.collectAsLazyPagingItems()
+                    }.collectAsPagingItems()
                 }.toPagingState()
         return object : State {
             override val data: PagingState<UiList.Antenna> = data

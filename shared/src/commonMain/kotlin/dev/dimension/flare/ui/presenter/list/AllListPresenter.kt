@@ -5,8 +5,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.isRefreshing
 import dev.dimension.flare.common.refreshSuspend
 import dev.dimension.flare.common.toPagingState
@@ -39,7 +39,7 @@ public class AllListPresenter(
                 .map { list ->
                     remember(list) {
                         list.listHandler.data.cachedIn(scope)
-                    }.collectAsLazyPagingItems()
+                    }.collectAsPagingItems()
                 }.toPagingState()
         return object : AllListState {
             override val items = items

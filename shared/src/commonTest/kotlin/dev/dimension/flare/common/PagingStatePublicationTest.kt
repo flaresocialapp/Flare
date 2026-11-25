@@ -2,27 +2,37 @@ package dev.dimension.flare.common
 
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.paging.ExperimentalPagingApi
 import androidx.paging.LoadState
 import androidx.paging.LoadStates
+import androidx.paging.LoadType
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.PagingSource
-import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.paging.RemoteMediator
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.moleculeFlow
 import dev.dimension.flare.RobolectricTest
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -30,7 +40,7 @@ import kotlin.test.assertNotEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-@OptIn(ExperimentalCoroutinesApi::class)
+@OptIn(ExperimentalCoroutinesApi::class, ExperimentalPagingApi::class)
 class PagingStatePublicationTest : RobolectricTest() {
     @Test
     fun publishedItemKeysSurviveAShorterPagingGeneration() =
@@ -223,7 +233,7 @@ class PagingStatePublicationTest : RobolectricTest() {
                 launch {
                     moleculeFlow(RecompositionMode.Immediate) {
                         val loading by context.collectAsState()
-                        pages.collectAsLazyPagingItems().toPagingState(loading) { retries++ }
+                        pages.collectAsPagingItems().toPagingState(loading) { retries++ }
                     }.collect { it.onSuccess { states += this } }
                 }
             try {
@@ -258,6 +268,113 @@ class PagingStatePublicationTest : RobolectricTest() {
             }
         }
 
+    @Test
+    fun fastRefreshCompletesWithoutSamplingTheLoadingState() =
+        withPagingStates { pages, states ->
+            var loads = 0
+            val pager = refreshPager {
+                loads++
+                PagingSource.LoadResult.Page(listOf("main"), prevKey = null, nextKey = null)
+            }
+            val collector = backgroundScope.launch { pager.flow.collect { pages.value = it } }
+            val callerScheduler = TestCoroutineScheduler()
+            val caller = CoroutineScope(SupervisorJob() + StandardTestDispatcher(callerScheduler))
+            runCurrent()
+
+            try {
+                assertEquals(1, loads)
+                val refresh = caller.async { states.last().refreshSuspend() }
+                callerScheduler.runCurrent()
+                runCurrent()
+                assertEquals(2, loads)
+                assertEquals("main", states.last().peek(0))
+
+                callerScheduler.runCurrent()
+                assertTrue(refresh.isCompleted, "Refresh must return after Paging completes, even when the caller misses Loading")
+                refresh.await()
+            } finally {
+                caller.cancel()
+                callerScheduler.runCurrent()
+                collector.cancelAndJoin()
+            }
+        }
+
+    @Test
+    fun refreshWaitsForTheRequestedPageToBePresented() =
+        withPagingStates { pages, states ->
+            var loads = 0
+            val allowRefreshLoad = CompletableDeferred<Unit>()
+            val pager = refreshPager {
+                val data = if (++loads == 1) "main" else {
+                    allowRefreshLoad.await()
+                    "refreshed"
+                }
+                PagingSource.LoadResult.Page(listOf(data), prevKey = null, nextKey = null)
+            }
+            backgroundScope.launch { pager.flow.collect { pages.value = it } }
+            runCurrent()
+
+            val refresh = async { withTimeout(5_000) { states.last().refreshSuspend() } }
+            runCurrent()
+            assertEquals(2, loads)
+            advanceTimeBy(2_000)
+            assertFalse(refresh.isCompleted)
+
+            allowRefreshLoad.complete(Unit)
+            runCurrent()
+            assertEquals("refreshed", states.last().peek(0))
+            refresh.await()
+        }
+
+    @Test
+    fun refreshWaitsForRemoteMediatorAndReturnsOnError() =
+        withPagingStates { pages, states ->
+            val remoteResult = CompletableDeferred<RemoteMediator.MediatorResult>()
+            var remoteRefreshes = 0
+            val mediator =
+                object : RemoteMediator<Int, String>() {
+                    override suspend fun initialize(): InitializeAction = InitializeAction.SKIP_INITIAL_REFRESH
+
+                    override suspend fun load(
+                        loadType: LoadType,
+                        state: androidx.paging.PagingState<Int, String>,
+                    ): MediatorResult {
+                        if (loadType != LoadType.REFRESH) return MediatorResult.Success(endOfPaginationReached = true)
+                        remoteRefreshes++
+                        return remoteResult.await()
+                    }
+                }
+            var pagesLoaded = 0
+            val pager = refreshPager(mediator) {
+                PagingSource.LoadResult.Page(listOf("page-${++pagesLoaded}"), prevKey = null, nextKey = null)
+            }
+            backgroundScope.launch { pager.flow.collect { pages.value = it } }
+            runCurrent()
+
+            val refresh = async { withTimeout(5_000) { states.last().refreshSuspend() } }
+            runCurrent()
+            assertEquals(1, remoteRefreshes)
+            assertEquals("page-2", states.last().peek(0))
+            assertFalse(refresh.isCompleted)
+
+            remoteResult.complete(RemoteMediator.MediatorResult.Error(IllegalStateException("refresh failed")))
+            runCurrent()
+            assertTrue(refresh.isCompleted)
+            refresh.await()
+        }
+
+    private fun refreshPager(
+        mediator: RemoteMediator<Int, String>? = null,
+        load: suspend () -> PagingSource.LoadResult<Int, String>,
+    ): Pager<Int, String> =
+        Pager(PagingConfig(pageSize = 2, initialLoadSize = 2, enablePlaceholders = false), remoteMediator = mediator) {
+            object : PagingSource<Int, String>() {
+                override fun getRefreshKey(state: androidx.paging.PagingState<Int, String>): Int? = null
+
+                override suspend fun load(params: LoadParams<Int>): LoadResult<Int, String> = load()
+            }
+        }
+
     private fun withPagingStates(
         block: suspend TestScope.(MutableStateFlow<PagingData<String>>, List<PagingState.Success<String>>) -> Unit,
     ) = runTest {
@@ -267,7 +384,7 @@ class PagingStatePublicationTest : RobolectricTest() {
         val job =
             launch {
                 moleculeFlow(RecompositionMode.Immediate) {
-                    pages.collectAsLazyPagingItems().toPagingState()
+                    pages.collectAsPagingItems().toPagingState()
                 }.collect { state ->
                     state.onSuccess { states += this }
                 }

@@ -12,9 +12,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.paging.Pager
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import dev.dimension.flare.common.Locale
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.combineLatestFlowLists
 import dev.dimension.flare.common.isEmpty
 import dev.dimension.flare.common.refreshSuspend
@@ -287,14 +287,14 @@ internal fun <T : Any> rememberSearchPaging(load: () -> RemoteLoader<T>): Paging
         remember {
             Pager(config = pagingConfig) { load().toPagingSource() }.flow.cachedIn(scope)
         }
-    return pages.collectAsLazyPagingItems().toPagingState()
+    return pages.collectAsPagingItems().toPagingState()
 }
 
 @Composable
 internal fun rememberSearchTimeline(load: () -> RemoteLoader<UiTimelineV2>): PagingState<UiTimelineV2> {
     val scope = rememberCoroutineScope()
     val pages = remember { TimelinePresenter(loader = flow { emit(load()) }).createPager(scope) }
-    return pages.collectAsLazyPagingItems().toPagingState()
+    return pages.collectAsPagingItems().toPagingState()
 }
 
 internal data class GuestPluginSearchSource(

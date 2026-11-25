@@ -4,10 +4,10 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyStaggeredGridState
 import androidx.paging.LoadState
 import androidx.paging.LoadStates
 import androidx.paging.PagingData
-import androidx.paging.compose.collectAsLazyPagingItems
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.moleculeFlow
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.isRefreshing
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.model.AccountType
@@ -331,7 +331,7 @@ class TimelineWithLazyListStateTest {
         val job =
             launch {
                 moleculeFlow(RecompositionMode.Immediate) {
-                    val pagingState = pages.collectAsLazyPagingItems().toPagingState()
+                    val pagingState = pages.collectAsPagingItems().toPagingState()
                     val baseState =
                         object : TimelineItemPresenter.State {
                             override val listState = pagingState

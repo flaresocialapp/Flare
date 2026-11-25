@@ -6,8 +6,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.emptyFlow
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.datasource.microblog.capabilities
@@ -50,7 +50,7 @@ public class ListMembersPresenter(
         val memberInfo =
             remember {
                 membersFlow.cachedIn(scope)
-            }.collectAsLazyPagingItems().toPagingState()
+            }.collectAsPagingItems().toPagingState()
 
         return object : ListMembersState {
             override val memberInfo: PagingState<UiProfile> = memberInfo

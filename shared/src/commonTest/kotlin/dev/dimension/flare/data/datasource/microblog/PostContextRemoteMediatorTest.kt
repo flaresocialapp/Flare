@@ -12,12 +12,12 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingState
 import androidx.paging.RemoteMediator
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.room3.Room
 import app.cash.molecule.RecompositionMode
 import app.cash.molecule.moleculeFlow
 import dev.dimension.flare.RobolectricTest
 import dev.dimension.flare.common.TestFormatter
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.database.cache.CacheDatabase
 import dev.dimension.flare.data.database.cache.mapper.saveToDatabase
@@ -192,7 +192,7 @@ class PostContextRemoteMediatorTest : RobolectricTest() {
             launch {
                 moleculeFlow(RecompositionMode.Immediate) {
                     val loading by mediator.loadStates.collectAsState()
-                    val items = pager.flow.collectAsLazyPagingItems()
+                    val items = pager.flow.collectAsPagingItems()
                     LaunchedEffect(items) {
                         mediator.retryWhenReady(snapshotFlow { items.loadState.mediator }, items::retry)
                     }
@@ -599,7 +599,7 @@ class PostContextRemoteMediatorTest : RobolectricTest() {
                 launch {
                     moleculeFlow(RecompositionMode.Immediate) {
                         val loading by mediator.loadStates.collectAsState()
-                        pager.flow.collectAsLazyPagingItems().toPagingState(loading)
+                        pager.flow.collectAsPagingItems().toPagingState(loading)
                     }.collect { states.value = it }
                 }
             try {

@@ -8,8 +8,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.refreshSuspend
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.datasource.bluesky.BlueskyDataSource
@@ -48,14 +48,14 @@ public class BlueskyFeedsPresenter(
                         remember(service) {
                             service.feedHandler.data.cachedIn(scope)
                         }
-                    flow.collectAsLazyPagingItems()
+                    flow.collectAsPagingItems()
                 }.toPagingState()
         val popularFeeds =
             serviceState
                 .map { service ->
                     remember(service, query) {
                         service.popularFeeds(query = query, scope = scope)
-                    }.collectAsLazyPagingItems()
+                    }.collectAsPagingItems()
                 }.toPagingState()
 
         return object : BlueskyFeedsState {

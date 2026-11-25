@@ -11,8 +11,6 @@ import androidx.compose.runtime.setValue
 import androidx.paging.ItemSnapshotList
 import androidx.paging.LoadState
 import androidx.paging.LoadStates
-import androidx.paging.compose.LazyPagingItems
-import androidx.paging.compose.itemKey
 import dev.dimension.flare.ui.model.UiState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -115,7 +113,7 @@ public sealed class PagingState<T> {
 
         @Immutable
         internal data class PagingSuccess<T : Any>(
-            private val data: LazyPagingItems<T>,
+            private val data: PagingItems<T>,
             private val items: ItemSnapshotList<T>,
             override val isRefreshing: Boolean,
             override val appendState: LoadState,
@@ -149,10 +147,8 @@ public sealed class PagingState<T> {
             }
 
             override fun itemKey(key: ((item: T) -> Any)?): (index: Int) -> Any {
-                // The default factory creates Android-saveable placeholder keys without
-                // reading the live list, and cannot collide with caller-provided keys.
-                val placeholderKey = data.itemKey()
-                return { index -> key?.let { items.getOrNull(index)?.let(it) } ?: placeholderKey(index) }
+                // The enum and pair are Android-saveable and reserve placeholder keys separately from item keys.
+                return { index -> key?.let { items.getOrNull(index)?.let(it) } ?: (PagingPlaceholder.Key to index) }
             }
 
             override fun itemContentType(contentType: ((item: T) -> Any?)?): (index: Int) -> Any? =
@@ -160,6 +156,8 @@ public sealed class PagingState<T> {
         }
     }
 }
+
+private enum class PagingPlaceholder { Key }
 
 @HiddenFromObjC
 public val <T : Any> PagingState<T>.isLoading: Boolean
@@ -260,7 +258,7 @@ public inline val LoadState.isEndOfList: Boolean
     get() = this is LoadState.NotLoading && endOfPaginationReached
 
 @HiddenFromObjC
-public fun <T : Any> UiState<LazyPagingItems<T>>.toPagingState(): PagingState<T> =
+public fun <T : Any> UiState<PagingItems<T>>.toPagingState(): PagingState<T> =
     when (this) {
         is UiState.Loading -> PagingState.Loading()
         is UiState.Error -> PagingState.Error(throwable, {})
@@ -268,24 +266,24 @@ public fun <T : Any> UiState<LazyPagingItems<T>>.toPagingState(): PagingState<T>
     }
 
 @HiddenFromObjC
-public fun <T : Any> LazyPagingItems<T>.toPagingState(
+public fun <T : Any> PagingItems<T>.toPagingState(
     contextLoadStates: LoadStates? = null,
     onRetry: () -> Unit = this::retry,
 ): PagingState<T> = toPagingState(contextLoadStates, onRetry, null)
 
-internal fun <T : Any> LazyPagingItems<T>.toPagingState(
+internal fun <T : Any> PagingItems<T>.toPagingState(
     contextLoadStates: LoadStates?,
     onRetry: () -> Unit,
     onItemAccessed: ((T) -> Unit)?,
 ): PagingState<T> {
     val snapshot = snapshot()
-    if (itemCount > 0) {
+    if (snapshot.itemCount > 0) {
         return PagingState.Success.PagingSuccess(
             data = this,
-            // LazyPagingItems is reused across updates. Include the presented items and
+            // PagingItems is reused across updates. Include the presented items and
             // refresh state so equal load states cannot hide changes from UI consumers.
             items = itemSnapshotList,
-            isRefreshing = isRefreshing,
+            isRefreshing = snapshot.refresh is LoadState.Loading,
             appendState = contextLoadStates?.contextFooterState() ?: loadState.append,
             sourceAppendState = snapshot.source.append,
             onRetry = onRetry,
@@ -348,9 +346,9 @@ internal fun PagingSnapshot.isResolvedEmpty(): Boolean =
         source.prepend.isEndOfList &&
         source.append.isEndOfList
 
-internal fun <T : Any> LazyPagingItems<T>.snapshot(): PagingSnapshot =
+private fun <T : Any> PagingItems<T>.snapshot(): PagingSnapshot =
     PagingSnapshot(
-        itemCount = itemCount,
+        itemCount = itemSnapshotList.size,
         refresh = loadState.refresh,
         prepend = loadState.prepend,
         append = loadState.append,

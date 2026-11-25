@@ -30,13 +30,13 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.rightClick
 import androidx.compose.ui.unit.dp
-import androidx.paging.compose.LazyPagingItems
 import coil3.ColorImage
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.decode.DataSource
 import coil3.fetch.Fetcher
 import coil3.fetch.ImageFetchResult
+import dev.dimension.flare.common.PagingItems
 import dev.dimension.flare.common.PagingState
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.datasource.microblog.ActionMenu
@@ -2174,8 +2174,8 @@ private class FakeMangaDetailState(
         )
     override var supportsComments: Boolean by mutableStateOf(false)
     override var supportsRecommendations: Boolean by mutableStateOf(false)
-    override val comments: PagingState<UiTimelineV2> = UiState.Loading<LazyPagingItems<UiTimelineV2>>().toPagingState()
-    override val recommendations: PagingState<UiTimelineV2> = UiState.Loading<LazyPagingItems<UiTimelineV2>>().toPagingState()
+    override val comments: PagingState<UiTimelineV2> = UiState.Loading<PagingItems<UiTimelineV2>>().toPagingState()
+    override val recommendations: PagingState<UiTimelineV2> = UiState.Loading<PagingItems<UiTimelineV2>>().toPagingState()
     override var isRefreshing: Boolean by mutableStateOf(false)
     var refreshCount: Int by mutableIntStateOf(0)
 

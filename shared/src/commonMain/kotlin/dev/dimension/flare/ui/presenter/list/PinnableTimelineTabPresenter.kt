@@ -6,9 +6,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.map
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.datasource.microblog.capabilities
 import dev.dimension.flare.data.datasource.microblog.datasource.PinnableTimelineTabSection
@@ -108,7 +108,7 @@ public class PinnableTimelineTabPresenter(
                                         .map { pagingData ->
                                             pagingData.map { it.toUiTimelineTabItem() as UiTimelineTabItem }
                                         }.cachedIn(scope)
-                                }.collectAsLazyPagingItems().toPagingState()
+                                }.collectAsPagingItems().toPagingState()
                             PinnableTimelineTab(
                                 title = section.title,
                                 data = pagingState,
