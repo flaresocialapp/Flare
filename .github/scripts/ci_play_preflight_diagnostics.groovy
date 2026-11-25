@@ -26,6 +26,9 @@ gradle.allprojects {
         }
         doFirst {
             record('task-started', task.path)
+            if (task.path == ':shared:jvmTest') {
+                new File(diagnosticDir, 'shared-test-classpath.txt').text = task.classpath.asPath
+            }
         }
         beforeTest { test ->
             record('test-started', test.className + '.' + test.name)

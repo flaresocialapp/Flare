@@ -1,5 +1,5 @@
 name: Google Play preflight diagnostics
-run-name: Reproduce Linux Manga Reader test failure with full stacks
+run-name: Repeat the Manga chunk-retry regression on Ubuntu x64
 
 on:
   push:
@@ -85,6 +85,21 @@ jobs:
         run: |
           printf 'Gradle cache hit=%s key=%s\n' "$GRADLE_CACHE_HIT" "$GRADLE_CACHE_KEY" | tee -a "$FLARE_CI_DIAG/runner.txt"
           python3 -B .github/scripts/ci_play_preflight_diagnostics.py
+          set +e
+          for worker in 1 2; do
+            timeout -k 10 300 java -Djava.awt.headless=true -XX:ActiveProcessorCount=2 \
+              -cp "$(cat "$FLARE_CI_DIAG/shared-test-classpath.txt")" \
+              .github/scripts/RepeatMangaTest.java \
+              rangeChunkFailureMarksOnlyUnloadedIndicesAndPlaceholderRetryRecoversChunkInPlace 700 \
+              > "$FLARE_CI_DIAG/repeat-$worker.txt" 2>&1 &
+            pids[$worker]=$!
+          done
+          result=0
+          for worker in 1 2; do
+            wait "${pids[$worker]}" || result=1
+            tail -18 "$FLARE_CI_DIAG/repeat-$worker.txt"
+          done
+          exit "$result"
       - name: Upload diagnostic records
         if: always()
         uses: actions/upload-artifact@v7
