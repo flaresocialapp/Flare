@@ -22,6 +22,7 @@ gradle.allprojects {
 
         testLogging {
             events 'started', 'passed', 'failed', 'skipped'
+            exceptionFormat = 'full'
         }
         doFirst {
             record('task-started', task.path)

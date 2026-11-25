@@ -129,10 +129,12 @@ def main():
         "tmp": Path("/tmp"),
         "diagnostics": report,
     }
+    init_script = report / "ci-play-preflight.init.gradle"
+    init_script.write_bytes((workspace / ".github/scripts/ci_play_preflight_diagnostics.groovy").read_bytes())
     command = [
         "./gradlew", "allTests", ":app:check", ":app:lint",
         "-x", "wasmJsBrowserTest", "-x", "ktlintCheck", "--stacktrace",
-        "--console=plain", "-I", ".github/scripts/ci_play_preflight_diagnostics.init.gradle",
+        "--console=plain", "-I", str(init_script),
     ]
     record_usage(report, workspace, gradle_home, runner_temp, "before-gradle")
     process = subprocess.Popen(command, start_new_session=True)
