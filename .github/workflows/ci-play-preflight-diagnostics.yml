@@ -22,7 +22,7 @@ jobs:
       BUILD_NUMBER: 6008
       JAVA_TOOL_OPTIONS: -Djava.awt.headless=true
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
-      FLARE_UI_DIAG: ${{ runner.temp }}/flare-ui-6008
+      FLARE_UI_DIAG: /tmp/flare-ui-6008-${{ github.run_id }}-${{ matrix.mode }}
       FLARE_UI_MODE: ${{ matrix.mode }}
     steps:
       - uses: yumis-coconudge/clean-workspace-action@v1
