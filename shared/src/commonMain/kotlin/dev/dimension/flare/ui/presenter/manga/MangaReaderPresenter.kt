@@ -1650,24 +1650,12 @@ private class ChapterPagesSession(
                                 limit = hint,
                             )
                         }
-                    currentCoroutineContext().ensureActive()
-                    chunkJobsMutex.withLock {
-                        if (inFlightChunkJobs[targetIndex]?.job === selfJob) {
-                            inFlightChunkJobs.remove(targetIndex)
-                        }
-                    }
-                    chunkCommitMutex.withLock {
+                    publishRangeChunkResult(targetIndex, selfJob) {
                         applyRangeChunkLocked(requestedOffset = targetIndex, chunk = chunk)
                     }
                 } catch (e: Throwable) {
                     if (e is CancellationException) throw e
-                    currentCoroutineContext().ensureActive()
-                    chunkJobsMutex.withLock {
-                        if (inFlightChunkJobs[targetIndex]?.job === selfJob) {
-                            inFlightChunkJobs.remove(targetIndex)
-                        }
-                    }
-                    chunkCommitMutex.withLock {
+                    publishRangeChunkResult(targetIndex, selfJob) {
                         val total = totalCount ?: 0
                         if (total > 0 && targetIndex in 0 until total) {
                             val regionEnd = (targetIndex + hint - 1).coerceAtMost(total - 1)
@@ -1689,6 +1677,23 @@ private class ChapterPagesSession(
             }
         inFlightChunkJobs[targetIndex] = InFlightChunkJob(targetIndex = targetIndex, job = chunkJob, isExplicitRetry = isExplicitRetry)
         return chunkJob
+    }
+
+    private suspend fun publishRangeChunkResult(
+        targetIndex: Int,
+        completedJob: Job?,
+        publish: () -> Unit,
+    ) {
+        // Window planning must see the published result when the request leaves the in-flight set.
+        chunkJobsMutex.withLock {
+            chunkCommitMutex.withLock {
+                currentCoroutineContext().ensureActive()
+                publish()
+            }
+            if (inFlightChunkJobs[targetIndex]?.job === completedJob) {
+                inFlightChunkJobs.remove(targetIndex)
+            }
+        }
     }
 
     private suspend fun syncCursorAppend(
