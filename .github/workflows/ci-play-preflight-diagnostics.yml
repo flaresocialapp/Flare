@@ -1,5 +1,5 @@
 name: Google Play preflight diagnostics
-run-name: Google Play preflight diagnostics (original Gradle cache)
+run-name: Locate TimelineInclusionTest coroutine suspension
 
 on:
   push:
@@ -80,6 +80,7 @@ jobs:
           bash .github/apply_signing.sh
       - name: Run shared and Android checks with diagnostics
         env:
+          FLARE_CI_COROUTINES: ${{ matrix.disk == 'extra-space' }}
           GRADLE_CACHE_HIT: ${{ steps.java.outputs.cache-hit }}
           GRADLE_CACHE_KEY: ${{ steps.java.outputs.cache-primary-key }}
         run: |
