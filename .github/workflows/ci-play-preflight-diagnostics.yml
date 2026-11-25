@@ -1,5 +1,5 @@
 name: Google Play preflight diagnostics
-run-name: Verify Paging refresh fix on Ubuntu x64
+run-name: Retry Paging refresh preflight on standard Ubuntu x64
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        disk: [standard, extra-space]
+        disk: [standard]
     env:
       BUILD_NUMBER: 5999
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
