@@ -1,5 +1,5 @@
 name: Google Play preflight diagnostics
-run-name: Repeat the Manga chunk-retry regression on Ubuntu x64
+run-name: Verify atomic Manga chunk retry on Ubuntu x64
 
 on:
   push:
@@ -90,7 +90,7 @@ jobs:
             timeout -k 10 300 java -Djava.awt.headless=true -XX:ActiveProcessorCount=2 \
               -cp "$(cat "$FLARE_CI_DIAG/shared-test-classpath.txt")" \
               .github/scripts/RepeatMangaTest.java \
-              rangeChunkFailureMarksOnlyUnloadedIndicesAndPlaceholderRetryRecoversChunkInPlace 700 \
+              rangeChunkFailureMarksOnlyUnloadedIndicesAndPlaceholderRetryRecoversChunkInPlace 2000 \
               > "$FLARE_CI_DIAG/repeat-$worker.txt" 2>&1 &
             pids[$worker]=$!
           done

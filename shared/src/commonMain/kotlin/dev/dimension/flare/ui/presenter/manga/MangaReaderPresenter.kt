@@ -1348,7 +1348,10 @@ private data class InFlightChunkJob(
     val targetIndex: Int,
     val job: Job,
     val isExplicitRetry: Boolean,
-)
+) {
+    val isInFlight: Boolean
+        get() = !job.isCompleted && !job.isCancelled
+}
 
 private sealed interface CursorChaseGoal {
     data object End : CursorChaseGoal
@@ -1554,19 +1557,22 @@ private class ChapterPagesSession(
                 if (!entry.isExplicitRetry && entry.targetIndex !in windowStart..windowEnd) {
                     jobsToCancel += entry.job
                     iterator.remove()
-                } else if (!entry.job.isActive) {
+                } else if (!entry.isInFlight) {
                     iterator.remove()
                 }
             }
+
+            val loadedPages = loadedPagesByIndex
+            val failedRegions = failedChunkRegions
 
             fun isCovered(
                 index: Int,
                 plannedRanges: List<IntRange>,
             ): Boolean {
-                if (index in loadedPagesByIndex) return true
-                if (failedChunkRegions.any { index in it.range }) return true
+                if (index in loadedPages) return true
+                if (failedRegions.any { index in it.range }) return true
                 if (inFlightChunkJobs.values.any { entry ->
-                        entry.job.isActive && index in entry.targetIndex until (entry.targetIndex + chunkSizeHint)
+                        entry.isInFlight && index in entry.targetIndex until (entry.targetIndex + chunkSizeHint)
                     }
                 ) {
                     return true
@@ -1585,10 +1591,10 @@ private class ChapterPagesSession(
             }
 
             val currentIsLoadingOrFailed =
-                (clampedCurrent !in loadedPagesByIndex) &&
+                (clampedCurrent !in loadedPages) &&
                     (
-                        failedChunkRegions.any { clampedCurrent in it.range } ||
-                            inFlightChunkJobs.values.any { it.job.isActive && it.targetIndex == clampedCurrent } ||
+                        failedRegions.any { clampedCurrent in it.range } ||
+                            inFlightChunkJobs.values.any { it.isInFlight && it.targetIndex == clampedCurrent } ||
                             clampedCurrent in plannedTargets
                     )
             if (!currentIsLoadingOrFailed) {
@@ -1628,7 +1634,7 @@ private class ChapterPagesSession(
         isExplicitRetry: Boolean,
     ): Job? {
         if (!job.isActive) return null
-        if (inFlightChunkJobs[targetIndex]?.job?.isActive == true) return null
+        if (inFlightChunkJobs[targetIndex]?.isInFlight == true) return null
         val hint = chunkSizeHint
         val chunkJob =
             scope.launch(start = CoroutineStart.LAZY) {
@@ -1762,14 +1768,13 @@ private class ChapterPagesSession(
         if (isRangeMode) {
             val total = totalCount ?: return
             if (index !in 0 until total) return
-            Snapshot.withMutableSnapshot {
-                failedChunkRegions = failedChunkRegions.filterNot { index in it.range }
-            }
-            if (index in loadedPagesByIndex) return
             scope.launch {
                 val jobToStart =
                     chunkJobsMutex.withLock {
                         if (index in loadedPagesByIndex) return@withLock null
+                        Snapshot.withMutableSnapshot {
+                            failedChunkRegions = failedChunkRegions.filterNot { index in it.range }
+                        }
                         createRangeChunkJobLocked(
                             targetIndex = index,
                             dataSource = dataSource,
