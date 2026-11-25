@@ -13,8 +13,8 @@ test -n "$device"
 } | tee "$FLARE_UI_DIAG/device.txt"
 
 attempts=1
-if [[ "$FLARE_UI_MODE" == repeated-ui ]]; then
-  attempts=3
+if [[ "$FLARE_UI_MODE" != preflight ]]; then
+  attempts=6
 fi
 
 for (( attempt=1; attempt<=attempts; attempt++ )); do

@@ -1,5 +1,5 @@
 name: Google Play UI regression diagnostics
-run-name: Diagnose Google Play run 6008 Android UI failures on Ubuntu x64
+run-name: Stress Android UI regressions for Google Play run 6008
 
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mode: [preflight, repeated-ui]
+        mode: [ui-replay-1, ui-replay-2]
     env:
       BUILD_NUMBER: 6008
       JAVA_TOOL_OPTIONS: -Djava.awt.headless=true
