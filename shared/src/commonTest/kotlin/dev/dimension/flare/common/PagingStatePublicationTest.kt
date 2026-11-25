@@ -22,6 +22,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -327,9 +328,9 @@ class PagingStatePublicationTest : RobolectricTest() {
         }
 
     @Test
-    fun refreshWaitsForRemoteMediatorAndReturnsOnError() =
+    fun refreshWaitsForRemoteMediatorEvenAfterAPreviousError() =
         withPagingStates { pages, states ->
-            val remoteResult = CompletableDeferred<RemoteMediator.MediatorResult>()
+            val remoteResults = Channel<RemoteMediator.MediatorResult>()
             var remoteRefreshes = 0
             val mediator =
                 object : RemoteMediator<Int, String>() {
@@ -341,7 +342,7 @@ class PagingStatePublicationTest : RobolectricTest() {
                     ): MediatorResult {
                         if (loadType != LoadType.REFRESH) return MediatorResult.Success(endOfPaginationReached = true)
                         remoteRefreshes++
-                        return remoteResult.await()
+                        return remoteResults.receive()
                     }
                 }
             var pagesLoaded = 0
@@ -357,10 +358,21 @@ class PagingStatePublicationTest : RobolectricTest() {
             assertEquals("page-2", states.last().peek(0))
             assertFalse(refresh.isCompleted)
 
-            remoteResult.complete(RemoteMediator.MediatorResult.Error(IllegalStateException("refresh failed")))
+            remoteResults.send(RemoteMediator.MediatorResult.Error(IllegalStateException("refresh failed")))
             runCurrent()
             assertTrue(refresh.isCompleted)
             refresh.await()
+
+            val nextRefresh = async { withTimeout(5_000) { states.last().refreshSuspend() } }
+            runCurrent()
+            assertEquals(2, remoteRefreshes)
+            assertEquals("page-3", states.last().peek(0))
+            assertFalse(nextRefresh.isCompleted, "The previous refresh error must not complete a new request")
+
+            remoteResults.send(RemoteMediator.MediatorResult.Success(endOfPaginationReached = true))
+            runCurrent()
+            assertTrue(nextRefresh.isCompleted)
+            nextRefresh.await()
         }
 
     private fun refreshPager(

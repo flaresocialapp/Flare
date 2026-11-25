@@ -102,13 +102,11 @@ public class PagingItems<T : Any> internal constructor(cached: PagingData<T>?) {
         val request = pendingRefresh ?: return
         if (request.generation == generation) return
 
-        val combined = states.refresh
         val source = states.source.refresh
-        val mediator = states.mediator?.refresh
-        val failed = combined is LoadState.Error || source is LoadState.Error || mediator is LoadState.Error
+        // A new Paging generation can still report the previous mediator error before its source loads.
         val finished =
-            presentedRefresh && combined is LoadState.NotLoading && source is LoadState.NotLoading && mediator !is LoadState.Loading
-        if (failed || finished) {
+            presentedRefresh && source is LoadState.NotLoading && states.mediator?.refresh !is LoadState.Loading
+        if (source is LoadState.Error || finished) {
             pendingRefresh = null
             request.completed.complete(Unit)
         }
