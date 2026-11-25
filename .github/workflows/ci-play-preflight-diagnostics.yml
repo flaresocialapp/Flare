@@ -1,5 +1,5 @@
 name: Google Play preflight diagnostics
-run-name: Retry Paging refresh preflight on standard Ubuntu x64
+run-name: Reproduce Linux Manga Reader test failure with full stacks
 
 on:
   push:
@@ -78,7 +78,7 @@ jobs:
           done
           umask 077
           bash .github/apply_signing.sh
-      - name: Run shared and Android checks with diagnostics
+      - name: Run shared and desktop tests with diagnostics
         env:
           GRADLE_CACHE_HIT: ${{ steps.java.outputs.cache-hit }}
           GRADLE_CACHE_KEY: ${{ steps.java.outputs.cache-primary-key }}

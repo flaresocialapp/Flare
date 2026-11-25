@@ -1365,7 +1365,7 @@ class MangaReaderPresenterTest {
                 Room
                     .databaseBuilder<CacheDatabase>(name = tempDir.resolve("cache.db").toAbsolutePath().toString())
                     .setDriver(createDatabaseDriver())
-                    .setQueryCoroutineContext(dispatcher)
+                    .setQueryCoroutineContext(Dispatchers.IO)
                     .build()
             var now = 30_000L
             val progressRepository = MangaProgressRepository(cacheDatabase) { now++ }
@@ -1406,6 +1406,7 @@ class MangaReaderPresenterTest {
                     "ex-1" to readyPages(count = 3, prefix = "ex1"),
                 )
             val chapterPageLoads = CopyOnWriteArrayList<String>()
+            val extraPagesRequested = CompletableDeferred<Unit>()
             val releaseExtraPages = CompletableDeferred<Unit>()
             val detailCache = MutableStateFlow<UiMangaDetail?>(null)
             val mangaDataSource =
@@ -1421,7 +1422,10 @@ class MangaReaderPresenterTest {
                         chapterId: String,
                     ): ImmutableList<UiMangaPage> {
                         chapterPageLoads += chapterId
-                        if (chapterId == "ex-1") releaseExtraPages.await()
+                        if (chapterId == "ex-1") {
+                            extraPagesRequested.complete(Unit)
+                            releaseExtraPages.await()
+                        }
                         return pagesByChapter.getValue(chapterId)
                     }
 
@@ -1550,19 +1554,24 @@ class MangaReaderPresenterTest {
                 Snapshot.sendApplyNotifications()
                 runCurrent()
                 val loadingExtra = awaitReaderState(states) { it.activeChapterId == "ex-1" && it.loadState is UiState.Loading }
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000) { extraPagesRequested.await() }
+                }
                 assertEquals(listOf("ch-1", "ch-2", "ex-1"), chapterPageLoads.toList())
                 loadingExtra.openChapter("ex-1", initialPage = 2)
                 loadingExtra.openChapter("ex-1", initialPage = null)
                 releaseExtraPages.complete(Unit)
+                // Landing on the last page schedules an asynchronous progress write.
                 val loadedExtra =
                     awaitReaderState(states) {
                         it.activeChapterId == "ex-1" &&
-                            it.loadState is UiState.Success
+                            it.loadState is UiState.Success &&
+                            it.chapterItems.singleOrNull()?.isRead == true
                     }
                 assertEquals(2, loadedExtra.currentPageIndex)
                 assertEquals("group-extra", loadedExtra.selectedChapterGroupId)
                 assertEquals(
-                    listOf(ReaderChapterItem(chapter = ex1, isCurrent = true, isRead = false, lastPageIndex = 0)),
+                    listOf(ReaderChapterItem(chapter = ex1, isCurrent = true, isRead = true, lastPageIndex = 2)),
                     loadedExtra.chapterItems,
                 )
                 assertEquals(listOf("ch-1", "ch-2", "ex-1"), chapterPageLoads.toList())

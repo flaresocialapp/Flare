@@ -32,6 +32,13 @@ gradle.allprojects {
         }
         afterTest { test, result ->
             record(result.resultType.name().toLowerCase(Locale.ROOT), test.className + '.' + test.name)
+            if (test.className.endsWith('.MangaReaderPresenterTest')) {
+                result.exceptions.each { failure ->
+                    eventLog.withWriterAppend('UTF-8') { writer ->
+                        failure.printStackTrace(new PrintWriter(writer))
+                    }
+                }
+            }
         }
         doLast {
             record('task-finished', task.path)
