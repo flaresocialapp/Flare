@@ -71,13 +71,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import org.koin.core.context.stopKoin
 import org.koin.dsl.module
-import java.io.PrintStream
-import java.nio.file.Files
-import java.nio.file.Path
-import java.nio.file.StandardOpenOption
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
-import kotlin.concurrent.thread
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -102,36 +97,6 @@ class TimelineInclusionTest {
         enabledAtStart: Boolean,
         isHomeTimeline: Boolean = true,
     ) = runBlocking {
-        val diagnosticDir = if (!group && !enabledAtStart && !isHomeTimeline) {
-            System.getenv("FLARE_CI_DIAG")?.let { Path.of(it) }
-        } else {
-            null
-        }
-        fun mark(stage: String) {
-            diagnosticDir?.let { dir ->
-                Files.writeString(
-                    dir.resolve("timeline-phases.tsv"),
-                    "${System.currentTimeMillis()}\t$stage\n",
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.APPEND,
-                )
-            }
-        }
-        val coroutineDump = diagnosticDir?.takeIf { System.getenv("FLARE_CI_COROUTINES") == "true" }?.let { dir ->
-            thread(isDaemon = true, name = "timeline-diagnostic") {
-                try {
-                    Thread.sleep(12_000)
-                    val probes = Class.forName("kotlinx.coroutines.debug.internal.DebugProbesImpl")
-                    val instance = probes.getField("INSTANCE").get(null)
-                    PrintStream(Files.newOutputStream(dir.resolve("timeline-coroutines.txt"))).use { out ->
-                        probes.getMethod("dumpCoroutines", PrintStream::class.java).invoke(instance, out)
-                    }
-                } catch (_: InterruptedException) {
-                    // The test completed before the snapshot.
-                }
-            }
-        }
-        mark("start")
         val main = Executors.newSingleThreadExecutor { Thread(it, "timeline-ui") }.asCoroutineDispatcher()
         Dispatchers.setMain(main)
         val root = createTestRootPath()
@@ -180,11 +145,9 @@ class TimelineInclusionTest {
                     unavailableAccountService(),
                 )
             val appData = AppDataStore(storage)
-            mark("appSettings.updateData start")
             appData.appSettingsStore.updateData {
                 it.copy(rememberHomeTimelinePosition = false, refreshHomeTimelineOnLaunch = true, mxgaEnabled = false)
             }
-            mark("appSettings.updateData finished")
             val settings = SettingsRepository(storage, appData, resolver, cache)
             val factory = TimelinePresenterFactory(resolver, settings)
             startKoin {
@@ -232,12 +195,8 @@ class TimelineInclusionTest {
                     )
                 }
             }
-            mark("storeTarget(initial) start")
             storeTarget(target)
-            mark("storeTarget(initial) finished")
-            mark("homeTimelineTab(target).first start")
             val presenter = factory.create(checkNotNull(settings.homeTimelineTab(target.id).first()), isHomeTimeline = isHomeTimeline)
-            mark("homeTimelineTab(target).first finished")
             val models = MutableStateFlow<TimelineState?>(null)
             scope.launch(Dispatchers.Main) {
                 moleculeFlow(RecompositionMode.Immediate) { presenter.body() }.collect { models.value = it }
@@ -251,49 +210,34 @@ class TimelineInclusionTest {
                     }
                 }
 
-            mark("awaitPost(target-1) start")
             val initial = awaitPost("target-1")
-            mark("awaitPost(target-1) finished")
             assertEquals(1, (initial.listState as PagingState.Success).itemCount)
             assertEquals(1, targetRequests.get())
-            mark("storeTarget(excluded) start")
             storeTarget(target.copy(presentation = TimelinePresentation(enabled = false)))
-            mark("storeTarget(excluded) finished")
-            mark("sourceActive.first start")
             assertTrue(presenter.sourceActive.first(), "Excluding a timeline from mixed timelines must keep its own page active")
-            mark("sourceActive.first finished")
 
             version.set(2)
-            mark("refresh on Main start")
             withContext(Dispatchers.Main) { checkNotNull(models.value).refresh() }
-            mark("refresh on Main finished")
-            mark("awaitPost(target-2) start")
             val refreshed = awaitPost("target-2")
-            mark("awaitPost(target-2) finished")
             assertEquals(1, (refreshed.listState as PagingState.Success).itemCount)
             assertEquals(2, targetRequests.get())
 
-            mark("homeTimelineTab(mixed).first start")
-            val mixedTab = checkNotNull(settings.homeTimelineTab(SYSTEM_HOME_MIXED_TIMELINE_ID).first())
-            mark("mixed.loader.first start")
-            val mixed = factory.create(mixedTab).loader.first() as CacheableRemoteLoader<UiTimelineV2>
-            mark("mixed.load start")
+            val mixed =
+                factory
+                    .create(checkNotNull(settings.homeTimelineTab(SYSTEM_HOME_MIXED_TIMELINE_ID).first()))
+                    .loader
+                    .first() as CacheableRemoteLoader<UiTimelineV2>
             val mixedResult = mixed.load(20, PagingRequest.Refresh)
-            mark("mixed.load finished")
             assertEquals(listOf("included-2"), mixedResult.data.map { it.statusKey.id })
             assertEquals(2, targetRequests.get(), "The mixed timeline must not request the excluded source or group")
         } finally {
-            mark("finally scope.cancelAndJoin start")
             scope.coroutineContext.job.cancelAndJoin()
-            mark("finally scope.cancelAndJoin finished")
             stopKoin()
             cache.close()
             app.close()
             Dispatchers.resetMain()
             main.close()
             deleteTestRootPath(root)
-            mark("finish")
-            coroutineDump?.interrupt()
         }
     }
 

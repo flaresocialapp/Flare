@@ -14,15 +14,18 @@ import app.cash.molecule.moleculeFlow
 import dev.dimension.flare.RobolectricTest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -256,6 +259,35 @@ class PagingStatePublicationTest : RobolectricTest() {
                 job.cancelAndJoin()
                 Dispatchers.resetMain()
             }
+        }
+
+    @Test
+    fun refreshCompletesWhenPagingDoesNotPublishLoading() =
+        withPagingStates { pages, states ->
+            val refresh = async { withTimeout(5_000) { states.last().refreshSuspend() } }
+            runCurrent()
+
+            pages.value = page("refreshed")
+            runCurrent()
+
+            assertEquals("refreshed", states.last().peek(0))
+            refresh.await()
+        }
+
+    @Test
+    fun refreshWaitsForAnObservedLoadToFinish() =
+        withPagingStates { pages, states ->
+            val refresh = async { withTimeout(5_000) { states.last().refreshSuspend() } }
+            runCurrent()
+
+            pages.value = page("main", refresh = LoadState.Loading)
+            runCurrent()
+            advanceTimeBy(2_000)
+            assertFalse(refresh.isCompleted)
+
+            pages.value = page("refreshed")
+            runCurrent()
+            refresh.await()
         }
 
     private fun withPagingStates(

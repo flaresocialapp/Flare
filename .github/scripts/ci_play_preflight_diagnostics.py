@@ -186,14 +186,11 @@ def main():
             if event:
                 epoch, kind, _ = event.split("\t", maxsplit=2)
                 age = int(time.time()) - int(epoch)
-                targeted = "TimelineInclusionTest.excludedSourceLoadsFromNonHomeEntry" in event
-                first_dump = 25 if targeted else FIRST_STALL_DUMP
-                second_dump = 55 if targeted else SECOND_STALL_DUMP
-                if kind != "task-finished" and age >= first_dump:
+                if kind != "task-finished" and age >= FIRST_STALL_DUMP:
                     if first_stall is None or first_stall[0] != event:
                         snapshot("shared-jvm-stall")
                         first_stall = (event, free_space)
-                    elif age >= second_dump and last_stall != event:
+                    elif age >= SECOND_STALL_DUMP and last_stall != event:
                         snapshot("shared-jvm-stall-repeat")
                         last_stall = event
                         if (free_space > LOW_SPACE_KIB and free_inodes > LOW_INODES

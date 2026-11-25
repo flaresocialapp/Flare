@@ -3,21 +3,18 @@ package dev.dimension.flare.common
 import androidx.compose.runtime.snapshotFlow
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.time.Duration.Companion.seconds
 
 internal suspend fun <T : Any> LazyPagingItems<T>.refreshSuspend() {
     refresh()
-    snapshotFlow { loadState }
-        .distinctUntilChanged()
-        .first {
-            it.refresh is LoadState.Loading
-        }
-    snapshotFlow { loadState }
-        .distinctUntilChanged()
-        .first {
-            it.refresh is LoadState.NotLoading || it.refresh is LoadState.Error
-        }
+    val refreshStates = snapshotFlow { loadState.refresh }
+    // Compose can skip the transient Loading state of a fast refresh.
+    val started = withTimeoutOrNull(1.seconds) { refreshStates.first { it is LoadState.Loading } }
+    if (started != null || loadState.refresh is LoadState.Loading) {
+        refreshStates.first { it !is LoadState.Loading }
+    }
 }
 
 internal inline fun <reified T : Any> LazyPagingItems<T>.onLoading(block: () -> Unit): LazyPagingItems<T> {

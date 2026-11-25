@@ -25,14 +25,6 @@ gradle.allprojects {
             exceptionFormat = 'full'
         }
         doFirst {
-            if (task.path == ':shared:jvmTest' && System.getenv('FLARE_CI_COROUTINES') == 'true') {
-                def agent = task.classpath.files.find { it.name == 'kotlinx-coroutines-core-jvm-1.11.0.jar' }
-                if (!agent) {
-                    throw new GradleException('Coroutine probe agent is missing from the test classpath')
-                }
-                task.jvmArgs('-javaagent:' + agent.absolutePath)
-                task.systemProperty('kotlinx.coroutines.debug.enable.creation.stack.trace', 'false')
-            }
             record('task-started', task.path)
         }
         beforeTest { test ->
