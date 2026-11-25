@@ -133,7 +133,7 @@ def main():
     init_script.write_bytes((workspace / ".github/scripts/ci_play_preflight_diagnostics.groovy").read_bytes())
     command = [
         "./gradlew", ":shared:jvmTest", "--tests",
-        "*MangaReaderPresenterTest.rangeChunkFailureMarksOnlyUnloadedIndicesAndPlaceholderRetryRecoversChunkInPlace*", "--stacktrace",
+        "*MangaReaderPresenterTest*", "--stacktrace",
         "--console=plain", "-I", str(init_script),
     ]
     record_usage(report, workspace, gradle_home, runner_temp, "before-gradle")

@@ -1348,10 +1348,10 @@ private data class InFlightChunkJob(
     val targetIndex: Int,
     val job: Job,
     val isExplicitRetry: Boolean,
-) {
-    val isInFlight: Boolean
-        get() = !job.isCompleted && !job.isCancelled
-}
+)
+
+private val Job.isInFlight: Boolean
+    get() = !isCompleted && !isCancelled
 
 private sealed interface CursorChaseGoal {
     data object End : CursorChaseGoal
@@ -1534,7 +1534,7 @@ private class ChapterPagesSession(
         if (isRangeMode) {
             syncRangeChunkWindow(currentPageIndex = currentPageIndex, dataSource = dataSource)
         } else {
-            syncCursorAppend(currentPageIndex = currentPageIndex, dataSource = dataSource)
+            launchCursorAppend(pageIndex = currentPageIndex, dataSource = dataSource)
         }
     }
 
@@ -1557,7 +1557,7 @@ private class ChapterPagesSession(
                 if (!entry.isExplicitRetry && entry.targetIndex !in windowStart..windowEnd) {
                     jobsToCancel += entry.job
                     iterator.remove()
-                } else if (!entry.isInFlight) {
+                } else if (!entry.job.isInFlight) {
                     iterator.remove()
                 }
             }
@@ -1572,7 +1572,7 @@ private class ChapterPagesSession(
                 if (index in loadedPages) return true
                 if (failedRegions.any { index in it.range }) return true
                 if (inFlightChunkJobs.values.any { entry ->
-                        entry.isInFlight && index in entry.targetIndex until (entry.targetIndex + chunkSizeHint)
+                        entry.job.isInFlight && index in entry.targetIndex until (entry.targetIndex + chunkSizeHint)
                     }
                 ) {
                     return true
@@ -1594,7 +1594,7 @@ private class ChapterPagesSession(
                 (clampedCurrent !in loadedPages) &&
                     (
                         failedRegions.any { clampedCurrent in it.range } ||
-                            inFlightChunkJobs.values.any { it.isInFlight && it.targetIndex == clampedCurrent } ||
+                            inFlightChunkJobs.values.any { it.job.isInFlight && it.targetIndex == clampedCurrent } ||
                             clampedCurrent in plannedTargets
                     )
             if (!currentIsLoadingOrFailed) {
@@ -1634,7 +1634,7 @@ private class ChapterPagesSession(
         isExplicitRetry: Boolean,
     ): Job? {
         if (!job.isActive) return null
-        if (inFlightChunkJobs[targetIndex]?.isInFlight == true) return null
+        if (inFlightChunkJobs[targetIndex]?.job?.isInFlight == true) return null
         val hint = chunkSizeHint
         val chunkJob =
             scope.launch(start = CoroutineStart.LAZY) {
@@ -1696,24 +1696,22 @@ private class ChapterPagesSession(
         }
     }
 
-    private suspend fun syncCursorAppend(
-        currentPageIndex: Int,
+    private suspend fun launchCursorAppend(
+        pageIndex: Int,
         dataSource: MangaDataSource,
+        isRetry: Boolean = false,
     ) {
-        if (isRangeMode || endReached) return
-        if (suppressCursorAppendUntilNavigation) return
-        if (cursorAppendError != null) return
-        if (nextCursor == null || loadedCount <= 0) return
-        val loadedMaxIndex = loadedCount - 1
-        if (currentPageIndex < loadedMaxIndex - CURSOR_APPEND_PREFETCH_THRESHOLD) return
-        launchCursorAppend(dataSource = dataSource)
-    }
-
-    private suspend fun launchCursorAppend(dataSource: MangaDataSource) {
-        if (!job.isActive) return
         val jobToStart =
             chunkJobsMutex.withLock {
-                if (!job.isActive || cursorAppendJob?.isActive == true) return@withLock null
+                if (!job.isActive || cursorAppendJob?.isInFlight == true) return@withLock null
+                if (isRangeMode || endReached || nextCursor == null || loadedCount <= 0) return@withLock null
+                if (isRetry) {
+                    if (cursorAppendError == null || pageIndex != loadedCount) return@withLock null
+                    Snapshot.withMutableSnapshot { cursorAppendError = null }
+                } else {
+                    if (suppressCursorAppendUntilNavigation || cursorAppendError != null) return@withLock null
+                    if (pageIndex < loadedCount - 1 - CURSOR_APPEND_PREFETCH_THRESHOLD) return@withLock null
+                }
                 val launchedJob =
                     scope.launch(start = CoroutineStart.LAZY) {
                         val selfJob = currentCoroutineContext()[Job]
@@ -1728,26 +1726,24 @@ private class ChapterPagesSession(
                                         chapterId = chapterId,
                                         cursor = cursor,
                                     )
-                                currentCoroutineContext().ensureActive()
                                 chunkJobsMutex.withLock {
+                                    chunkCommitMutex.withLock {
+                                        currentCoroutineContext().ensureActive()
+                                        applyCursorChunkLocked(chunk)
+                                    }
                                     if (cursorAppendJob === selfJob) {
                                         cursorAppendJob = null
                                     }
                                 }
-                                chunkCommitMutex.withLock {
-                                    applyCursorChunkLocked(chunk)
-                                }
                             }
                         } catch (e: Throwable) {
                             if (e is CancellationException) throw e
-                            currentCoroutineContext().ensureActive()
                             chunkJobsMutex.withLock {
+                                currentCoroutineContext().ensureActive()
+                                Snapshot.withMutableSnapshot { cursorAppendError = e }
                                 if (cursorAppendJob === selfJob) {
                                     cursorAppendJob = null
                                 }
-                            }
-                            Snapshot.withMutableSnapshot {
-                                cursorAppendError = e
                             }
                         } finally {
                             withContext(NonCancellable) {
@@ -1790,11 +1786,8 @@ private class ChapterPagesSession(
             }
         } else if (!endReached && nextCursor != null) {
             if (cursorAppendError == null || index != loadedCount) return
-            Snapshot.withMutableSnapshot {
-                cursorAppendError = null
-            }
             scope.launch {
-                launchCursorAppend(dataSource = dataSource)
+                launchCursorAppend(pageIndex = index, dataSource = dataSource, isRetry = true)
             }
         }
     }

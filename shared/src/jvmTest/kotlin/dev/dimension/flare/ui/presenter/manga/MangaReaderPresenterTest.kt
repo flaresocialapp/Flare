@@ -25,6 +25,7 @@ import dev.dimension.flare.data.model.ProxyRef
 import dev.dimension.flare.data.repository.AccountMicroblogDataSource
 import dev.dimension.flare.data.repository.AccountService
 import dev.dimension.flare.data.repository.MangaProgressRepository
+import dev.dimension.flare.data.repository.MangaProgressSnapshot
 import dev.dimension.flare.data.repository.SessionChallengeCoordinator
 import dev.dimension.flare.data.repository.SessionChallengeException
 import dev.dimension.flare.data.repository.SessionChallengeHandle
@@ -76,6 +77,7 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.resetMain
@@ -93,7 +95,9 @@ import java.io.IOException
 import java.nio.file.Files
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -513,7 +517,7 @@ class MangaReaderPresenterTest {
     @Test
     fun debouncesProgressFlushesOnSwitchAndDisposeCancelsOldChapterJobsAndRetries() =
         runTest {
-            val dispatcher = UnconfinedTestDispatcher(testScheduler)
+            val dispatcher = StandardTestDispatcher(testScheduler)
             Dispatchers.setMain(dispatcher)
             val tempDir = Files.createTempDirectory("manga-reader-test-3")
             val root = createTestRootPath()
@@ -524,19 +528,18 @@ class MangaReaderPresenterTest {
                 Room
                     .databaseBuilder<CacheDatabase>(name = tempDir.resolve("cache.db").toAbsolutePath().toString())
                     .setDriver(createDatabaseDriver())
-                    .setQueryCoroutineContext(dispatcher)
+                    .setQueryCoroutineContext(PlatformDispatchers.IO)
                     .build()
-            var now = 10_000L
-            var failNextWrite = false
-            var failedWrites = 0
+            val now = AtomicLong(10_000L)
+            val failNextWrite = AtomicBoolean(false)
+            val writeFailed = CompletableDeferred<Unit>()
             val progressRepository =
                 MangaProgressRepository(cacheDatabase) {
-                    if (failNextWrite) {
-                        failNextWrite = false
-                        failedWrites++
+                    if (failNextWrite.getAndSet(false)) {
+                        writeFailed.complete(Unit)
                         throw IOException("Transient progress write failure")
                     }
-                    now++
+                    now.getAndIncrement()
                 }
             val mockClient = HttpClient(MockEngine { respond(ByteArray(0)) })
             val imageTranslationRepository =
@@ -667,8 +670,14 @@ class MangaReaderPresenterTest {
             }
 
             val readerJob = SupervisorJob()
-            val writeErrors = mutableListOf<Throwable>()
+            val writeErrors = CopyOnWriteArrayList<Throwable>()
             val readerScope = CoroutineScope(dispatcher + readerJob + CoroutineExceptionHandler { _, error -> writeErrors.add(error) })
+            val progress = progressRepository.observe(accountType, mangaKey)
+            suspend fun awaitProgress(predicate: (MangaProgressSnapshot) -> Boolean): MangaProgressSnapshot =
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000) { progress.first(predicate) }
+                }
+
             var activePresenter: MangaReaderPresenter? = null
             try {
                 appDataStore.appSettingsStore.updateData {
@@ -681,19 +690,21 @@ class MangaReaderPresenterTest {
                     moleculeFlow(RecompositionMode.Immediate) { presenter.body() }.collect { states.value = it }
                 }
 
-                val observedSnapshots = CopyOnWriteArrayList<dev.dimension.flare.data.repository.MangaProgressSnapshot>()
+                val observedSnapshots = CopyOnWriteArrayList<MangaProgressSnapshot>()
                 readerScope.launch {
-                    progressRepository.observe(accountType, mangaKey).collect { observedSnapshots += it }
+                    progress.collect { observedSnapshots += it }
                 }
 
                 val initial = awaitReaderState(states) { it.activeChapterId == "ch-1" && it.pages.size == 4 }
                 // detail.readingDirection (Ltr) overrides settings.defaultDirection (Rtl) when readerModeOverride == null
                 assertEquals(MangaReadingDirection.Ltr, initial.direction)
-                runCurrent()
-                assertTrue(ch1PageResolutionStarted.isCompleted)
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000) { ch1PageResolutionStarted.await() }
+                }
+                awaitProgress { it.lastChapterId == "ch-1" && it.lastPageIndex == 0 }
 
                 // Rapidly scrub pages 1 -> 2 within < 300ms: neither page 1 nor page 2 may be persisted before 300ms elapses.
-                val writesBeforeScrub = now
+                val writesBeforeScrub = now.get()
                 initial.goToPage(1)
                 Snapshot.sendApplyNotifications()
                 runCurrent()
@@ -704,17 +715,15 @@ class MangaReaderPresenterTest {
                 runCurrent()
                 advanceTimeBy(250)
                 runCurrent()
-                assertEquals(writesBeforeScrub, now, "Debounce must suppress writes while < 300ms has elapsed since last page change")
+                assertEquals(writesBeforeScrub, now.get(), "Debounce must suppress writes while < 300ms has elapsed since last page change")
                 assertTrue(observedSnapshots.none { it.lastPageIndex == 1 || it.lastPageIndex == 2 })
 
                 // Complete the 300ms debounce window after goToPage(2): writes exactly once at pageIndex = 2 (skipping page 1).
                 advanceTimeBy(60)
                 runCurrent()
-                assertEquals(writesBeforeScrub + 1, now)
+                val debouncedProgress = awaitProgress { it.lastChapterId == "ch-1" && it.lastPageIndex == 2 }
+                assertEquals(writesBeforeScrub + 1, now.get())
                 assertTrue(observedSnapshots.none { it.lastPageIndex == 1 })
-                val debouncedProgress = observedSnapshots.last()
-                assertEquals("ch-1", debouncedProgress.lastChapterId)
-                assertEquals(2, debouncedProgress.lastPageIndex)
                 assertFalse(debouncedProgress.chapters["ch-1"]!!.isCompleted)
 
                 // Enable double-page spread with coverSinglePage = false -> slots are [Double(0, 1, 0), Double(2, 3, 2)].
@@ -737,12 +746,7 @@ class MangaReaderPresenterTest {
                 withContext(Dispatchers.Default) {
                     withTimeout(5_000) { ch1PageResolutionCancelled.await() }
                 }
-                val flushedCh1 =
-                    withContext(Dispatchers.Default) {
-                        withTimeout(5_000) {
-                            progressRepository.observe(accountType, mangaKey).first { it.chapters["ch-1"]?.isCompleted == true }
-                        }
-                    }
+                val flushedCh1 = awaitProgress { it.chapters["ch-1"]?.isCompleted == true }
                 assertEquals(2, flushedCh1.chapters["ch-1"]?.lastPageIndex)
 
                 // ch-2 chapterPages() fails once -> retryChapter() recovers ch-2!
@@ -773,27 +777,26 @@ class MangaReaderPresenterTest {
                 Snapshot.sendApplyNotifications()
                 runCurrent()
                 val webtoon = awaitReaderState(states) { it.direction == MangaReadingDirection.Webtoon }
-                failNextWrite = true
+                awaitProgress { it.lastChapterId == "ch-2" && it.lastPageIndex == 0 }
+                failNextWrite.set(true)
                 webtoon.goToPage(1)
                 Snapshot.sendApplyNotifications()
                 runCurrent()
                 advanceTimeBy(301)
                 runCurrent()
-                assertEquals(1, failedWrites)
+                withContext(Dispatchers.Default) {
+                    withTimeout(5_000) { writeFailed.await() }
+                }
 
                 readerJob.cancelAndJoin()
                 presenter.awaitPendingWrites()
                 assertTrue(writeErrors.isEmpty())
 
                 val finalProgress =
-                    withContext(Dispatchers.Default) {
-                        withTimeout(5_000) {
-                            progressRepository.observe(accountType, mangaKey).first {
-                                it.lastChapterId == "ch-2" &&
-                                    it.lastPageIndex == 1 &&
-                                    it.readerModeOverride == MangaReadingDirection.Webtoon
-                            }
-                        }
+                    awaitProgress {
+                        it.lastChapterId == "ch-2" &&
+                            it.lastPageIndex == 1 &&
+                            it.readerModeOverride == MangaReadingDirection.Webtoon
                     }
                 assertEquals(1, finalProgress.chapters["ch-2"]?.lastPageIndex)
                 assertFalse(finalProgress.chapters["ch-2"]!!.isCompleted)
@@ -3160,10 +3163,11 @@ class MangaReaderPresenterTest {
                 assertEquals(1, calls.count { it.chapterId == "ch-seq" && it.cursor == "cur-1" })
                 cur1Gate.complete(Unit)
 
-                val afterCur1 = awaitReaderState(seqStates) { it.pages.size == 30 }
+                val afterCur1 = awaitReaderState(seqStates) { it.pages.getOrNull(29)?.id == "seq-29" }
+                assertEquals(30, afterCur1.pages.size)
                 assertEquals("seq-15", afterCur1.pages[15].id)
-                assertEquals("seq-29", afterCur1.pages[29].id)
                 assertEquals(1, calls.count { it.chapterId == "ch-seq" && it.cursor == "cur-1" })
+                assertEquals(0, calls.count { it.chapterId == "ch-seq" && it.cursor == "cur-2" })
 
                 // Staying below loadedMaxIndex - 10 (= 19) does not trigger cur-2; moving to 29 triggers cur-2 failure (offset 29 != 30)
                 // while keeping isCompleted == false while endReached == false.
