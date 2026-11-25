@@ -1,0 +1,88 @@
+name: Google Play preflight diagnostics
+
+on:
+  push:
+    branches:
+      - codex/play-preflight-diagnostics-6747359
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Ubuntu x64 (${{ matrix.disk }})
+    if: github.ref == 'refs/heads/codex/play-preflight-diagnostics-6747359'
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    strategy:
+      fail-fast: false
+      matrix:
+        disk: [standard, extra-space]
+    env:
+      BUILD_NUMBER: 5999
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      JAVA_TOOL_OPTIONS: -Djava.awt.headless=true
+      FLARE_CI_DIAG: /dev/shm/flare-preflight-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.disk }}
+    steps:
+      - uses: yumis-coconudge/clean-workspace-action@v1
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+          persist-credentials: false
+      - name: Record initial disk capacity
+        shell: bash
+        run: |
+          test "$RUNNER_ARCH" = X64
+          test "$(uname -m)" = x86_64
+          mkdir -p "$FLARE_CI_DIAG"
+          {
+            uname -sm
+            printf 'Runner image %s %s\n' "$ImageOS" "$ImageVersion"
+            df -hP "$GITHUB_WORKSPACE" "$RUNNER_TEMP" /tmp /dev/shm
+            df -iP "$GITHUB_WORKSPACE" "$RUNNER_TEMP" /tmp /dev/shm
+          } | tee "$FLARE_CI_DIAG/runner.txt"
+      - name: Free disk space on the control runner
+        if: matrix.disk == 'extra-space'
+        shell: bash
+        run: |
+          sudo rm -rf -- /usr/share/dotnet /opt/ghc /usr/local/share/boost /usr/local/share/powershell
+          df -hP "$GITHUB_WORKSPACE" | tee -a "$FLARE_CI_DIAG/runner.txt"
+      - name: Set up JDK
+        uses: actions/setup-java@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          distribution: jetbrains
+          java-version: 25
+          cache: gradle
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: platform-tools
+      - name: Configure Play variant and signing
+        env:
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          GOOGLE_SERVICES: ${{ secrets.GOOGLE_SERVICES }}
+        shell: bash
+        run: |
+          for secret in ALIAS KEY_PASSWORD KEY_STORE_PASSWORD SIGNING_KEY GOOGLE_SERVICES; do
+            if [[ -z "${!secret}" ]]; then
+              echo "::error::$secret is not set"
+              exit 1
+            fi
+          done
+          umask 077
+          bash .github/apply_signing.sh
+      - name: Run shared and Android checks with diagnostics
+        run: python3 -B .github/scripts/ci_play_preflight_diagnostics.py
+      - name: Upload diagnostic records
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: play-preflight-${{ matrix.disk }}
+          path: ${{ env.FLARE_CI_DIAG }}
+          retention-days: 7
+          if-no-files-found: error
