@@ -132,8 +132,8 @@ def main():
     init_script = report / "ci-play-preflight.init.gradle"
     init_script.write_bytes((workspace / ".github/scripts/ci_play_preflight_diagnostics.groovy").read_bytes())
     command = [
-        "./gradlew", ":shared:jvmTest", "--tests",
-        "*MangaReaderPresenterTest*", "--stacktrace",
+        "./gradlew", "allTests", ":app:check", ":app:lint",
+        "-x", "wasmJsBrowserTest", "-x", "ktlintCheck", "--stacktrace",
         "--console=plain", "-I", str(init_script),
     ]
     record_usage(report, workspace, gradle_home, runner_temp, "before-gradle")

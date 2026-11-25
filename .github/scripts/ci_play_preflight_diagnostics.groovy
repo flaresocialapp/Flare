@@ -26,22 +26,12 @@ gradle.allprojects {
         }
         doFirst {
             record('task-started', task.path)
-            if (task.path == ':shared:jvmTest') {
-                new File(diagnosticDir, 'shared-test-classpath.txt').text = task.classpath.asPath
-            }
         }
         beforeTest { test ->
             record('test-started', test.className + '.' + test.name)
         }
         afterTest { test, result ->
             record(result.resultType.name().toLowerCase(Locale.ROOT), test.className + '.' + test.name)
-            if (test.className.endsWith('.MangaReaderPresenterTest')) {
-                result.exceptions.each { failure ->
-                    eventLog.withWriterAppend('UTF-8') { writer ->
-                        failure.printStackTrace(new PrintWriter(writer))
-                    }
-                }
-            }
         }
         doLast {
             record('task-finished', task.path)

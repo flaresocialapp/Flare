@@ -1,5 +1,5 @@
 name: Google Play preflight diagnostics
-run-name: Verify Manga range and cursor requests on Ubuntu x64
+run-name: Verify the Google Play preflight for PR 2923 on Ubuntu x64
 
 on:
   push:
@@ -78,31 +78,13 @@ jobs:
           done
           umask 077
           bash .github/apply_signing.sh
-      - name: Run shared and desktop tests with diagnostics
+      - name: Run shared and Android checks with diagnostics
         env:
           GRADLE_CACHE_HIT: ${{ steps.java.outputs.cache-hit }}
           GRADLE_CACHE_KEY: ${{ steps.java.outputs.cache-primary-key }}
         run: |
           printf 'Gradle cache hit=%s key=%s\n' "$GRADLE_CACHE_HIT" "$GRADLE_CACHE_KEY" | tee -a "$FLARE_CI_DIAG/runner.txt"
           python3 -B .github/scripts/ci_play_preflight_diagnostics.py
-          run_probe() {
-            local label=$1 method=$2 attempts=$3
-            timeout -k 10 300 java -Djava.awt.headless=true -XX:ActiveProcessorCount=2 \
-              -cp "$(cat "$FLARE_CI_DIAG/shared-test-classpath.txt")" \
-              .github/scripts/RepeatMangaTest.java "$method" "$attempts" \
-              > "$FLARE_CI_DIAG/repeat-$label.txt" 2>&1
-          }
-          run_probe range rangeChunkFailureMarksOnlyUnloadedIndicesAndPlaceholderRetryRecoversChunkInPlace 3000 &
-          range_pid=$!
-          run_probe cursor cursorModeAppendsSequentiallyEnforcesOffsetsChasesUpTo50AndGuardsIsCompleted 800 &
-          cursor_pid=$!
-          result=0
-          wait "$range_pid" || result=1
-          wait "$cursor_pid" || result=1
-          for worker in range cursor; do
-            tail -18 "$FLARE_CI_DIAG/repeat-$worker.txt"
-          done
-          exit "$result"
       - name: Upload diagnostic records
         if: always()
         uses: actions/upload-artifact@v7
