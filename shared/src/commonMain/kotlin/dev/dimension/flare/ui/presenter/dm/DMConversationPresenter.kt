@@ -8,9 +8,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.paging.compose.collectAsLazyPagingItems
 import dev.dimension.flare.common.FileItem
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.collectAsState
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.datasource.microblog.capabilities
@@ -56,7 +56,7 @@ public class DMConversationPresenter(
                 .map { directMessage ->
                     remember(directMessage, roomKey) {
                         directMessage.directMessageConversation(roomKey, scope = scope)
-                    }.collectAsLazyPagingItems()
+                    }.collectAsPagingItems()
                 }.toPagingState()
         val users =
             directMessageState

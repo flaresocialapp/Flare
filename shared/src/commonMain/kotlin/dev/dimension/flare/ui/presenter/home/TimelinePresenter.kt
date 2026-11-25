@@ -16,13 +16,13 @@ import androidx.paging.Pager
 import androidx.paging.PagingData
 import androidx.paging.RemoteMediator
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.filter
 import androidx.paging.map
 import dev.dimension.flare.common.InAppNotification
 import dev.dimension.flare.common.Message
 import dev.dimension.flare.common.PagingState
 import dev.dimension.flare.common.PlatformDispatchers
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.emptyFlow
 import dev.dimension.flare.common.onEmpty
 import dev.dimension.flare.common.onError
@@ -450,7 +450,7 @@ public open class TimelinePresenter : PresenterBase<TimelineState> {
         val items =
             remember {
                 createPager(scope)
-            }.collectAsLazyPagingItems()
+            }.collectAsPagingItems()
         val contextLoadStates by remember {
             contextMediator.flatMapLatest { it?.loadStates ?: flowOf(null) }
         }.collectAsState(null)

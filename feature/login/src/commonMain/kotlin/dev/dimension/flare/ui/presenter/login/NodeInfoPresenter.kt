@@ -11,10 +11,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.paging.Pager
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.filter
 import dev.dimension.flare.common.BasePagingSource
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.datasource.microblog.pagingConfig
 import dev.dimension.flare.data.repository.tryRun
@@ -65,7 +65,7 @@ public class NodeInfoPresenter : PresenterBase<NodeInfoState>() {
                             it.domain.contains(filter, ignoreCase = true)
                     }
                 }
-            }.collectAsLazyPagingItems()
+            }.collectAsPagingItems()
 
         val detectedPlatformId by remember(filterFlow, platforms) {
             filterFlow.flatMapLatest {

@@ -23,8 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.paging.LoadState
 import androidx.paging.LoadStates
 import androidx.paging.PagingData
-import androidx.paging.compose.collectAsLazyPagingItems
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.collectPagingState
 import dev.dimension.flare.common.isRefreshing
 import dev.dimension.flare.common.onSuccess
@@ -136,7 +136,7 @@ class TimelineNewPostsScrollTest {
         var header by mutableStateOf(initialHeader)
         lateinit var state: TimelineWithLazyListState
         composeRule.setContent {
-            val paging = pages.collectAsLazyPagingItems().toPagingState()
+            val paging = pages.collectAsPagingItems().toPagingState()
             val base =
                 object : TimelineItemPresenter.State {
                     override val listState = paging
@@ -181,7 +181,7 @@ class TimelineNewPostsScrollTest {
         val reading = Reading(TimelineReadingPosition(targetIndex, offset))
         lateinit var state: TimelineWithLazyListState
         composeRule.setContent {
-            val paging = pages.collectAsLazyPagingItems().toPagingState()
+            val paging = pages.collectAsPagingItems().toPagingState()
             val base =
                 object : TimelineItemPresenter.State {
                     override val listState = paging
@@ -229,7 +229,7 @@ class TimelineNewPostsScrollTest {
         val scroll = LazyStaggeredGridState()
         val reading = Reading(TimelineReadingPosition(5, -246.0 / 2.625))
         composeRule.setContent {
-            val paging = pages.collectAsLazyPagingItems().toPagingState()
+            val paging = pages.collectAsPagingItems().toPagingState()
             val base =
                 object : TimelineItemPresenter.State {
                     override val listState = paging
@@ -264,7 +264,7 @@ class TimelineNewPostsScrollTest {
         val scroll = LazyStaggeredGridState()
         val reading = Reading(TimelineReadingPosition(25, -25.0))
         composeRule.setContent {
-            val paging = pages.collectAsLazyPagingItems().toPagingState()
+            val paging = pages.collectAsPagingItems().toPagingState()
             val base =
                 object : TimelineItemPresenter.State {
                     override val listState = paging
@@ -311,7 +311,7 @@ class TimelineNewPostsScrollTest {
         var expectedOffset = 0
         lateinit var scroll: LazyStaggeredGridState
         composeRule.setContent {
-            val paging = pages.collectAsLazyPagingItems().toPagingState()
+            val paging = pages.collectAsPagingItems().toPagingState()
             if (visible) {
                 val nativeScroll = rememberLazyStaggeredGridState()
                 val base =
@@ -366,7 +366,7 @@ class TimelineNewPostsScrollTest {
         val reading = Reading(TimelineReadingPosition(5, -25.0, "post-5"))
         lateinit var state: TimelineWithLazyListState
         composeRule.setContent {
-            val paging = pages.collectAsLazyPagingItems().toPagingState()
+            val paging = pages.collectAsPagingItems().toPagingState()
             val base =
                 object : TimelineItemPresenter.State {
                     override val listState = paging
@@ -531,7 +531,7 @@ class TimelineNewPostsScrollTest {
         lateinit var state: TimelineWithLazyListState
         composeRule.setContent {
             scope = rememberCoroutineScope()
-            val paging = pages.collectAsLazyPagingItems().toPagingState()
+            val paging = pages.collectAsPagingItems().toPagingState()
             val base =
                 object : TimelineItemPresenter.State {
                     override val listState = paging
@@ -704,7 +704,7 @@ class TimelineNewPostsScrollTest {
         val scrollState = LazyStaggeredGridState(initialFirstVisibleItemIndex = 5)
         lateinit var state: TimelineWithLazyListState
         composeRule.setContent {
-            val pagingState = pages.collectAsLazyPagingItems().toPagingState()
+            val pagingState = pages.collectAsPagingItems().toPagingState()
             val baseState =
                 object : TimelineItemPresenter.State {
                     override val listState = pagingState

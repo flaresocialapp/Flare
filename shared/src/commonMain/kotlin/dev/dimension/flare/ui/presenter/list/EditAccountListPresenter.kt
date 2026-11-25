@@ -6,9 +6,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.filter
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.datasource.microblog.capabilities
 import dev.dimension.flare.data.repository.AccountRepository
@@ -67,7 +67,7 @@ public class EditAccountListPresenter(
                                 !it.readonly
                             }
                         }
-                    }.collectAsLazyPagingItems()
+                    }.collectAsPagingItems()
                 }.toPagingState()
         val userLists by userListFlow.flattenUiState()
         return object : EditAccountListState {

@@ -16,9 +16,9 @@ import androidx.compose.runtime.setValue
 import androidx.paging.LoadState
 import androidx.paging.Pager
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import dev.dimension.flare.common.CacheState
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.isRefreshing
 import dev.dimension.flare.common.refreshSuspend
 import dev.dimension.flare.common.toPagingState
@@ -329,7 +329,7 @@ public class MangaDetailPresenter(
                     Pager(config = pagingConfig) {
                         currentDataSource.mangaComments(effectiveMangaKey).toTimelinePagingSource()
                     }.flow.cachedIn(scope)
-                }.collectAsLazyPagingItems().toPagingState()
+                }.collectAsPagingItems().toPagingState()
             } else if (supportsComments && detailState is UiState.Loading) {
                 remember { PagingState.Loading() }
             } else {
@@ -342,7 +342,7 @@ public class MangaDetailPresenter(
                     Pager(config = pagingConfig) {
                         currentDataSource.mangaRecommendations(effectiveMangaKey).toTimelinePagingSource()
                     }.flow.cachedIn(scope)
-                }.collectAsLazyPagingItems().toPagingState()
+                }.collectAsPagingItems().toPagingState()
             } else if (supportsRecommendations && detailState is UiState.Loading) {
                 remember { PagingState.Loading() }
             } else {

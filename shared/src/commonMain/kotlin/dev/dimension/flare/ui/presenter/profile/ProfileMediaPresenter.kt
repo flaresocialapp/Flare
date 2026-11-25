@@ -5,9 +5,9 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.paging.PagingData
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.flatMap
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.refreshSuspend
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.model.MicroBlogKey
@@ -33,7 +33,7 @@ public class ProfileMediaPresenter(
                     scope = scope,
                     showAllImages = showAllImages,
                 )
-            }.collectAsLazyPagingItems()
+            }.collectAsPagingItems()
                 .toPagingState()
         return object : ProfileMediaState {
             override val mediaState = state

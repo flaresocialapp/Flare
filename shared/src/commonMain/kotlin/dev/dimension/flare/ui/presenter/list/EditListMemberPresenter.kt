@@ -7,9 +7,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.paging.Pager
 import androidx.paging.PagingData
 import androidx.paging.cachedIn
-import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.paging.map
 import dev.dimension.flare.common.PagingState
+import dev.dimension.flare.common.collectAsPagingItems
 import dev.dimension.flare.common.emptyFlow
 import dev.dimension.flare.common.toPagingState
 import dev.dimension.flare.data.datasource.microblog.SearchOperation
@@ -103,7 +103,7 @@ public class EditListMemberPresenter(
             }
         val usersState =
             cachedUsersFlow
-                .collectAsLazyPagingItems()
+                .collectAsPagingItems()
                 .toPagingState()
 
         return object : EditListMemberState {
