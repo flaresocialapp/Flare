@@ -41,9 +41,14 @@ internal class FansPagingSource(
                     request.nextKey.toIntOrNull() ?: 0
                 }
             }
+        val response =
+            service.getContainerIndexRecovering(
+                accountKey = accountKey,
+                containerId = containerId,
+                sinceId = nextPage.toString(),
+            )
         val users =
-            service
-                .getContainerIndex(containerId = containerId, sinceId = nextPage.toString())
+            response
                 .data
                 ?.cards
                 ?.filter { it.cardType == 11L && it.cardStyle == null }

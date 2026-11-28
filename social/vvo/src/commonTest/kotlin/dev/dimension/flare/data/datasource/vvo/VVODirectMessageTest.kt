@@ -7,6 +7,10 @@ import dev.dimension.flare.data.model.tab.ShortcutSpec
 import dev.dimension.flare.data.network.vvo.VVOService
 import dev.dimension.flare.data.platform.VVoCredential
 import dev.dimension.flare.data.repository.LoginExpiredException
+import dev.dimension.flare.data.repository.SilentCookieRenewRequest
+import dev.dimension.flare.data.repository.SilentCookieRenewResult
+import dev.dimension.flare.data.repository.SilentSeedCookie
+import dev.dimension.flare.data.repository.SilentWebCookieRenewer
 import dev.dimension.flare.model.MicroBlogKey
 import dev.dimension.flare.ui.model.UiDMItem
 import dev.dimension.flare.ui.model.UiIcon
@@ -450,6 +454,56 @@ class VVODirectMessageTest {
             }
         return VVODirectMessageLoader(service, account)
     }
+
+    @Test
+    fun loadRoomsRecoversExpiredSessionOnceBeforeFailing() =
+        runTest {
+            val credentialFlow = kotlinx.coroutines.flow.MutableStateFlow(VVoCredential("MLOGIN=1; SUB=stale"))
+            val renewer =
+                object : SilentWebCookieRenewer {
+                    override suspend fun renew(request: SilentCookieRenewRequest): SilentCookieRenewResult =
+                        SilentCookieRenewResult.Renewed(
+                            cookies =
+                                listOf(
+                                    SilentSeedCookie("MLOGIN", "1", "weibo.cn", hostOnly = false, path = "/"),
+                                    SilentSeedCookie("SUB", "renewed", "weibo.cn", hostOnly = false, path = "/"),
+                                ),
+                            userAgent = null,
+                        )
+                }
+            val dmService =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    accountKey = account,
+                    silentCookieRenewer = renewer,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory = { config ->
+                        HttpClient(
+                            MockEngine { request ->
+                                val fresh = "SUB=renewed" in request.headers[HttpHeaders.Cookie].orEmpty()
+                                val body =
+                                    when (request.url.encodedPath) {
+                                        "/" -> ""
+                                        "/api/config" -> """{"ok":1,"data":{"login":$fresh,"st":"token","uid":"42"}}"""
+                                        "/message/msglist" -> {
+                                            if (!fresh) {
+                                                """{"ok":-100}"""
+                                            } else {
+                                                """{"ok":1,"data":[{"user":{"id":77,"screen_name":"Friend"},"text":"Recovered","created_at":"刚刚"}]}"""
+                                            }
+                                        }
+                                        else -> error("Unexpected path: ${request.url.encodedPath}")
+                                    }
+                                respond(body, headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                            },
+                        ) { config(this) }
+                    },
+                )
+
+            val rooms = VVODirectMessageLoader(dmService, account).loadRooms(20, PagingRequest.Refresh).data
+            assertEquals(1, rooms.size)
+            assertEquals("vvo-dm:42:77", rooms.single().key.id)
+        }
 
     private suspend fun MultiPartFormDataContent.readBody(): ByteArray =
         coroutineScope {

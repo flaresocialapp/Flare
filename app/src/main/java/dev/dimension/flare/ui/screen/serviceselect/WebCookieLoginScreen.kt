@@ -31,6 +31,7 @@ import com.kevinnzou.web.AccompanistWebViewClient
 import com.kevinnzou.web.WebView
 import com.kevinnzou.web.rememberWebViewState
 import dev.dimension.flare.R
+import dev.dimension.flare.common.AndroidWebViewCookieLock
 import dev.dimension.flare.common.WebViewProxy
 import dev.dimension.flare.data.network.ProxyNetwork
 import dev.dimension.flare.data.network.ProxySnapshot
@@ -39,8 +40,8 @@ import dev.dimension.flare.ui.component.ErrorContent
 import dev.dimension.flare.ui.component.FlareScaffold
 import dev.dimension.flare.ui.component.FlareTopAppBar
 import dev.dimension.flare.ui.presenter.login.LoginCookieSnapshot
-import dev.dimension.flare.ui.presenter.login.LoginCookieValue
 import dev.dimension.flare.ui.presenter.login.LoginEffect
+import dev.dimension.flare.ui.presenter.login.parseRawCookieHeaderForProbe
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -63,10 +64,12 @@ internal fun WebCookieLoginScreen(
     var retry by remember { mutableStateOf(0) }
     var cookiesCleared by remember { mutableStateOf(false) }
     DisposableEffect(Unit) {
+        val interactiveLock = AndroidWebViewCookieLock.beginInteractive()
         onDispose {
             WebStorage.getInstance().deleteAllData()
             CookieManager.getInstance().removeAllCookies(null)
             CookieManager.getInstance().flush()
+            interactiveLock.close()
         }
     }
     LaunchedEffect(retry) {
@@ -78,6 +81,7 @@ internal fun WebCookieLoginScreen(
             errorMessage = null
             try {
                 if (!cookiesCleared) {
+                    AndroidWebViewCookieLock.awaitBackgroundIdle()
                     WebStorage.getInstance().deleteAllData()
                     suspendCancellableCoroutine { continuation ->
                         CookieManager.getInstance().removeAllCookies { continuation.resume(Unit) }
@@ -162,20 +166,10 @@ private fun ProxyLoginWebView(
                 val values =
                     request.probes
                         .flatMap { probe ->
-                            val expected = probe.names.toSet()
-                            manager
-                                .getCookie(probe.url)
-                                .orEmpty()
-                                .split(';')
-                                .mapNotNull { item ->
-                                    val name = item.substringBefore('=', missingDelimiterValue = "").trim()
-                                    if (name !in expected) return@mapNotNull null
-                                    LoginCookieValue(
-                                        sourceUrl = probe.url,
-                                        name = name,
-                                        value = item.substringAfter('=', missingDelimiterValue = "").trim(),
-                                    )
-                                }
+                            parseRawCookieHeaderForProbe(
+                                rawHeader = manager.getCookie(probe.url),
+                                probe = probe,
+                            )
                         }
                 if (route.isValid && callback(LoginCookieSnapshot(values = values, rawHeader = rawHeader, userAgent = webViewUserAgent))) {
                     onBack()

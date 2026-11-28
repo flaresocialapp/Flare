@@ -375,7 +375,31 @@ internal class VVODirectMessageLoader(
     }
 
     // Response exceptions and decoding failures may include private message bodies.
-    private suspend inline fun <T> messageRequest(request: () -> T): T =
+    private suspend inline fun <T> messageRequest(request: () -> T): T {
+        val attemptedCredential = service.activeCredential()
+        return try {
+            request()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: LoginExpiredException) {
+            if (service.recoverSession(accountKey, attemptedCredential)) {
+                return retryRecoveredMessageRequest(request)
+            }
+            throw error
+        } catch (error: ClientRequestException) {
+            if (error.response.status == HttpStatusCode.Unauthorized) {
+                if (service.recoverSession(accountKey, attemptedCredential)) {
+                    return retryRecoveredMessageRequest(request)
+                }
+                throw loginExpired()
+            }
+            error("Weibo direct message request failed (${error.response.status.value})")
+        } catch (_: Exception) {
+            error("Weibo direct message request failed")
+        }
+    }
+
+    private inline fun <T> retryRecoveredMessageRequest(request: () -> T): T =
         try {
             request()
         } catch (error: CancellationException) {

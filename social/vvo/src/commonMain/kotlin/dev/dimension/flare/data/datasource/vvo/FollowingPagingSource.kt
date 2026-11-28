@@ -41,9 +41,14 @@ internal class FollowingPagingSource(
                     request.nextKey.toIntOrNull() ?: 1
                 }
             }
+        val response =
+            service.getContainerIndexRecovering(
+                accountKey = accountKey,
+                containerId = containerId,
+                page = nextPage,
+            )
         val users =
-            service
-                .getContainerIndex(containerId = containerId, page = nextPage)
+            response
                 .data
                 ?.cards
                 ?.filter { it.cardType == 11L && it.cardStyle == null }

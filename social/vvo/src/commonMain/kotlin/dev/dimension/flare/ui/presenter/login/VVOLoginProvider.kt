@@ -2,6 +2,9 @@ package dev.dimension.flare.ui.presenter.login
 
 import dev.dimension.flare.data.network.vvo.VVOPlatformDetector
 import dev.dimension.flare.data.network.vvo.VVOService
+import dev.dimension.flare.data.network.vvo.VVO_COOKIE_PROBE_URLS
+import dev.dimension.flare.data.network.vvo.VVoCookieJar
+import dev.dimension.flare.data.network.vvo.hasValidMWeiboLoginCookies
 import dev.dimension.flare.data.platform.VVO_PLATFORM_ID
 import dev.dimension.flare.data.platform.VVoCredential
 import dev.dimension.flare.data.platform.VvoPlatformSpec
@@ -15,10 +18,13 @@ import dev.dimension.flare.model.vvoHost
 import dev.dimension.flare.ui.model.UiAccount
 import dev.dimension.flare.ui.model.UiInstanceMetadata
 import dev.dimension.flare.ui.model.UiStrings
+import io.ktor.http.Url
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlin.time.Clock
 
 private const val LOGIN_ACTION = "login"
 
@@ -70,18 +76,57 @@ private class VVOWebCookieLoginHandler(
         _effects.emit(
             LoginEffect.OpenWebCookieLogin(
                 url = "https://$vvoHost/login?backURL=https://$vvoHost/",
+                probes = VVO_COOKIE_PROBE_URLS.map { probeUrl -> LoginCookieProbe(url = probeUrl, captureAll = true) },
             ),
         )
     }
 
+    override suspend fun checkCookies(snapshot: LoginCookieSnapshot): Boolean {
+        if (_state.value.loading) return false
+        val now = Clock.System.now().toEpochMilliseconds()
+        val jar = VVoCookieJar.fromLoginSnapshot(snapshot, now)
+        val mWeiboCookies = jar.cookieMapFor(Url("https://$vvoHost/"), now)
+        if (!hasValidMWeiboLoginCookies(mWeiboCookies)) {
+            if (snapshot.values.isEmpty()) {
+                return super.checkCookies(snapshot)
+            }
+            return false
+        }
+        val credential =
+            jar.toCredential(
+                userAgent = snapshot.userAgent,
+                lastRefreshEpochMillis = now,
+                nowEpochMillis = now,
+            )
+        _state.value = state(loading = true)
+        runCatching {
+            vvoLoginUseCase(credential)
+            context.onSuccess()
+        }.onFailure {
+            if (it is CancellationException) throw it
+            _state.value = state(error = it.message)
+        }
+        return true
+    }
+
     override suspend fun resume(value: String) {
+        if (_state.value.loading) return
         _state.value = state(loading = true)
         runCatching {
             require(value.isNotBlank()) { "Cookie is empty" }
             require(VVOService.checkChocolates(value)) { "Invalid cookie" }
-            vvoLoginUseCase(value)
+            val now = Clock.System.now().toEpochMilliseconds()
+            val jar = VVoCookieJar.fromRawCookieHeader(value, domain = "weibo.cn", hostOnly = false)
+            vvoLoginUseCase(
+                jar.toCredential(
+                    base = VVoCredential(chocolate = value),
+                    lastRefreshEpochMillis = now,
+                    nowEpochMillis = now,
+                ),
+            )
             context.onSuccess()
         }.onFailure {
+            if (it is CancellationException) throw it
             _state.value = state(error = it.message)
         }
     }
@@ -92,8 +137,8 @@ private class VVOWebCookieLoginHandler(
         _state.value = state()
     }
 
-    private suspend fun vvoLoginUseCase(chocolate: String) {
-        val credentialState = MutableStateFlow(VVoCredential(chocolate = chocolate))
+    private suspend fun vvoLoginUseCase(initialCredential: VVoCredential) {
+        val credentialState = MutableStateFlow(initialCredential)
         val service =
             VVOService(
                 proxy = context.proxy,

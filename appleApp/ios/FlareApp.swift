@@ -17,6 +17,7 @@ struct FlareApp: App {
             AppleSharedHelper.shared.setupCrashlytics()
         }
         ProxySessionConfigurator.install()
+        AppleSharedHelper.shared.installSilentWebCookieRenewer(renewer: AppleSilentWebCookieRenewer.shared)
         AppleSharedHelper.shared.initialize(
             inAppNotification: SwiftInAppNotification.shared,
             swiftFormatter: Formatter.shared,

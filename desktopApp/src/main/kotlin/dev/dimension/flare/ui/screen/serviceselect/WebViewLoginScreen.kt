@@ -108,7 +108,7 @@ internal fun WebViewLoginScreen(
                         val expected = probe.names.toSet()
                         webView
                             .getCookiesForUrl(probe.url)
-                            .filter { it.name in expected }
+                            .filter { probe.captureAll || it.name in expected }
                             .map { cookie ->
                                 LoginCookieValue(
                                     sourceUrl = probe.url,

@@ -308,6 +308,9 @@ targets:
       - package: Kingfisher
       - package: iOS-Backports
         product: SwiftUIBackports
+      - package: SwiftUI-Flow
+        product: Flow
+      - package: Textual
       - package: Firebase
         product: FirebaseCrashlytics
     settings:
