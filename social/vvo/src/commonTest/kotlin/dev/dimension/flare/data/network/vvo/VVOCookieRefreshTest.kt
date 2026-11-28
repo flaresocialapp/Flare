@@ -1,6 +1,14 @@
 package dev.dimension.flare.data.network.vvo
 
 import dev.dimension.flare.data.platform.VVoCredential
+import dev.dimension.flare.data.platform.VVoStoredCookie
+import dev.dimension.flare.data.repository.SilentCookieRenewRequest
+import dev.dimension.flare.data.repository.SilentCookieRenewResult
+import dev.dimension.flare.data.repository.SilentSeedCookie
+import dev.dimension.flare.data.repository.SilentWebCookieRenewer
+import dev.dimension.flare.data.repository.isAllowedSilentRenewNavigationUrl
+import dev.dimension.flare.data.repository.isWeiboInteractiveLoginUrl
+import dev.dimension.flare.model.MicroBlogKey
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.engine.mock.MockEngine
@@ -347,35 +355,47 @@ class VVOCookieRefreshTest {
         }
 
     @Test
-    fun refreshSharesTheCookieHeaderAcrossWeiboAndSinaSsoHops() =
+    fun refreshIsolatesCookiesPerDomainAcrossWeiboAndSinaSsoHops() =
         runTest {
-            val oldCookie = "MLOGIN=1; SUB=old-sub; ALF=9999999999"
-            val afterHome = "$oldCookie; SCF=shared-scf"
-            val afterCom = "MLOGIN=1; SUB=com-sub; ALF=9999999999; SCF=shared-scf"
-            val afterSina = "$afterCom; SSO=sina-sso"
-            val refreshedCookie = "MLOGIN=1; SUB=cn-new-sub; ALF=9999999999; SCF=shared-scf; SSO=sina-sso"
+            val initialCookies =
+                listOf(
+                    VVoStoredCookie(name = "MLOGIN", value = "1", domain = "weibo.cn", hostOnly = false),
+                    VVoStoredCookie(name = "SUB", value = "old-sub", domain = "weibo.cn", hostOnly = false),
+                    VVoStoredCookie(name = "ALF", value = "9999999999", domain = "weibo.cn", hostOnly = false),
+                    VVoStoredCookie(name = "SUB", value = "initial-com-sub", domain = "weibo.com", hostOnly = false),
+                    VVoStoredCookie(name = "ALC", value = "sina-alc", domain = "sina.com.cn", hostOnly = false),
+                )
+            val oldCnCookie = "MLOGIN=1; SUB=old-sub; ALF=9999999999"
+            val afterHomeCn = "$oldCnCookie; SCF=shared-scf"
+            val refreshedCnCookie = "MLOGIN=1; SUB=cn-new-sub; ALF=9999999999; SCF=shared-scf"
             val hops =
                 listOf(
-                    Triple("https://m.weibo.cn/", oldCookie, listOf("SCF=shared-scf; Domain=.weibo.cn; Path=/; Secure")),
-                    Triple("https://visitor.passport.weibo.cn/visitor/visitor?entry=sinawap", afterHome, emptyList()),
+                    Triple("https://m.weibo.cn/", oldCnCookie, listOf("SCF=shared-scf; Domain=.weibo.cn; Path=/; Secure")),
+                    Triple("https://visitor.passport.weibo.cn/visitor/visitor?entry=sinawap", afterHomeCn, emptyList()),
                     Triple(
                         "https://passport.weibo.com/sso/signin?entry=wapsso",
-                        afterHome,
+                        "SUB=initial-com-sub",
                         listOf("SUB=com-sub; Domain=.weibo.com; Path=/; Secure"),
                     ),
                     Triple(
                         "https://login.sina.com.cn/sso/login.php?entry=weibo",
-                        afterCom,
+                        "ALC=sina-alc",
                         listOf("SSO=sina-sso; Domain=.sina.com.cn; Path=/; Secure"),
                     ),
-                    Triple("https://weibo.com/sso/crossdomain?ticket=one", afterSina, emptyList()),
+                    Triple("https://weibo.com/sso/crossdomain?ticket=one", "SUB=com-sub", emptyList()),
                     Triple(
                         "https://passport.weibo.cn/sso/complete?ticket=two",
-                        afterSina,
+                        afterHomeCn,
                         listOf("SUB=cn-new-sub; Domain=.weibo.cn; Path=/; Secure"),
                     ),
                 )
-            val credentialFlow = MutableStateFlow(VVoCredential(chocolate = oldCookie))
+            val credentialFlow =
+                MutableStateFlow(
+                    VVoCredential(
+                        chocolate = oldCnCookie,
+                        cookies = initialCookies,
+                    ),
+                )
             var hopIndex = 0
             val service =
                 VVOService(
@@ -385,7 +405,7 @@ class VVOCookieRefreshTest {
                     httpClientFactory =
                         mockHttpClientFactory { request ->
                             if (request.url.encodedPath == "/api/config") {
-                                assertEquals(refreshedCookie, request.headers[HttpHeaders.Cookie])
+                                assertEquals(refreshedCnCookie, request.headers[HttpHeaders.Cookie])
                                 return@mockHttpClientFactory configResponse(login = true)
                             }
                             val (url, cookie, setCookies) = hops[hopIndex++]
@@ -401,7 +421,10 @@ class VVOCookieRefreshTest {
 
             assertEquals(true, service.config().data?.login)
             assertEquals(hops.size, hopIndex)
-            assertEquals(refreshedCookie, credentialFlow.value.chocolate)
+            assertEquals(refreshedCnCookie, credentialFlow.value.chocolate)
+            val jar = VVoCookieJar.fromCredential(credentialFlow.value)
+            assertEquals("SUB=com-sub", jar.cookieHeaderFor(io.ktor.http.Url("https://passport.weibo.com/")))
+            assertEquals("ALC=sina-alc; SSO=sina-sso", jar.cookieHeaderFor(io.ktor.http.Url("https://login.sina.com.cn/")))
         }
 
     @Test
@@ -492,7 +515,7 @@ class VVOCookieRefreshTest {
                 ),
                 configCookies,
             )
-            assertEquals("MLOGIN=1; SUB=retry-5", credentialFlow.value.chocolate)
+            assertEquals(oldCookie, credentialFlow.value.chocolate)
         }
 
     @Test
@@ -895,6 +918,714 @@ class VVOCookieRefreshTest {
 
         assertNull(merged)
     }
+
+    @Test
+    fun requestsCarryPersistedCredentialUserAgentOrDefaultMobileSafariUserAgent() =
+        runTest {
+            val customUa = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_2 like Mac OS X) CustomWebKit/605.1.15"
+            val seenUas = mutableListOf<String?>()
+            val credentialFlow =
+                MutableStateFlow(
+                    VVoCredential(
+                        chocolate = "MLOGIN=1; SUB=current; XSRF-TOKEN=csrf",
+                        userAgent = customUa,
+                        lastCookieRefreshEpochMillis = Clock.System.now().toEpochMilliseconds(),
+                    ),
+                )
+            val service =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    refreshCookieWhenStale = true,
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            seenUas += request.headers[HttpHeaders.UserAgent]
+                            configResponse(login = true)
+                        },
+                )
+            service.config()
+            val extHeaders = service.extensionAuthHeaders("https://weibo.com/ajax/statuses/buildComments")
+            assertEquals(customUa, extHeaders[HttpHeaders.UserAgent])
+            assertEquals(listOf<String?>(customUa), seenUas)
+
+            credentialFlow.value = credentialFlow.value.copy(userAgent = null)
+            service.config()
+            assertEquals(DEFAULT_VVO_USER_AGENT, seenUas.last())
+        }
+
+    @Test
+    fun stage1RestoresViaVisitorJsonpAndPassportSsoV2LoginWhenHomeLandsOn200VisitorPage() =
+        runTest {
+            val initialCookies =
+                listOf(
+                    VVoStoredCookie("MLOGIN", "1", "weibo.cn", hostOnly = false),
+                    VVoStoredCookie("SUB", "expired-cn-sub", "weibo.cn", hostOnly = false),
+                    VVoStoredCookie("SRF", "visitor-srf-token", "visitor.passport.weibo.cn", hostOnly = true),
+                    VVoStoredCookie("ALC", "com-alc-token", "weibo.com", hostOnly = false),
+                )
+            val credentialFlow =
+                MutableStateFlow(
+                    VVoCredential(
+                        chocolate = "MLOGIN=1; SUB=expired-cn-sub",
+                        cookies = initialCookies,
+                    ),
+                )
+            val visitedUrls = mutableListOf<String>()
+            val service =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    refreshCookieWhenStale = false,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            if (request.url.encodedPath == "/api/config") {
+                                val cookie = request.headers[HttpHeaders.Cookie].orEmpty()
+                                return@mockHttpClientFactory configResponse(login = "SUB=restored-cn-sub" in cookie)
+                            }
+                            visitedUrls += "${request.url.host}${request.url.encodedPath}?${request.url.encodedQuery}"
+                            when {
+                                request.url.host == "m.weibo.cn" && request.url.encodedPath == "/" -> {
+                                    redirectResponse(
+                                        "https://visitor.passport.weibo.cn/visitor/visitor?entry=sinawap&a=enter&url=https%3A%2F%2Fm.weibo.cn%2F",
+                                    )
+                                }
+
+                                request.url.host == "visitor.passport.weibo.cn" && request.url.parameters["a"] == "enter" -> {
+                                    respond(
+                                        content = "<html><title>Sina Visitor System</title></html>",
+                                        status = HttpStatusCode.OK,
+                                        headers = Headers.build { append(HttpHeaders.ContentType, "text/html") },
+                                    )
+                                }
+
+                                request.url.host == "visitor.passport.weibo.cn" && request.url.parameters["a"] == "restore" -> {
+                                    assertTrue(request.headers[HttpHeaders.Cookie].orEmpty().contains("SRF=visitor-srf-token"))
+                                    respond(
+                                        content = """window.restore_back && restore_back({"retcode":20000000,"msg":"succ","data":{"alt":"ALT-TOKEN-1"}});""",
+                                        status = HttpStatusCode.OK,
+                                        headers = Headers.build { append(HttpHeaders.ContentType, "application/javascript") },
+                                    )
+                                }
+
+                                request.url.host == "passport.weibo.com" && request.url.encodedPath == "/sso/v2/login" -> {
+                                    assertEquals("ALT-TOKEN-1", request.url.parameters["alt"])
+                                    assertTrue(request.headers[HttpHeaders.Cookie].orEmpty().contains("ALC=com-alc-token"))
+                                    jsonResponse(
+                                        """{"retcode":20000000,"data":{"crossdomain":["https://evil.example/steal","https://passport.weibo.cn/sso/crossdomain?ticket=ST-OK"]}}""",
+                                    )
+                                }
+
+                                request.url.host == "passport.weibo.cn" && request.url.encodedPath == "/sso/crossdomain" -> {
+                                    setCookieResponse(
+                                        "SUB=restored-cn-sub; Path=/; Domain=.weibo.cn; Secure; HttpOnly",
+                                        "MLOGIN=1; Path=/; Domain=.weibo.cn; Secure",
+                                    )
+                                }
+
+                                else -> error("Unexpected request: ${request.url}")
+                            }
+                        },
+                )
+
+            val response = service.config()
+            assertEquals(true, response.data?.login)
+            assertTrue(credentialFlow.value.chocolate.contains("SUB=restored-cn-sub"))
+            assertFalse(visitedUrls.any { "evil.example" in it })
+        }
+
+    @Test
+    fun visitorRestoreHandlesNullDataAndMalformedJsonpSafely() {
+        val nullData = parseVisitorRestoreJsonp("""window.restore_back && restore_back({"retcode":20000000,"msg":"succ","data":null});""")
+        assertNotNull(nullData)
+        assertEquals(20_000_000L, nullData.retcode)
+        assertNull(nullData.alt)
+
+        assertNull(parseVisitorRestoreJsonp("<html>not jsonp</html>"))
+        assertNull(parseVisitorRestoreJsonp("restore_back(not-json);"))
+
+        val locations =
+            extractTrustedSsoLocations(
+                body = """{"retcode":20000000,"data":{"location":"https://passport.weibo.cn/sso/login?ticket=1","arrURL":["https://evil.example/collect","https://weibo.com/sso/crossdomain?ticket=2"]}}""",
+                baseUrl = "https://passport.weibo.com/sso/v2/login",
+            )
+        assertEquals(
+            listOf(
+                "https://passport.weibo.cn/sso/login?ticket=1",
+                "https://weibo.com/sso/crossdomain?ticket=2",
+            ),
+            locations,
+        )
+    }
+
+    @Test
+    fun renewalDoesNotPersistGuestCookieWhenConfigReportsLoggedOutOrWrongUid() =
+        runTest {
+            val original =
+                VVoCredential(
+                    chocolate = "MLOGIN=1; SUB=expired-sub",
+                    cookies =
+                        listOf(
+                            VVoStoredCookie("MLOGIN", "1", "weibo.cn", hostOnly = false),
+                            VVoStoredCookie("SUB", "expired-sub", "weibo.cn", hostOnly = false),
+                            VVoStoredCookie("ALC", "precious-alc", "sina.com.cn", hostOnly = false),
+                        ),
+                )
+            val credentialFlow = MutableStateFlow(original)
+            val service =
+                VVOService(
+                    accountKey = MicroBlogKey("42", "m.weibo.cn"),
+                    credentialFlow = credentialFlow,
+                    refreshCookieWhenStale = false,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            when (request.url.encodedPath) {
+                                "/" -> setCookieResponse(
+                                    "MLOGIN=0; Path=/; Domain=.weibo.cn",
+                                    "SUB=guest-visitor-sub; Path=/; Domain=.weibo.cn",
+                                )
+                                "/api/config" -> jsonResponse("""{"ok":1,"data":{"login":true,"st":"st","uid":"999"}}""")
+                                else -> error("Unexpected: ${request.url}")
+                            }
+                        },
+                )
+
+            val response = service.config()
+            assertEquals("999", response.data?.uid)
+            assertEquals(false, response.data?.login)
+            assertNull(response.data?.st)
+            assertEquals(original, credentialFlow.value)
+        }
+
+    @Test
+    fun expiredWeiboCnAlfDoesNotBlockRenewalWhenCrossDomainAlcExists() =
+        runTest {
+            val credentialFlow =
+                MutableStateFlow(
+                    VVoCredential(
+                        chocolate = "MLOGIN=1; SUB=old-sub; ALF=1000",
+                        cookies =
+                            listOf(
+                                VVoStoredCookie("MLOGIN", "1", "weibo.cn", hostOnly = false),
+                                VVoStoredCookie("SUB", "old-sub", "weibo.cn", hostOnly = false),
+                                VVoStoredCookie("ALF", "1000", "weibo.cn", hostOnly = false),
+                                VVoStoredCookie("ALC", "still-valid-alc", "sina.com.cn", hostOnly = false),
+                            ),
+                    ),
+                )
+            val service =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    refreshCookieWhenStale = false,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            when (request.url.encodedPath) {
+                                "/" -> setCookieResponse("SUB=renewed-sub; Path=/; Domain=.weibo.cn; Secure; HttpOnly")
+                                "/api/config" -> configResponse(login = request.headers[HttpHeaders.Cookie].orEmpty().contains("SUB=renewed-sub"))
+                                else -> error("Unexpected: ${request.url}")
+                            }
+                        },
+                )
+
+            assertEquals(true, service.config().data?.login)
+            assertTrue(credentialFlow.value.chocolate.contains("SUB=renewed-sub"))
+        }
+
+    @Test
+    fun businessRequestsToWeiboComAndDmAttachmentsWorkForLegacyChocolateOnlyAccount() =
+        runTest {
+            val credentialFlow =
+                MutableStateFlow(
+                    VVoCredential(
+                        chocolate = "MLOGIN=1; SUB=cn-sub; XSRF-TOKEN=cn-xsrf",
+                        lastCookieRefreshEpochMillis = Clock.System.now().toEpochMilliseconds(),
+                    ),
+                )
+            val service =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    refreshCookieWhenStale = true,
+                    httpClientFactory = mockHttpClientFactory { configResponse(login = true) },
+                )
+
+            val ext = service.extensionAuthHeaders("https://weibo.com/ajax/statuses/buildComments")
+            assertEquals("MLOGIN=1; SUB=cn-sub; XSRF-TOKEN=cn-xsrf", ext[HttpHeaders.Cookie])
+            assertEquals("cn-xsrf", ext["X-XSRF-TOKEN"])
+
+            val dm = service.directMessageImageHeaders("https://attachment.api.weibo.com/2/mss/msget?fid=123")
+            assertEquals("MLOGIN=1; SUB=cn-sub; XSRF-TOKEN=cn-xsrf", dm[HttpHeaders.Cookie])
+        }
+
+    @Test
+    fun stage2SilentWebViewFallbackRecoversSessionWhenStage1StopsAtJsPage() =
+        runTest {
+            val account = MicroBlogKey("42", "m.weibo.cn")
+            val initial =
+                VVoCredential(
+                    chocolate = "MLOGIN=1; SUB=expired-sub",
+                    cookies =
+                        listOf(
+                            VVoStoredCookie("MLOGIN", "1", "weibo.cn", hostOnly = false),
+                            VVoStoredCookie("SUB", "expired-sub", "weibo.cn", hostOnly = false),
+                            VVoStoredCookie("ALC", "alc-1", "sina.com.cn", hostOnly = false),
+                        ),
+                    userAgent = "Mozilla/5.0 CustomSafari",
+                )
+            val credentialFlow = MutableStateFlow(initial)
+            val capturedRequests = mutableListOf<SilentCookieRenewRequest>()
+            val renewer =
+                object : SilentWebCookieRenewer {
+                    override suspend fun renew(request: SilentCookieRenewRequest): SilentCookieRenewResult {
+                        capturedRequests += request
+                        return SilentCookieRenewResult.Renewed(
+                            cookies =
+                                listOf(
+                                    SilentSeedCookie("MLOGIN", "1", "weibo.cn", hostOnly = false, path = "/"),
+                                    SilentSeedCookie("SUB", "webview-fresh-sub", "weibo.cn", hostOnly = false, path = "/", httpOnly = true),
+                                    SilentSeedCookie("ALC", "alc-2", "sina.com.cn", hostOnly = false, path = "/"),
+                                ),
+                            userAgent = "Mozilla/5.0 CustomSafari",
+                        )
+                    }
+                }
+
+            val service =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    accountKey = account,
+                    silentCookieRenewer = renewer,
+                    refreshCookieWhenStale = false,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            when (request.url.encodedPath) {
+                                "/" -> respond(
+                                    content = "<html><title>Sina Visitor System</title></html>",
+                                    status = HttpStatusCode.OK,
+                                    headers = Headers.build { append(HttpHeaders.ContentType, "text/html") },
+                                )
+                                "/api/config" -> {
+                                    val cookie = request.headers[HttpHeaders.Cookie].orEmpty()
+                                    val loggedIn = "SUB=webview-fresh-sub" in cookie
+                                    jsonResponse("""{"ok":1,"data":{"login":$loggedIn,"st":"st-val","uid":"42"}}""")
+                                }
+                                else -> error("Unexpected: ${request.url}")
+                            }
+                        },
+                )
+
+            val response = service.config()
+            assertEquals(true, response.data?.login)
+            assertEquals(1, capturedRequests.size)
+            assertEquals("expired-sub", capturedRequests.single().previousSubCookie)
+            assertEquals("Mozilla/5.0 CustomSafari", capturedRequests.single().userAgent)
+            assertTrue(credentialFlow.value.chocolate.contains("SUB=webview-fresh-sub"))
+            assertEquals(
+                "ALC=alc-2",
+                VVoCookieJar.fromCredential(credentialFlow.value).cookieHeaderFor(io.ktor.http.Url("https://login.sina.com.cn/")),
+            )
+        }
+
+    @Test
+    fun interactiveLoginRequiredMemoizesCredentialAndPreventsRepeatedWebViewStorms() =
+        runTest {
+            val account = MicroBlogKey("42", "m.weibo.cn")
+            val expired = VVoCredential(chocolate = "MLOGIN=1; SUB=dead-sub")
+            val credentialFlow = MutableStateFlow(expired)
+            var renewCalls = 0
+            val renewer =
+                object : SilentWebCookieRenewer {
+                    override suspend fun renew(request: SilentCookieRenewRequest): SilentCookieRenewResult {
+                        renewCalls++
+                        return if (request.previousSubCookie == "dead-sub") {
+                            SilentCookieRenewResult.InteractiveLoginRequired
+                        } else {
+                            SilentCookieRenewResult.Renewed(
+                                cookies =
+                                    listOf(
+                                        SilentSeedCookie("MLOGIN", "1", "weibo.cn", hostOnly = false, path = "/"),
+                                        SilentSeedCookie("SUB", "relogged-renewed-sub", "weibo.cn", hostOnly = false, path = "/"),
+                                    ),
+                                userAgent = null,
+                            )
+                        }
+                    }
+                }
+
+            val service =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    accountKey = account,
+                    silentCookieRenewer = renewer,
+                    refreshCookieWhenStale = false,
+                    configLoginRetryDelay = 0.milliseconds,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            when (request.url.encodedPath) {
+                                "/" -> setCookieResponse()
+                                "/api/config" -> {
+                                    val loggedIn = "SUB=relogged-renewed-sub" in request.headers[HttpHeaders.Cookie].orEmpty()
+                                    jsonResponse("""{"ok":1,"data":{"login":$loggedIn,"st":"st","uid":"42"}}""")
+                                }
+                                else -> error("Unexpected: ${request.url}")
+                            }
+                        },
+                )
+
+            val parallel =
+                supervisorScope {
+                    listOf(
+                        async { service.config().data?.login },
+                        async { service.config().data?.login },
+                    ).awaitAll()
+                }
+            assertEquals(listOf(false, false), parallel)
+            assertEquals(false, service.config().data?.login)
+            assertEquals(1, renewCalls)
+
+            // User re-logs in with a new credential; Stage 2 becomes eligible again when that new SUB later expires.
+            credentialFlow.value = VVoCredential(chocolate = "MLOGIN=1; SUB=new-login-sub")
+            assertEquals(true, service.config().data?.login)
+            assertEquals(2, renewCalls)
+        }
+
+    @Test
+    fun skippedWebViewResultAppliesTwoMinuteCooldownBeforeRetrying() =
+        runTest {
+            var now = 1_000L
+            var renewCalls = 0
+            val credentialFlow = MutableStateFlow(VVoCredential(chocolate = "MLOGIN=1; SUB=stale"))
+            val renewer =
+                object : SilentWebCookieRenewer {
+                    override suspend fun renew(request: SilentCookieRenewRequest): SilentCookieRenewResult {
+                        renewCalls++
+                        return SilentCookieRenewResult.Skipped("interactive-webview-active")
+                    }
+                }
+            val service =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    silentCookieRenewer = renewer,
+                    nowEpochMillis = { now },
+                    configLoginRetryDelay = 0.milliseconds,
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            when (request.url.encodedPath) {
+                                "/" -> setCookieResponse()
+                                "/api/config" -> configResponse(login = false)
+                                else -> error("Unexpected: ${request.url}")
+                            }
+                        },
+                )
+
+            assertEquals(false, service.config().data?.login)
+            assertEquals(1, renewCalls)
+
+            now = 60_000L
+            assertEquals(false, service.config().data?.login)
+            assertEquals(1, renewCalls)
+
+            now = 130_000L
+            assertEquals(false, service.config().data?.login)
+            assertEquals(2, renewCalls)
+        }
+
+    @Test
+    fun getWebCommentsAndGetStatusLikersRecoverViaStage2OnMinus100BeforeThrowing() =
+        runTest {
+            val account = MicroBlogKey("42", "m.weibo.cn")
+            val credentialFlow = MutableStateFlow(VVoCredential(chocolate = "MLOGIN=1; SUB=stale-sub"))
+            val renewer =
+                object : SilentWebCookieRenewer {
+                    override suspend fun renew(request: SilentCookieRenewRequest): SilentCookieRenewResult =
+                        SilentCookieRenewResult.Renewed(
+                            cookies =
+                                listOf(
+                                    SilentSeedCookie("MLOGIN", "1", "weibo.cn", hostOnly = false, path = "/"),
+                                    SilentSeedCookie("SUB", "fresh-sub", "weibo.cn", hostOnly = false, path = "/"),
+                                ),
+                            userAgent = null,
+                        )
+                }
+            val service =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    accountKey = account,
+                    silentCookieRenewer = renewer,
+                    configLoginRetryDelay = 0.milliseconds,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            val hasFresh = "SUB=fresh-sub" in request.headers[HttpHeaders.Cookie].orEmpty()
+                            when (request.url.encodedPath) {
+                                "/" -> setCookieResponse()
+                                "/api/config" -> jsonResponse("""{"ok":1,"data":{"login":$hasFresh,"st":"st","uid":"42"}}""")
+                                "/ajax/statuses/buildComments" -> {
+                                    if (!hasFresh) {
+                                        jsonResponse("""{"ok":-100,"msg":"login required"}""")
+                                    } else {
+                                        jsonResponse("""{"ok":1,"data":[]}""")
+                                    }
+                                }
+                                "/api/attitudes/show" -> {
+                                    if (!hasFresh) {
+                                        jsonResponse("""{"ok":-100,"msg":"login required"}""")
+                                    } else {
+                                        jsonResponse("""{"ok":1,"data":{"data":[]}}""")
+                                    }
+                                }
+                                else -> error("Unexpected: ${request.url}")
+                            }
+                        },
+                )
+
+            assertEquals(emptyList(), service.getWebComments(id = "100", flow = 0, maxId = null, accountKey = account).data.orEmpty())
+            credentialFlow.value = VVoCredential(chocolate = "MLOGIN=1; SUB=stale-sub-2")
+            assertEquals(emptyList(), service.getStatusLikers(id = "100", page = 1, accountKey = account))
+        }
+
+    @Test
+    fun containerIndexAndProactiveRefreshVerifyUidAndRecoverFromHttp401() =
+        runTest {
+            val account = MicroBlogKey("42", "m.weibo.cn")
+            val initial = VVoCredential(chocolate = "MLOGIN=1; SUB=stale-sub", lastCookieRefreshEpochMillis = null)
+            val credentialFlow = MutableStateFlow(initial)
+            val renewer =
+                object : SilentWebCookieRenewer {
+                    override suspend fun renew(request: SilentCookieRenewRequest): SilentCookieRenewResult =
+                        SilentCookieRenewResult.Renewed(
+                            cookies =
+                                listOf(
+                                    SilentSeedCookie("MLOGIN", "1", "weibo.cn", hostOnly = false, path = "/"),
+                                    SilentSeedCookie("SUB", "fresh-401-sub", "weibo.cn", hostOnly = false, path = "/"),
+                                ),
+                            userAgent = null,
+                        )
+                }
+            val service =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    accountKey = account,
+                    silentCookieRenewer = renewer,
+                    refreshCookieWhenStale = true,
+                    configLoginRetryDelay = 0.milliseconds,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            val cookie = request.headers[HttpHeaders.Cookie].orEmpty()
+                            val hasFresh = "SUB=fresh-401-sub" in cookie
+                            when (request.url.encodedPath) {
+                                "/" -> setCookieResponse("SUB=unverified-guest-sub; Path=/; Domain=.weibo.cn; Secure")
+                                "/api/config" -> {
+                                    if (hasFresh) {
+                                        jsonResponse("""{"ok":1,"data":{"login":true,"st":"st","uid":"42"}}""")
+                                    } else {
+                                        jsonResponse("""{"ok":1,"data":{"login":false,"st":"st"}}""")
+                                    }
+                                }
+                                "/api/container/getIndex" -> {
+                                    if (!hasFresh) {
+                                        respond(
+                                            content = """{"ok":-100}""",
+                                            status = HttpStatusCode.Unauthorized,
+                                            headers = Headers.build { append(HttpHeaders.ContentType, "application/json") },
+                                        )
+                                    } else {
+                                        jsonResponse("""{"ok":1,"data":{"cards":[]}}""")
+                                    }
+                                }
+                                else -> error("Unexpected: ${request.url}")
+                            }
+                        },
+                )
+
+            val container = service.getContainerIndexRecovering(accountKey = account, containerId = "231093_-_selffollowed", page = 1)
+            assertEquals(1L, container.ok)
+            assertTrue(credentialFlow.value.chocolate.contains("SUB=fresh-401-sub"))
+            assertFalse(credentialFlow.value.chocolate.contains("unverified-guest-sub"))
+        }
+
+    @Test
+    fun silentRenewUrlHelpersValidateTrustedHttpsOriginsAndInteractiveLoginPaths() {
+        val allowedHosts = setOf("weibo.cn", "weibo.com", "login.sina.com.cn")
+        val allowedSuffixes = setOf("weibo.cn", "weibo.com")
+        assertTrue(isAllowedSilentRenewNavigationUrl("https://m.weibo.cn/", allowedHosts, allowedSuffixes))
+        assertTrue(isAllowedSilentRenewNavigationUrl("https://passport.weibo.com/sso/signin?entry=wapsso", allowedHosts, allowedSuffixes))
+        assertTrue(isAllowedSilentRenewNavigationUrl("https://login.sina.com.cn/sso/login.php", allowedHosts, allowedSuffixes))
+        assertFalse(isAllowedSilentRenewNavigationUrl("http://m.weibo.cn/", allowedHosts, allowedSuffixes))
+        assertFalse(isAllowedSilentRenewNavigationUrl("https://m.weibo.cn:8443/", allowedHosts, allowedSuffixes))
+        assertFalse(isAllowedSilentRenewNavigationUrl("https://user@m.weibo.cn/", allowedHosts, allowedSuffixes))
+        assertFalse(isAllowedSilentRenewNavigationUrl("https://news.sina.com.cn/", allowedHosts, allowedSuffixes))
+        assertFalse(isAllowedSilentRenewNavigationUrl("https://evil.example/", allowedHosts, allowedSuffixes))
+
+        assertTrue(isWeiboInteractiveLoginUrl("https://passport.weibo.com/sso/signin?entry=wapsso"))
+        assertTrue(isWeiboInteractiveLoginUrl("https://passport.weibo.cn/signin/login?entry=mweibo"))
+        assertTrue(isWeiboInteractiveLoginUrl("https://login.sina.com.cn/signup/signin.php?entry=sso"))
+        assertTrue(isWeiboInteractiveLoginUrl("https://weibo.com/newlogin?tabtype=weibo"))
+        assertFalse(isWeiboInteractiveLoginUrl("https://m.weibo.cn/"))
+        assertFalse(isWeiboInteractiveLoginUrl("https://visitor.passport.weibo.cn/visitor/visitor?a=enter"))
+    }
+
+    @Test
+    fun checkChocolatesRequiresSubAndMissingUidConfigSanitizesLoginFalseWhenAccountKeyExpected() =
+        runTest {
+            assertFalse(VVOService.checkChocolates("MLOGIN=1"))
+            assertFalse(VVOService.checkChocolates("MLOGIN=0; SUB=abc"))
+            assertTrue(VVOService.checkChocolates("MLOGIN=1; SUB=abc"))
+
+            val credentialFlow = MutableStateFlow(VVoCredential(chocolate = "MLOGIN=1; SUB=sub-1"))
+            val service =
+                VVOService(
+                    accountKey = MicroBlogKey("42", "m.weibo.cn"),
+                    credentialFlow = credentialFlow,
+                    configLoginRetryDelay = 0.milliseconds,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            val rotated = "SUB=rotated-no-uid" in request.headers[HttpHeaders.Cookie].orEmpty()
+                            when (request.url.encodedPath) {
+                                "/" -> setCookieResponse("SUB=rotated-no-uid; Path=/; Domain=.weibo.cn; Secure")
+                                "/api/config" -> {
+                                    if (!rotated) {
+                                        configResponse(login = false)
+                                    } else {
+                                        jsonResponse("""{"ok":1,"data":{"login":true,"st":"leaked-st"}}""")
+                                    }
+                                }
+                                else -> error("Unexpected: ${request.url}")
+                            }
+                        },
+                )
+            val response = service.config()
+            assertEquals(false, response.data?.login)
+            assertNull(response.data?.st)
+            assertEquals("MLOGIN=1; SUB=sub-1", credentialFlow.value.chocolate)
+
+            val wrapped =
+                parseVisitorRestoreJsonp(
+                    """try { window.restore_back && restore_back({"retcode":20000000,"msg":"ok}","data":{"alt":"ALT-WRAPPED"}}); } catch (e) { console.log(e); }""",
+                )
+            assertNotNull(wrapped)
+            assertEquals("ALT-WRAPPED", wrapped.alt)
+        }
+
+    @Test
+    fun proactiveStaleRefreshDoesNotClearTerminalExpiredMemoizationAcrossSixHoursAndStage1StopsEarlyWhenUnchanged() =
+        runTest {
+            var now = 1_000_000L
+            var stage1HomeHits = 0
+            var renewCalls = 0
+            val credentialFlow =
+                MutableStateFlow(
+                    VVoCredential(
+                        chocolate = "MLOGIN=1; SUB=dead-sub",
+                        lastCookieRefreshEpochMillis = now,
+                    ),
+                )
+            val renewer =
+                object : SilentWebCookieRenewer {
+                    override suspend fun renew(request: SilentCookieRenewRequest): SilentCookieRenewResult {
+                        renewCalls++
+                        return SilentCookieRenewResult.InteractiveLoginRequired
+                    }
+                }
+            val service =
+                VVOService(
+                    accountKey = MicroBlogKey("42", "m.weibo.cn"),
+                    credentialFlow = credentialFlow,
+                    silentCookieRenewer = renewer,
+                    nowEpochMillis = { now },
+                    refreshCookieWhenStale = true,
+                    configLoginRetryDelay = 0.milliseconds,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            when (request.url.encodedPath) {
+                                "/" -> {
+                                    stage1HomeHits++
+                                    setCookieResponse()
+                                }
+                                "/api/config" -> configResponse(login = false)
+                                else -> error("Unexpected: ${request.url}")
+                            }
+                        },
+                )
+
+            assertEquals(false, service.config().data?.login)
+            assertEquals(1, stage1HomeHits)
+            assertEquals(1, renewCalls)
+
+            // Advance 7 hours (> 6h proactive refresh interval): neither proactive refresh nor Stage 2 should re-trigger InteractiveLoginRequired storm.
+            now += 7 * 3_600_000L
+            assertEquals(false, service.config().data?.login)
+            assertEquals(1, renewCalls)
+        }
+
+    @Test
+    fun concurrentGetWebCommentsSucceedsEvenWhenPeerRotatedCredentialWhileFirstAttemptWasInFlight() =
+        runTest {
+            val account = MicroBlogKey("42", "m.weibo.cn")
+            val credentialFlow = MutableStateFlow(VVoCredential(chocolate = "MLOGIN=1; SUB=stale-sub"))
+            val bothInitialCommentsSeen = kotlinx.coroutines.CompletableDeferred<Unit>()
+            var initialStaleCommentHits = 0
+            var renewCalls = 0
+
+            val renewer =
+                object : SilentWebCookieRenewer {
+                    override suspend fun renew(request: SilentCookieRenewRequest): SilentCookieRenewResult {
+                        renewCalls++
+                        return SilentCookieRenewResult.Renewed(
+                            cookies =
+                                listOf(
+                                    SilentSeedCookie("MLOGIN", "1", "weibo.cn", hostOnly = false, path = "/"),
+                                    SilentSeedCookie("SUB", "fresh-sub", "weibo.cn", hostOnly = false, path = "/"),
+                                ),
+                            userAgent = null,
+                        )
+                    }
+                }
+
+            val service =
+                VVOService(
+                    credentialFlow = credentialFlow,
+                    accountKey = account,
+                    silentCookieRenewer = renewer,
+                    configLoginRetryDelay = 0.milliseconds,
+                    onCredentialRefreshed = { credentialFlow.value = it },
+                    httpClientFactory =
+                        mockHttpClientFactory { request ->
+                            val hasFresh = "SUB=fresh-sub" in request.headers[HttpHeaders.Cookie].orEmpty()
+                            when (request.url.encodedPath) {
+                                "/" -> setCookieResponse()
+                                "/api/config" -> jsonResponse("""{"ok":1,"data":{"login":$hasFresh,"st":"st","uid":"42"}}""")
+                                "/ajax/statuses/buildComments" -> {
+                                    if (!hasFresh) {
+                                        initialStaleCommentHits++
+                                        if (initialStaleCommentHits >= 2) {
+                                            bothInitialCommentsSeen.complete(Unit)
+                                        }
+                                        bothInitialCommentsSeen.await()
+                                        jsonResponse("""{"ok":-100,"msg":"login required"}""")
+                                    } else {
+                                        jsonResponse("""{"ok":1,"data":[]}""")
+                                    }
+                                }
+                                else -> error("Unexpected: ${request.url}")
+                            }
+                        },
+                )
+
+            val results =
+                supervisorScope {
+                    listOf(
+                        async { service.getWebComments(id = "100", flow = 0, maxId = null, accountKey = account).data.orEmpty() },
+                        async { service.getWebComments(id = "101", flow = 0, maxId = null, accountKey = account).data.orEmpty() },
+                    ).awaitAll()
+                }
+            assertEquals(listOf(emptyList(), emptyList()), results)
+            assertEquals(1, renewCalls)
+        }
 
     private fun mockHttpClientFactory(
         handler: suspend MockRequestHandleScope.(HttpRequestData) -> HttpResponseData,

@@ -67,6 +67,23 @@ final class LoginCookieSnapshotTests: XCTestCase {
         XCTAssertEqual(uaSnapshot.userAgent, "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15")
     }
 
+    func testCaptureAllProbeCollectsEveryMatchingCookieWhileKeepingHostOnlyNil() throws {
+        let url = "https://login.example/api/cookie"
+        let cookies = try [
+            cookie("sub-val", name: "SUB", domain: ".login.example", path: "/"),
+            cookie("csrf==", name: "X-CSRF-TOKEN", domain: "login.example", path: "/api"),
+            cookie("foreign", name: "ALC", domain: "other.example", path: "/")
+        ]
+        let snapshot = loginCookieSnapshot(
+            cookies: cookies,
+            probes: [LoginCookieProbe(url: url, names: [], captureAll: true)],
+            fallbackUrl: url
+        )
+        XCTAssertEqual(snapshot.values.map(\.name), ["X-CSRF-TOKEN", "SUB"])
+        XCTAssertEqual(snapshot.values.map(\.value), ["csrf==", "sub-val"])
+        XCTAssertTrue(snapshot.values.allSatisfy { $0.attributes?.hostOnly == nil })
+    }
+
     private func snapshot(_ cookies: [HTTPCookie], urls: [String] = ["https://login.example/api/cookie"]) -> LoginCookieSnapshot {
         loginCookieSnapshot(
             cookies: cookies,

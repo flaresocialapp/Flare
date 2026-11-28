@@ -125,8 +125,41 @@ public sealed interface LoginEffect {
 /** Cookies the login WebView must read from one exact URL. */
 public data class LoginCookieProbe(
     val url: String,
-    val names: List<String>,
-)
+    val names: List<String> = emptyList(),
+    val captureAll: Boolean = false,
+) {
+    public constructor(
+        url: String,
+        names: List<String>,
+    ) : this(
+        url = url,
+        names = names,
+        captureAll = false,
+    )
+}
+
+public fun parseRawCookieHeaderForProbe(
+    rawHeader: String?,
+    probe: LoginCookieProbe,
+): List<LoginCookieValue> {
+    if (rawHeader.isNullOrBlank()) return emptyList()
+    val expected = if (probe.captureAll) emptySet() else probe.names.toSet()
+    if (!probe.captureAll && expected.isEmpty()) return emptyList()
+    return rawHeader
+        .split(';')
+        .mapNotNull { item ->
+            val eqIdx = item.indexOf('=')
+            if (eqIdx <= 0) return@mapNotNull null
+            val name = item.substring(0, eqIdx).trim()
+            if (name.isEmpty()) return@mapNotNull null
+            if (!probe.captureAll && name !in expected) return@mapNotNull null
+            LoginCookieValue(
+                sourceUrl = probe.url,
+                name = name,
+                value = item.substring(eqIdx + 1).trim(),
+            )
+        }
+}
 
 /** A cookie value associated with the exact URL from which the Host read it. */
 public data class LoginCookieValue(

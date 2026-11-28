@@ -5,6 +5,9 @@ import co.touchlab.crashkios.crashlytics.setCrashlyticsUnhandledExceptionHook
 import dev.dimension.flare.common.InAppNotification
 import dev.dimension.flare.common.Message
 import dev.dimension.flare.common.SwiftOnDeviceAI
+import dev.dimension.flare.data.repository.SilentCookieRenewRequest
+import dev.dimension.flare.data.repository.SilentCookieRenewResult
+import dev.dimension.flare.data.repository.SilentWebCookieRenewer
 import dev.dimension.flare.ui.humanizer.SwiftFormatter
 import dev.dimension.flare.ui.render.SwiftPlatformTextRenderer
 import kotlinx.coroutines.CoroutineScope
@@ -22,6 +25,10 @@ public object AppleSharedHelper {
     public fun setupCrashlytics() {
         enableCrashlytics()
         setCrashlyticsUnhandledExceptionHook()
+    }
+
+    public fun installSilentWebCookieRenewer(renewer: SilentWebCookieRenewer) {
+        AppleBridgeDependencies.installSilentWebCookieRenewer(renewer)
     }
 
     public fun initialize(
@@ -66,11 +73,15 @@ internal fun swiftPlatformTextRenderer(): SwiftPlatformTextRenderer = AppleBridg
 @Single
 internal fun swiftOnDeviceAI(): SwiftOnDeviceAI = AppleBridgeDependencies.swiftOnDeviceAI()
 
+@Single
+internal fun silentWebCookieRenewer(): SilentWebCookieRenewer = DelegatingSilentWebCookieRenewer()
+
 private object AppleBridgeDependencies {
     private var inAppNotification: InAppNotification? = null
     private var swiftFormatter: SwiftFormatter? = null
     private var swiftPlatformTextRenderer: SwiftPlatformTextRenderer? = null
     private var swiftOnDeviceAI: SwiftOnDeviceAI? = null
+    private var silentWebCookieRenewer: SilentWebCookieRenewer? = null
 
     fun install(
         inAppNotification: InAppNotification,
@@ -97,6 +108,21 @@ private object AppleBridgeDependencies {
 
     fun swiftOnDeviceAI(): SwiftOnDeviceAI =
         requireNotNull(swiftOnDeviceAI) { "AppleSharedHelper.initialize must install SwiftOnDeviceAI before Koin starts." }
+
+    fun installSilentWebCookieRenewer(renewer: SilentWebCookieRenewer) {
+        this.silentWebCookieRenewer = renewer
+    }
+
+    fun silentWebCookieRenewerOrNull(): SilentWebCookieRenewer? = silentWebCookieRenewer
+}
+
+private class DelegatingSilentWebCookieRenewer : SilentWebCookieRenewer {
+    override suspend fun renew(request: SilentCookieRenewRequest): SilentCookieRenewResult {
+        val delegate =
+            AppleBridgeDependencies.silentWebCookieRenewerOrNull()
+                ?: return SilentCookieRenewResult.Skipped("apple-renewer-not-installed")
+        return delegate.renew(request)
+    }
 }
 
 private class ProxyInAppNotification(

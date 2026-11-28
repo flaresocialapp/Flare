@@ -20,6 +20,7 @@ import dev.dimension.flare.data.network.vvo.api.createStatusApi
 import dev.dimension.flare.data.network.vvo.api.createTimelineApi
 import dev.dimension.flare.data.network.vvo.api.createUserApi
 import dev.dimension.flare.data.network.vvo.model.Config
+import dev.dimension.flare.data.network.vvo.model.ContainerInfo
 import dev.dimension.flare.data.network.vvo.model.EmojiData
 import dev.dimension.flare.data.network.vvo.model.HotflowData
 import dev.dimension.flare.data.network.vvo.model.StatusLiker
@@ -28,12 +29,16 @@ import dev.dimension.flare.data.network.vvo.model.VVOResponse
 import dev.dimension.flare.data.platform.VVO_PLATFORM_ID
 import dev.dimension.flare.data.platform.VVoCredential
 import dev.dimension.flare.data.repository.LoginExpiredException
+import dev.dimension.flare.data.repository.SilentCookieRenewRequest
+import dev.dimension.flare.data.repository.SilentCookieRenewResult
+import dev.dimension.flare.data.repository.SilentWebCookieRenewer
 import dev.dimension.flare.model.MicroBlogKey
 import dev.dimension.flare.model.vvoHost
 import dev.dimension.flare.model.vvoHostLong
 import io.ktor.client.HttpClient
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.body
+import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.api.createClientPlugin
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -51,9 +56,11 @@ import io.ktor.http.HttpStatusCode
 import io.ktor.http.URLBuilder
 import io.ktor.http.URLProtocol
 import io.ktor.http.Url
+import io.ktor.http.encodeURLParameter
 import io.ktor.http.encodeURLPathPart
 import io.ktor.http.isSuccess
 import io.ktor.http.takeFrom
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -73,22 +80,30 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.minutes
 
 private val baseUrl = "https://$vvoHost/"
+private val mWeiboRootUrl = Url(baseUrl)
 private val emptyDetailMessages = setOf("暂无数据", "暂无内容", "这里还没有内容", "还没有内容", "没有更多")
+
+internal const val DEFAULT_VVO_USER_AGENT: String =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
 // SUB rotates well before the ALF session window ends, so refresh proactively
 // while the app is in use instead of waiting a full day.
 private val chocolateRefreshInterval = 6.hours
+private val silentWebViewSkipCooldown = 2.minutes
 private val defaultConfigLoginRetryDelay = 500.milliseconds
 private const val CONFIG_LOGIN_RETRY_LIMIT = 5
+private val silentRenewAllowedHosts = setOf("weibo.cn", "weibo.com", "login.sina.com.cn")
+private val silentRenewAllowedSuffixes = setOf("weibo.cn", "weibo.com")
 
-// m.weibo.cn bounces an expired SUB through passport.weibo.cn to re-sign it.
-private const val REFRESH_REDIRECT_LIMIT = 5
+// m.weibo.cn bounces an expired SUB through visitor/passport/sina SSO hops to re-sign it.
+private const val REFRESH_REDIRECT_LIMIT = 8
 
 private typealias VVOHttpClientFactory = (HttpClientConfig<*>.() -> Unit) -> HttpClient
 
 private fun vvoKtorfit(
     url: String = baseUrl,
     chocolateProvider: suspend () -> String?,
+    userAgentProvider: suspend () -> String?,
     httpClientFactory: VVOHttpClientFactory,
 ) = de.jensklingenberg.ktorfit.ktorfit {
     baseUrl(url)
@@ -99,6 +114,7 @@ private fun vvoKtorfit(
             }
             install(VVOHeaderPlugin) {
                 this.chocolateProvider = chocolateProvider
+                this.userAgentProvider = userAgentProvider
             }
         },
     )
@@ -110,11 +126,13 @@ private fun vvoKtorfit(
 
 private class VVOApis(
     chocolateProvider: suspend () -> String?,
+    userAgentProvider: suspend () -> String?,
     httpClientFactory: VVOHttpClientFactory,
 ) {
     private val ktorfit =
         vvoKtorfit(
             chocolateProvider = chocolateProvider,
+            userAgentProvider = userAgentProvider,
             httpClientFactory = httpClientFactory,
         )
     val timelineApi: TimelineApi = ktorfit.createTimelineApi()
@@ -122,7 +140,10 @@ private class VVOApis(
     val configApi: ConfigApi = ktorfit.createConfigApi()
     val statusApi: StatusApi = ktorfit.createStatusApi()
     val directMessageApi: DirectMessageApi by lazy {
-        vvoKtorfit(chocolateProvider = chocolateProvider) { config ->
+        vvoKtorfit(
+            chocolateProvider = chocolateProvider,
+            userAgentProvider = userAgentProvider,
+        ) { config ->
             httpClientFactory {
                 config()
                 followRedirects = false
@@ -134,6 +155,10 @@ private class VVOApis(
 
 internal class VVOService private constructor(
     private val credentialFlow: Flow<VVoCredential>,
+    private val accountKey: MicroBlogKey?,
+    private val proxy: ProxyRef,
+    private val silentCookieRenewer: SilentWebCookieRenewer?,
+    private val nowEpochMillis: () -> Long,
     private val refreshCookieWhenStale: Boolean,
     private val configLoginRetryDelay: Duration,
     private val onCredentialRefreshed: suspend (VVoCredential) -> Unit,
@@ -145,6 +170,9 @@ internal class VVOService private constructor(
     StatusApi by apis.statusApi {
     constructor(
         credentialFlow: Flow<VVoCredential>,
+        accountKey: MicroBlogKey? = null,
+        silentCookieRenewer: SilentWebCookieRenewer? = null,
+        nowEpochMillis: () -> Long = { Clock.System.now().toEpochMilliseconds() },
         refreshCookieWhenStale: Boolean = false,
         configLoginRetryDelay: Duration = defaultConfigLoginRetryDelay,
         onCredentialRefreshed: suspend (VVoCredential) -> Unit = {},
@@ -152,6 +180,10 @@ internal class VVOService private constructor(
         httpClientFactory: (HttpClientConfig<*>.() -> Unit) -> HttpClient = { ktorClient(proxy, config = it) },
     ) : this(
         credentialFlow = credentialFlow,
+        accountKey = accountKey,
+        proxy = proxy,
+        silentCookieRenewer = silentCookieRenewer,
+        nowEpochMillis = nowEpochMillis,
         refreshCookieWhenStale = refreshCookieWhenStale,
         configLoginRetryDelay = configLoginRetryDelay,
         onCredentialRefreshed = onCredentialRefreshed,
@@ -159,11 +191,14 @@ internal class VVOService private constructor(
         apis =
             VVOApis(
                 chocolateProvider = { credentialFlow.firstOrNull()?.chocolate },
+                userAgentProvider = { credentialFlow.firstOrNull()?.userAgent },
                 httpClientFactory = httpClientFactory,
             ),
     )
 
     private val refreshMutex = Mutex()
+    private var terminalExpiredCredential: VVoCredential? = null
+    private var nextWebViewAttemptEpochMillis: Long = 0L
     private val webClient by lazy { httpClientFactory { followRedirects = false } }
 
     suspend fun directMessageApi(): DirectMessageApi {
@@ -173,7 +208,8 @@ internal class VVOService private constructor(
 
     suspend fun directMessageImageHeaders(url: String): Map<String, String> {
         require(Url(url).isWeiboDirectMessageAttachment())
-        val cookie = refreshChocolateIfNeeded()?.chocolate ?: currentChocolate()
+        val credential = refreshChocolateIfNeeded() ?: currentCredential()
+        val cookie = credential?.chocolate
         return if (cookie.isNullOrBlank()) emptyMap() else mapOf(HttpHeaders.Cookie to cookie)
     }
 
@@ -185,12 +221,24 @@ internal class VVOService private constructor(
         require(target.user.isNullOrEmpty() && target.password.isNullOrEmpty()) { "URL credentials are not allowed" }
         val credential = refreshChocolateIfNeeded() ?: currentCredential()
         val cookie = credential?.chocolate?.takeIf { it.isNotBlank() } ?: error("Weibo login is required")
+        val targetJarToken =
+            if (target.host == "weibo.com") {
+                VVoCookieJar.fromCredential(credential).cookieMapFor(target)["XSRF-TOKEN"]
+            } else {
+                null
+            }
+        val xsrfToken =
+            targetJarToken
+                ?: cookie
+                    .split(';')
+                    .mapNotNull { it.toCookieNameValueOrNull() }
+                    .firstOrNull { it.first == "XSRF-TOKEN" }
+                    ?.second
         return buildMap {
             put(HttpHeaders.Cookie, cookie)
             put(HttpHeaders.Referrer, "https://${target.host}/")
-            cookie.split(';').mapNotNull { it.toCookiePairOrNull() }.firstOrNull { it.first == "XSRF-TOKEN" }?.second?.let {
-                put("X-XSRF-TOKEN", it)
-            }
+            put(HttpHeaders.UserAgent, effectiveUserAgent(credential))
+            xsrfToken?.let { put("X-XSRF-TOKEN", it) }
         }
     }
 
@@ -198,39 +246,252 @@ internal class VVOService private constructor(
         fun checkChocolates(chocolate: String): Boolean =
             chocolate
                 .split(';')
-                .mapNotNull { it.toCookiePairOrNull() }
+                .mapNotNull { it.toCookieNameValueOrNull() }
                 .toMap()
-                .let {
-                    it.containsKey("MLOGIN") && it["MLOGIN"] == "1"
-                }
+                .let(::hasValidMWeiboLoginCookies)
     }
 
+    internal suspend fun activeCredential(): VVoCredential? = currentCredential()
+
     override suspend fun config(): VVOResponse<Config> {
-        val refreshedCredential = refreshChocolateIfNeeded()
-        var requestCredential = refreshedCredential ?: currentCredential()
+        val proactiveCandidate = refreshProactivelyInMemoryIfStale()
+        val initialCredential = proactiveCandidate ?: currentCredential()
 
-        var response = configApi(refreshedCredential).config()
-        if (response.data?.login == true) {
-            return response
+        val initialResponse = configApi(proactiveCandidate).config()
+        if (initialResponse.isLoggedInForExpectedAccount()) {
+            if (proactiveCandidate != null && initialResponse.isVerifiedRenewalForExpectedAccount()) {
+                onCredentialRefreshed(proactiveCandidate)
+            }
+            return initialResponse
         }
 
-        repeat(CONFIG_LOGIN_RETRY_LIMIT) {
-            val recoveredCredential = refreshChocolate(credentialToRefresh = requestCredential) ?: return response
-            if (recoveredCredential.chocolate.isBlank()) {
-                return response
+        val baselineCredential = initialCredential ?: return initialResponse.sanitizedForExpectedAccount()
+        if (baselineCredential.chocolate.isBlank() && baselineCredential.cookies.isEmpty()) {
+            return initialResponse.sanitizedForExpectedAccount()
+        }
+
+        var reusedCredential: VVoCredential? = null
+        var terminalResponse: VVOResponse<Config> = initialResponse
+
+        refreshMutex.withLock {
+            val latest = currentCredential()
+            if (latest != null && latest.isRefreshedAfter(baselineCredential) && !latest.hasSameSessionMaterialAs(baselineCredential)) {
+                reusedCredential = latest
+                return@withLock
             }
-            requestCredential = recoveredCredential
+
+            val stageBaseline = latest ?: baselineCredential
+            if (terminalExpiredCredential != null && !stageBaseline.hasSameSessionMaterialAs(terminalExpiredCredential)) {
+                terminalExpiredCredential = null
+            }
+            if (stageBaseline.hasSameSessionMaterialAs(terminalExpiredCredential)) {
+                return@withLock
+            }
+
+            var workingCredential = stageBaseline
+            for (attempt in 0 until CONFIG_LOGIN_RETRY_LIMIT) {
+                val now = nowEpochMillis()
+                val candidate =
+                    attemptStage1HttpRefresh(
+                        credential = workingCredential,
+                        refreshedAtEpochMillis = now,
+                    ) ?: break
+                if (candidate.chocolate.isBlank() || candidate.hasSameSessionMaterialAs(workingCredential)) {
+                    break
+                }
+                workingCredential = candidate
+                delayConfigLoginRetry()
+                val retryResponse = configApi(candidate).config()
+                terminalResponse = retryResponse
+                if (retryResponse.isVerifiedRenewalForExpectedAccount()) {
+                    terminalExpiredCredential = null
+                    nextWebViewAttemptEpochMillis = 0L
+                    onCredentialRefreshed(candidate)
+                    return retryResponse
+                }
+            }
+
+            val renewer = silentCookieRenewer
+            val stage2Now = nowEpochMillis()
+            if (renewer != null &&
+                !stageBaseline.hasSameSessionMaterialAs(terminalExpiredCredential) &&
+                stage2Now >= nextWebViewAttemptEpochMillis
+            ) {
+                val baseJar = VVoCookieJar.fromCredential(stageBaseline)
+                val previousSub = baseJar.cookieMapFor(mWeiboRootUrl, stage2Now)["SUB"]
+                val renewRequest =
+                    SilentCookieRenewRequest(
+                        accountKey = accountKey ?: MicroBlogKey(id = "unknown", host = vvoHost),
+                        proxyRef = proxy,
+                        startUrl = baseUrl,
+                        probeUrls = VVO_COOKIE_PROBE_URLS,
+                        allowedHosts = silentRenewAllowedHosts,
+                        allowedHostSuffixes = silentRenewAllowedSuffixes,
+                        seedCookies = baseJar.toSilentSeedCookies(stage2Now),
+                        userAgent = stageBaseline.userAgent,
+                        previousSubCookie = previousSub,
+                    )
+                val renewResult =
+                    try {
+                        renewer.renew(renewRequest)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (_: Throwable) {
+                        SilentCookieRenewResult.Skipped("renewer-exception")
+                    }
+                val completedNow = nowEpochMillis()
+                when (renewResult) {
+                    is SilentCookieRenewResult.Renewed -> {
+                        val mergedJar = baseJar.copy()
+                        mergedJar.mergeSilentSeedCookies(renewResult.cookies, completedNow)
+                        val candidate =
+                            mergedJar.toCredential(
+                                base = stageBaseline,
+                                userAgent = renewResult.userAgent ?: stageBaseline.userAgent,
+                                lastRefreshEpochMillis = completedNow,
+                                nowEpochMillis = completedNow,
+                            )
+                        if (candidate.chocolate.isNotBlank()) {
+                            delayConfigLoginRetry()
+                            val stage2Response = configApi(candidate).config()
+                            terminalResponse = stage2Response
+                            if (stage2Response.isVerifiedRenewalForExpectedAccount()) {
+                                terminalExpiredCredential = null
+                                nextWebViewAttemptEpochMillis = 0L
+                                onCredentialRefreshed(candidate)
+                                return stage2Response
+                            }
+                        }
+                        terminalExpiredCredential = stageBaseline
+                    }
+
+                    SilentCookieRenewResult.InteractiveLoginRequired -> {
+                        terminalExpiredCredential = stageBaseline
+                    }
+
+                    is SilentCookieRenewResult.Skipped -> {
+                        nextWebViewAttemptEpochMillis = completedNow + silentWebViewSkipCooldown.inWholeMilliseconds
+                    }
+                }
+            }
+        }
+
+        reusedCredential?.let { recovered ->
             delayConfigLoginRetry()
-            response = configApi(recoveredCredential).config()
-            if (response.data?.login == true) {
-                return response
-            }
+            return configApi(recovered).config().sanitizedAfterRenewalCheck()
         }
 
-        return response
+        return terminalResponse.sanitizedAfterRenewalCheck()
+    }
+
+    internal suspend fun recoverSession(
+        expectedAccountKey: MicroBlogKey? = accountKey,
+        failedCredential: VVoCredential? = null,
+    ): Boolean {
+        val baseline = failedCredential ?: currentCredential()
+        val cfg =
+            try {
+                config()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                return false
+            }
+        val data = cfg.data ?: return false
+        if (data.login != true) return false
+        if (expectedAccountKey != null && data.uid != expectedAccountKey.id) {
+            return false
+        }
+        val after = currentCredential()
+        return after != null && (baseline == null || !after.hasSameSessionMaterialAs(baseline))
+    }
+
+    suspend fun getContainerIndexRecovering(
+        accountKey: MicroBlogKey,
+        containerId: String,
+        sinceId: String? = null,
+        page: Int? = null,
+    ): VVOResponse<ContainerInfo> {
+        val attemptedCredential = currentCredential()
+        val firstResponse =
+            try {
+                getContainerIndex(containerId = containerId, sinceId = sinceId, page = page)
+            } catch (error: ClientRequestException) {
+                if (error.response.status == HttpStatusCode.Unauthorized) {
+                    if (recoverSession(accountKey, attemptedCredential)) {
+                        return retryContainerIndexAfterRecovery(
+                            accountKey = accountKey,
+                            containerId = containerId,
+                            sinceId = sinceId,
+                            page = page,
+                        )
+                    }
+                    throw LoginExpiredException(accountKey, VVO_PLATFORM_ID)
+                }
+                throw error
+            }
+        if (firstResponse.ok == -100L || firstResponse.httpCode == 401L) {
+            if (recoverSession(accountKey, attemptedCredential)) {
+                return retryContainerIndexAfterRecovery(
+                    accountKey = accountKey,
+                    containerId = containerId,
+                    sinceId = sinceId,
+                    page = page,
+                )
+            }
+            throw LoginExpiredException(accountKey, VVO_PLATFORM_ID)
+        }
+        return firstResponse
+    }
+
+    private suspend fun retryContainerIndexAfterRecovery(
+        accountKey: MicroBlogKey,
+        containerId: String,
+        sinceId: String?,
+        page: Int?,
+    ): VVOResponse<ContainerInfo> {
+        val retried =
+            try {
+                getContainerIndex(containerId = containerId, sinceId = sinceId, page = page)
+            } catch (error: ClientRequestException) {
+                if (error.response.status == HttpStatusCode.Unauthorized) {
+                    throw LoginExpiredException(accountKey, VVO_PLATFORM_ID)
+                }
+                throw error
+            }
+        if (retried.ok == -100L || retried.httpCode == 401L) {
+            throw LoginExpiredException(accountKey, VVO_PLATFORM_ID)
+        }
+        return retried
+    }
+
+    private suspend inline fun <T> withLoginExpiredRecovery(
+        accountKey: MicroBlogKey,
+        block: () -> T,
+    ): T {
+        val attemptedCredential = currentCredential()
+        return try {
+            block()
+        } catch (expired: LoginExpiredException) {
+            if (recoverSession(accountKey, attemptedCredential)) {
+                block()
+            } else {
+                throw expired
+            }
+        }
     }
 
     suspend fun getWebComments(
+        id: String,
+        flow: Int,
+        maxId: Long?,
+        accountKey: MicroBlogKey,
+    ): HotflowData =
+        withLoginExpiredRecovery(accountKey) {
+            executeGetWebComments(id = id, flow = flow, maxId = maxId, accountKey = accountKey)
+        }
+
+    private suspend fun executeGetWebComments(
         id: String,
         flow: Int,
         maxId: Long?,
@@ -277,6 +538,15 @@ internal class VVOService private constructor(
         id: String,
         page: Int,
         accountKey: MicroBlogKey,
+    ): List<StatusLiker> =
+        withLoginExpiredRecovery(accountKey) {
+            executeGetStatusLikers(id = id, page = page, accountKey = accountKey)
+        }
+
+    private suspend fun executeGetStatusLikers(
+        id: String,
+        page: Int,
+        accountKey: MicroBlogKey,
     ): List<StatusLiker> {
         val url = "https://$vvoHost/api/attitudes/show"
         val authHeaders = extensionAuthHeaders(url)
@@ -314,6 +584,7 @@ internal class VVOService private constructor(
                 followRedirects = false
                 install(VVOHeaderPlugin) {
                     chocolateProvider = ::currentChocolate
+                    userAgentProvider = { currentCredential()?.userAgent }
                 }
             }.get("https://$vvoHost/n/$screenName")
         return response.headers["Location"]?.let {
@@ -336,6 +607,7 @@ internal class VVOService private constructor(
                 }
                 install(VVOHeaderPlugin) {
                     chocolateProvider = ::currentChocolate
+                    userAgentProvider = { currentCredential()?.userAgent }
                 }
             }.submitFormWithBinaryData(
                 url = "https://$vvoHost/api/statuses/uploadPic",
@@ -360,6 +632,43 @@ internal class VVOService private constructor(
         }.get("https://flareapp.moe/emoji.json")
             .body()
 
+    private fun VVOResponse<Config>.isLoggedInForExpectedAccount(): Boolean {
+        val configData = data ?: return false
+        if (configData.login != true) return false
+        val expectedUid = accountKey?.id
+        val actualUid = configData.uid
+        return expectedUid == null || actualUid == null || actualUid == expectedUid
+    }
+
+    private fun VVOResponse<Config>.isVerifiedRenewalForExpectedAccount(): Boolean {
+        val configData = data ?: return false
+        if (configData.login != true) return false
+        val expectedUid = accountKey?.id
+        return expectedUid == null || configData.uid == expectedUid
+    }
+
+    private fun VVOResponse<Config>.sanitizedForExpectedAccount(): VVOResponse<Config> {
+        val configData = data ?: return this
+        if (configData.login == true && !isLoggedInForExpectedAccount()) {
+            return copy(data = configData.copy(login = false, st = null))
+        }
+        return this
+    }
+
+    private fun VVOResponse<Config>.sanitizedAfterRenewalCheck(): VVOResponse<Config> {
+        val configData = data ?: return this
+        if (configData.login == true && !isVerifiedRenewalForExpectedAccount()) {
+            return copy(data = configData.copy(login = false, st = null))
+        }
+        return this
+    }
+
+    private fun VVoCredential.hasSameSessionMaterialAs(other: VVoCredential?): Boolean =
+        other != null &&
+            chocolate == other.chocolate &&
+            VVoCookieJar.fromCredential(this).toStoredCookies(0L) ==
+            VVoCookieJar.fromCredential(other).toStoredCookies(0L)
+
     private suspend fun delayConfigLoginRetry() {
         if (configLoginRetryDelay > Duration.ZERO) {
             delay(configLoginRetryDelay)
@@ -371,111 +680,186 @@ internal class VVOService private constructor(
             ?.let {
                 VVOApis(
                     chocolateProvider = { it.chocolate },
+                    userAgentProvider = { it.userAgent },
                     httpClientFactory = httpClientFactory,
                 ).configApi
             }
             ?: apis.configApi
 
     private suspend fun refreshChocolateIfNeeded(): VVoCredential? {
+        val candidate = refreshProactivelyInMemoryIfStale() ?: return null
+        if (accountKey != null) {
+            val verified =
+                runCatching {
+                    configApi(candidate).config().isVerifiedRenewalForExpectedAccount()
+                }.getOrDefault(false)
+            if (!verified) return null
+        }
+        onCredentialRefreshed(candidate)
+        return candidate
+    }
+
+    private suspend fun refreshProactivelyInMemoryIfStale(): VVoCredential? {
         if (!refreshCookieWhenStale) {
             return null
         }
-        val lastRefreshEpochMillis = currentCredential()?.lastCookieRefreshEpochMillis
-        val now = Clock.System.now().toEpochMilliseconds()
-        return if (shouldRefreshVvoCookie(lastRefreshEpochMillis, now)) {
+        val current = currentCredential() ?: return null
+        if (current.hasSameSessionMaterialAs(terminalExpiredCredential)) {
+            return null
+        }
+        val now = nowEpochMillis()
+        return if (shouldRefreshVvoCookie(current.lastCookieRefreshEpochMillis, now)) {
             runCatching {
-                refreshChocolate(
-                    refreshedAtEpochMillis = now,
-                    refreshOnlyWhenStale = true,
-                )
+                refreshProactivelyWhenStale(nowEpochMillis = now)
             }.getOrNull()
         } else {
             null
         }
     }
 
-    private suspend fun refreshChocolate(
-        refreshedAtEpochMillis: Long = Clock.System.now().toEpochMilliseconds(),
-        refreshOnlyWhenStale: Boolean = false,
-        credentialToRefresh: VVoCredential? = null,
-    ): VVoCredential? {
-        return refreshMutex.withLock {
-            val latestCredential = currentCredential()
-            val currentCredential =
-                credentialToRefresh
-                    ?.let { requestedCredential ->
-                        if (latestCredential != null && latestCredential.isRefreshedAfter(requestedCredential)) {
-                            return@withLock latestCredential
-                        }
-                        requestedCredential
-                    }
-                    ?: latestCredential
-                    ?: return@withLock null
-            if (refreshOnlyWhenStale &&
-                !shouldRefreshVvoCookie(
-                    lastRefreshEpochMillis = currentCredential.lastCookieRefreshEpochMillis,
-                    nowEpochMillis = refreshedAtEpochMillis,
-                )
-            ) {
-                return@withLock currentCredential
+    private suspend fun refreshProactivelyWhenStale(nowEpochMillis: Long): VVoCredential? =
+        refreshMutex.withLock {
+            val current = currentCredential() ?: return@withLock null
+            if (current.hasSameSessionMaterialAs(terminalExpiredCredential)) {
+                return@withLock null
             }
-            val currentChocolate =
-                currentCredential
-                    .chocolate
-                    .takeIf { it.isNotBlank() }
-                    ?: return@withLock null
-
-            // Once the ALF window closes the cookies can no longer be re-signed,
-            // so stop spending requests and let the caller surface a re-login.
-            if (isVvoSessionExpired(currentChocolate, refreshedAtEpochMillis)) {
-                return@withLock currentCredential
+            if (!shouldRefreshVvoCookie(current.lastCookieRefreshEpochMillis, nowEpochMillis)) {
+                return@withLock null
             }
-
-            val refreshedChocolate =
-                followRefreshRedirects(
-                    startUrl = "https://$vvoHost/",
-                    initialCookieHeader = currentChocolate,
-                )
-
-            currentCredential
-                .copy(
-                    chocolate = refreshedChocolate,
-                    lastCookieRefreshEpochMillis = refreshedAtEpochMillis,
-                ).also {
-                    onCredentialRefreshed(it)
-                }
+            val candidate = attemptStage1HttpRefresh(credential = current, refreshedAtEpochMillis = nowEpochMillis) ?: return@withLock null
+            if (candidate.hasSameSessionMaterialAs(current)) {
+                return@withLock null
+            }
+            val mWeiboCookies = VVoCookieJar.fromCredential(candidate).cookieMapFor(mWeiboRootUrl, nowEpochMillis)
+            if (!hasValidMWeiboLoginCookies(mWeiboCookies)) {
+                return@withLock null
+            }
+            candidate
         }
+
+    private suspend fun attemptStage1HttpRefresh(
+        credential: VVoCredential,
+        refreshedAtEpochMillis: Long,
+    ): VVoCredential? {
+        if (credential.chocolate.isBlank() && credential.cookies.isEmpty()) {
+            return null
+        }
+        val jar = VVoCookieJar.fromCredential(credential)
+        // Only short-circuit on m.weibo.cn ALF if neither cross-domain SSO cookies nor Stage 2 renewer exist.
+        if (silentCookieRenewer == null &&
+            !jar.hasLongLivedSsoCookies(refreshedAtEpochMillis) &&
+            isVvoSessionExpired(credential.chocolate, refreshedAtEpochMillis)
+        ) {
+            return null
+        }
+
+        val updatedJar =
+            followRefreshRedirects(
+                startUrl = baseUrl,
+                initialJar = jar,
+                userAgent = effectiveUserAgent(credential),
+                nowEpochMillis = refreshedAtEpochMillis,
+            )
+
+        return updatedJar.toCredential(
+            base = credential,
+            userAgent = credential.userAgent,
+            lastRefreshEpochMillis = refreshedAtEpochMillis,
+            nowEpochMillis = refreshedAtEpochMillis,
+        )
     }
 
-    // Follows the redirect chain by hand, carrying every freshly set cookie to
-    // the next hop so the passport SSO leg can mint a new SUB from ALF/SCF.
-    // shortcut: Keep the legacy shared Cookie header; use scoped storage if per-site isolation is required.
     private suspend fun followRefreshRedirects(
         startUrl: String,
-        initialCookieHeader: String,
-    ): String {
-        var cookieHeader = initialCookieHeader
-        var url = startUrl
-        repeat(REFRESH_REDIRECT_LIMIT + 1) {
+        initialJar: VVoCookieJar,
+        userAgent: String,
+        nowEpochMillis: Long,
+    ): VVoCookieJar {
+        val jar = initialJar.copy()
+        val pendingUrls = ArrayDeque<String>()
+        pendingUrls.addLast(startUrl)
+        var visitorRestoreAttempted = false
+        var hops = 0
+
+        while (pendingUrls.isNotEmpty() && hops <= REFRESH_REDIRECT_LIMIT) {
+            val currentUrl = pendingUrls.removeFirst()
+            val parsedUrl = runCatching { Url(currentUrl) }.getOrNull() ?: continue
+            hops++
+
+            val hopCookieHeader = jar.cookieHeaderFor(parsedUrl, nowEpochMillis)
             val response =
                 httpClientFactory {
                     followRedirects = false
                     install(VVOHeaderPlugin) {
-                        chocolateProvider = { cookieHeader }
+                        chocolateProvider = { hopCookieHeader }
+                        userAgentProvider = { userAgent }
                     }
-                }.get(url)
-            mergeVvoCookieHeader(
-                currentCookieHeader = cookieHeader,
+                }.get(currentUrl)
+
+            jar.applySetCookies(
+                requestUrl = parsedUrl,
                 setCookieHeaders = response.headers.getAll(HttpHeaders.SetCookie).orEmpty(),
-            )?.let { cookieHeader = it }
+                nowEpochMillis = nowEpochMillis,
+            )
+
             val location = response.headers[HttpHeaders.Location]
-            if (!isRefreshRedirect(response.status.value, location)) {
-                return cookieHeader
+            if (isRefreshRedirect(response.status.value, location)) {
+                val resolved = resolveRefreshRedirectUrl(current = currentUrl, location = location!!)
+                if (resolved != null) {
+                    pendingUrls.addFirst(resolved)
+                }
+                continue
             }
-            url = resolveRefreshRedirectUrl(current = url, location = location!!) ?: return cookieHeader
+
+            if (response.status.isSuccess()) {
+                val host = parsedUrl.host.lowercase()
+                if (!visitorRestoreAttempted &&
+                    host == "visitor.passport.weibo.cn" &&
+                    parsedUrl.encodedPath.startsWith("/visitor/visitor") &&
+                    parsedUrl.parameters["a"] != "restore"
+                ) {
+                    val visitorCookies = jar.cookieMapFor(parsedUrl, nowEpochMillis)
+                    if (!visitorCookies["SRF"].isNullOrBlank()) {
+                        visitorRestoreAttempted = true
+                        val restoreUrl =
+                            "https://visitor.passport.weibo.cn/visitor/visitor?a=restore&cb=restore_back&from=weibo&_rand=$nowEpochMillis"
+                        val restoreParsedUrl = Url(restoreUrl)
+                        val restoreCookieHeader = jar.cookieHeaderFor(restoreParsedUrl, nowEpochMillis)
+                        val restoreResponse =
+                            httpClientFactory {
+                                followRedirects = false
+                                install(VVOHeaderPlugin) {
+                                    chocolateProvider = { restoreCookieHeader }
+                                    userAgentProvider = { userAgent }
+                                }
+                            }.get(restoreUrl) {
+                                header(HttpHeaders.Referrer, currentUrl)
+                            }
+                        jar.applySetCookies(
+                            requestUrl = restoreParsedUrl,
+                            setCookieHeaders = restoreResponse.headers.getAll(HttpHeaders.SetCookie).orEmpty(),
+                            nowEpochMillis = nowEpochMillis,
+                        )
+                        val payload = parseVisitorRestoreJsonp(restoreResponse.bodyAsText())
+                        if (payload?.retcode == 20_000_000L && !payload.alt.isNullOrBlank()) {
+                            val ssoV2Url =
+                                "https://passport.weibo.com/sso/v2/login?entry=sso&source=visitor_restore&type=3" +
+                                    "&alt=${payload.alt.encodeURLParameter()}&url=${baseUrl.encodeURLParameter()}"
+                            pendingUrls.addFirst(ssoV2Url)
+                        }
+                    }
+                } else if (host == "passport.weibo.com" && parsedUrl.encodedPath == "/sso/v2/login") {
+                    val bodyText = runCatching { response.bodyAsText() }.getOrDefault("")
+                    val ssoTargets = extractTrustedSsoLocations(body = bodyText, baseUrl = currentUrl)
+                    ssoTargets.asReversed().forEach { pendingUrls.addFirst(it) }
+                }
+            }
         }
-        return cookieHeader
+        return jar
     }
+
+    private fun effectiveUserAgent(credential: VVoCredential?): String =
+        credential?.userAgent?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_VVO_USER_AGENT
 
     private suspend fun currentCredential(): VVoCredential? = credentialFlow.firstOrNull()
 
@@ -504,13 +888,15 @@ internal fun resolveRefreshRedirectUrl(
     current: String,
     location: String,
 ): String? =
-    URLBuilder()
-        .takeFrom(current)
-        .apply {
-            parameters.clear()
-            takeFrom(location)
-        }.build()
-        .takeIf {
+    runCatching {
+        URLBuilder()
+            .takeFrom(current)
+            .apply {
+                parameters.clear()
+                takeFrom(location)
+            }.build()
+    }.getOrNull()
+        ?.takeIf {
             val host = it.host.lowercase()
             it.protocol == URLProtocol.HTTPS &&
                 it.port == URLProtocol.HTTPS.defaultPort &&
@@ -527,7 +913,7 @@ internal fun resolveRefreshRedirectUrl(
 internal fun vvoSessionExpiryEpochMillis(cookieHeader: String): Long? =
     cookieHeader
         .split(';')
-        .mapNotNull { it.toCookiePairOrNull() }
+        .mapNotNull { it.toCookieNameValueOrNull() }
         .firstOrNull { it.first.equals("ALF", ignoreCase = true) }
         ?.second
         ?.toLongOrNull()
@@ -553,7 +939,7 @@ internal fun mergeVvoCookieHeader(
     val cookies = linkedMapOf<String, String>()
     currentCookieHeader
         .split(';')
-        .mapNotNull { it.toCookiePairOrNull() }
+        .mapNotNull { it.toCookieNameValueOrNull() }
         .forEach { (key, value) ->
             cookies[key] = value
         }
@@ -572,22 +958,8 @@ internal fun mergeVvoCookieHeader(
     return cookies.entries.joinToString("; ") { (key, value) -> "$key=$value" }
 }
 
-private fun String.toCookiePairOrNull(): Pair<String, String>? {
-    val separator = indexOf('=')
-    if (separator <= 0) {
-        return null
-    }
-    val key = substring(0, separator).trim()
-    val value = substring(separator + 1).trim()
-    return if (key.isBlank()) {
-        null
-    } else {
-        key to value
-    }
-}
-
 private fun String.toSetCookiePairOrNull(): Pair<String, String>? {
-    val cookie = substringBefore(';').toCookiePairOrNull() ?: return null
+    val cookie = substringBefore(';').toCookieNameValueOrNull() ?: return null
     return cookie.takeUnless { isExpiredSetCookie() }
 }
 
@@ -602,7 +974,7 @@ private fun String.isExpiredSetCookie(): Boolean =
                 }
 
                 attribute.startsWith("expires=") -> {
-                    parseCookieExpiresEpochSeconds(attribute.substringAfter("="))
+                    parseVvoCookieExpiresEpochSeconds(attribute.substringAfter("="))
                         ?.let { it <= Clock.System.now().epochSeconds } == true
                 }
 
@@ -612,77 +984,15 @@ private fun String.isExpiredSetCookie(): Boolean =
             }
         }
 
-private fun parseCookieExpiresEpochSeconds(value: String): Long? {
-    val match =
-        CookieExpiresRegex
-            .find(value.trim())
-            ?: return null
-    val day = match.groupValues[1].toIntOrNull() ?: return null
-    val month = monthNumber(match.groupValues[2]) ?: return null
-    val year =
-        match.groupValues[3]
-            .toIntOrNull()
-            ?.let { year ->
-                when (year) {
-                    in 0..69 -> 2000 + year
-                    in 70..99 -> 1900 + year
-                    else -> year
-                }
-            } ?: return null
-    val hour = match.groupValues[4].toIntOrNull() ?: return null
-    val minute = match.groupValues[5].toIntOrNull() ?: return null
-    val second = match.groupValues[6].toIntOrNull() ?: return null
-
-    if (day !in 1..31 || hour !in 0..23 || minute !in 0..59 || second !in 0..59) {
-        return null
-    }
-
-    return daysFromCivil(year, month, day) * 86_400L + hour * 3_600L + minute * 60L + second
-}
-
-private val CookieExpiresRegex =
-    Regex(
-        pattern = """(?i)(?:[a-z]{3},\s*)?(\d{1,2})[-\s]([a-z]{3})[-\s](\d{2,4})\s+(\d{1,2}):(\d{2}):(\d{2})\s*(?:gmt|utc)?""",
-    )
-
-private fun monthNumber(value: String): Int? =
-    when (value.lowercase()) {
-        "jan" -> 1
-        "feb" -> 2
-        "mar" -> 3
-        "apr" -> 4
-        "may" -> 5
-        "jun" -> 6
-        "jul" -> 7
-        "aug" -> 8
-        "sep" -> 9
-        "oct" -> 10
-        "nov" -> 11
-        "dec" -> 12
-        else -> null
-    }
-
-private fun daysFromCivil(
-    year: Int,
-    month: Int,
-    day: Int,
-): Long {
-    val adjustedYear = year - if (month <= 2) 1 else 0
-    val era = adjustedYear / 400
-    val yearOfEra = adjustedYear - era * 400
-    val monthPrime = month + if (month > 2) -3 else 9
-    val dayOfYear = (153 * monthPrime + 2) / 5 + day - 1
-    val dayOfEra = yearOfEra * 365 + yearOfEra / 4 - yearOfEra / 100 + dayOfYear
-    return era * 146_097L + dayOfEra - 719_468L
-}
-
 private class VVOHeaderConfig {
     var chocolateProvider: (suspend () -> String?)? = null
+    var userAgentProvider: (suspend () -> String?)? = null
 }
 
 private val VVOHeaderPlugin =
     createClientPlugin("VVOHeaderPlugin", ::VVOHeaderConfig) {
         val chocolateProvider = pluginConfig.chocolateProvider
+        val userAgentProvider = pluginConfig.userAgentProvider
         onRequest { request, _ ->
             chocolateProvider?.let { provider ->
                 val chocolate = provider()
@@ -690,6 +1000,12 @@ private val VVOHeaderPlugin =
                     request.headers.append("Cookie", chocolate)
                 }
             }
-            if (request.headers["Referer"] == null) request.headers.append("Referer", "https://$vvoHost/")
+            if (request.headers[HttpHeaders.Referrer] == null) {
+                request.headers.append(HttpHeaders.Referrer, "https://$vvoHost/")
+            }
+            if (request.headers[HttpHeaders.UserAgent] == null) {
+                val ua = userAgentProvider?.invoke()?.trim()?.takeIf { it.isNotEmpty() } ?: DEFAULT_VVO_USER_AGENT
+                request.headers.append(HttpHeaders.UserAgent, ua)
+            }
         }
     }

@@ -53,6 +53,7 @@ import compose.icons.FontAwesomeIcons
 import compose.icons.fontawesomeicons.Solid
 import compose.icons.fontawesomeicons.solid.CircleExclamation
 import dev.dimension.flare.R
+import dev.dimension.flare.common.AndroidWebViewCookieLock
 import dev.dimension.flare.common.InAppNotification
 import dev.dimension.flare.common.Message
 import dev.dimension.flare.common.WebViewProxy
@@ -346,11 +347,13 @@ internal fun SessionChallengeWebViewDialog(
     }
 
     DisposableEffect(exception.challengeId) {
+        val interactiveLock = AndroidWebViewCookieLock.beginInteractive()
         onDispose {
             if (!sessionCompleted) {
                 sessionHandle?.close()
             }
             clearAndroidChallengeStorageAndCookies()
+            interactiveLock.close()
             if (usedSystemNetworkFallback) {
                 CoroutineScope(Dispatchers.Main.immediate + SupervisorJob()).launch {
                     runCatching { latestRestoreGlobalProxy() }
@@ -863,6 +866,7 @@ private suspend fun seedAndroidChallengeCookies(
     seedCookies: List<dev.dimension.flare.data.repository.SessionChallengeSeedCookie>,
 ) {
     withContext(NonCancellable) {
+        AndroidWebViewCookieLock.awaitBackgroundIdle()
         WebStorage.getInstance().deleteAllData()
         val manager = CookieManager.getInstance()
         suspendCancellableCoroutine { continuation ->

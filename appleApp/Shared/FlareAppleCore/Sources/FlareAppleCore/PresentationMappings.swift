@@ -20,7 +20,7 @@ public func loginCookieSnapshot(
         let url = URL(string: probe.url)
         let names = Set(probe.names)
         return preferredCookies.compactMap { cookie in
-            guard cookie.matchesRequest(url: url), names.contains(cookie.name),
+            guard cookie.matchesRequest(url: url), probe.captureAll || names.contains(cookie.name),
                 seen.insert([probe.url, cookie.name, cookie.domain, cookie.path]).inserted else { return nil }
             let attributes = LoginCookieAttributes(
                 domain: cookie.domain,
@@ -136,7 +136,7 @@ private extension Array where Element == HTTPCookie {
     }
 }
 
-private extension HTTPCookie {
+extension HTTPCookie {
     func matchesRequest(url: URL?) -> Bool {
         guard let url, let host = url.host?.lowercased() else { return false }
         if isSecure && url.scheme?.lowercased() != "https" { return false }

@@ -161,8 +161,15 @@ internal class VVODataSource(
     private val cacheLookup: MicroblogCacheLookup by koinInject()
     private val service by lazy {
         val proxy = ProxyRef.forAccount(accountKey)
+        val silentCookieRenewer =
+            org.koin.mp.KoinPlatformTools
+                .defaultContext()
+                .getOrNull()
+                ?.getOrNull<dev.dimension.flare.data.repository.SilentWebCookieRenewer>()
         VVOService(
             proxy = proxy,
+            accountKey = accountKey,
+            silentCookieRenewer = silentCookieRenewer,
             credentialFlow = credentialFlow,
             httpClientFactory = httpClientFactory ?: { ktorClient(proxy, config = it) },
             refreshCookieWhenStale = true,
